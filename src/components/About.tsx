@@ -1,113 +1,152 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Asterisk, ArrowUpRight, Copy, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  Asterisk,
-  Check,
-  Copy,
-  Cpu,
-  Keyboard,
-  Layers,
-  Lock,
-  TerminalSquare,
-} from "lucide-react";
-import { version } from "../../package.json";
+  getBuildInfo,
+  checkUpdates,
+  type BuildInfo,
+  type UpdateStatus,
+} from "../lib/buildInfo";
 import { native } from "../lib/native";
-const platform = /Mac/.test(navigator.platform)
-  ? "macOS"
-  : /Win/.test(navigator.platform)
-    ? "Windows"
-    : /Linux/.test(navigator.platform)
-      ? "Linux"
-      : navigator.platform;
-export default function About({ onShortcuts }: { onShortcuts: () => void }) {
-  const [status, setStatus] = useState("");
-  const details = `devyy ${version}\n${platform} · ${native ? "Desktop" : "Browser playground"}\nRust + Tauri · React · CodeMirror 6 · xterm.js`;
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(details);
-      setStatus("Copied app details.");
-    } catch {
-      setStatus("Clipboard is unavailable. You can select the details below.");
-    }
-  }
+export default function About() {
+  const [info, setInfo] = useState<BuildInfo>();
+  const [error, setError] = useState("");
+  const [update, setUpdate] = useState<UpdateStatus>();
+  const [updateError, setUpdateError] = useState("");
+  const [busy, setBusy] = useState(native);
+  useEffect(() => {
+    let current = true;
+    void getBuildInfo()
+      .then((value) => {
+        if (current) setInfo(value);
+      })
+      .catch(() => {
+        if (current) setError("Build details are unavailable.");
+      });
+    if (native)
+      void checkUpdates()
+        .then((value) => {
+          if (current) setUpdate(value);
+        })
+        .catch((e) => {
+          if (current) setUpdateError(String(e));
+        })
+        .finally(() => {
+          if (current) setBusy(false);
+        });
+    return () => {
+      current = false;
+    };
+  }, []);
+  const builtAt = info ? new Date(Number(info.builtAt) * 1000) : null;
+  const date =
+    builtAt && !Number.isNaN(builtAt.getTime())
+      ? builtAt.toLocaleString(undefined, {
+          dateStyle: "medium",
+          timeStyle: "long",
+        })
+      : "Unavailable";
+  const updateText = busy
+    ? "Checking for updates…"
+    : updateError
+      ? "Could not check for updates"
+      : update?.status === "available"
+        ? `${update.version} is available`
+        : update?.status === "current"
+          ? "Up to date"
+          : update?.status === "unpublished"
+            ? "No public release available"
+            : "Available in the desktop app";
   return (
-    <div className="about-page">
-      <div className="about-hero">
-        <div className="about-mark">
-          <Asterisk size={64} strokeWidth={1.4} />
-        </div>
-        <span className="about-version">
-          devyy <span>{version}</span>
-        </span>
-        <h3>
-          Room for your
-          <br />
-          <span>next great idea.</span>
-        </h3>
-        <p>
-          A thoughtful editor for the work you love.
-          <br />
-          Quiet by design. Ready when you are.
-        </p>
-      </div>
-      <div className="about-values">
-        <article>
-          <Cpu size={19} />
-          <strong>Rust at the core</strong>
-          <p>
-            Native files, Git, shells, and developer tools. A lightweight system
-            webview.
-          </p>
-        </article>
-        <article>
-          <Lock size={19} />
-          <strong>Your workspace. Yours.</strong>
-          <p>
-            Local files and local tools. No account, telemetry, or cloud service
-            required.
-          </p>
-        </article>
-        <article>
-          <Layers size={19} />
-          <strong>Made to feel like you</strong>
-          <p>
-            From the first line to the last shortcut, shape a workspace that
-            fits your flow.
-          </p>
-        </article>
-      </div>
-      <div className="about-runtime">
+    <section className="about-details" aria-label="About devyy">
+      <div className="about-app">
+        <Asterisk size={36} />
         <div>
-          <TerminalSquare size={15} />
-          <strong>{platform}</strong>
-          <span>{native ? "Desktop application" : "Browser playground"}</span>
+          <h3>devyy</h3>
+          <span>{info?.version ?? "Loading…"}</span>
         </div>
-        <pre>{details}</pre>
       </div>
-      <div className="about-actions">
-        <button className="setting-action" onClick={copy}>
-          {status.startsWith("Copied") ? (
-            <Check size={14} />
-          ) : (
-            <Copy size={14} />
-          )}{" "}
+      {error ? (
+        <p role="status">{error}</p>
+      ) : (
+        <dl>
+          <div>
+            <dt>Version</dt>
+            <dd>{info?.version ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Build</dt>
+            <dd>
+              {info
+                ? `${info.revision}${info.arch === "—" ? "" : ` · ${info.arch}`}`
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>Built on</dt>
+            <dd>{date}</dd>
+          </div>
+          <div>
+            <dt>Operating system</dt>
+            <dd>{info?.os ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>OS build</dt>
+            <dd>{info?.osBuild ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Updates</dt>
+            <dd role="status">{updateText}</dd>
+          </div>
+        </dl>
+      )}
+      {updateError && <p className="about-update-error">{updateError}</p>}
+      <div className="about-buttons">
+        <button
+          className="setting-action"
+          disabled={!native || busy}
+          onClick={() => {
+            setBusy(true);
+            setUpdateError("");
+            void checkUpdates(true)
+              .then(setUpdate)
+              .catch((e) => setUpdateError(String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          <RefreshCw size={13} className={busy ? "spinning" : ""} />
+          Check for updates
+        </button>
+        {update?.status === "available" && update.url && (
+          <button
+            className="setting-action"
+            onClick={() =>
+              void openUrl(update.url!).catch(() =>
+                toast.error("Could not open release"),
+              )
+            }
+          >
+            View release
+            <ArrowUpRight size={13} />
+          </button>
+        )}
+        <button
+          className="setting-action"
+          disabled={!info}
+          onClick={() =>
+            void navigator.clipboard
+              .writeText(
+                `devyy ${info!.version}\nBuild ${info!.revision} (${info!.arch})\nBuilt ${date}\n${info!.os} ${info!.osBuild}`,
+              )
+              .then(() => toast.success("App details copied"))
+              .catch(() => toast.error("Could not copy app details"))
+          }
+        >
+          <Copy size={13} />
           Copy app details
         </button>
-        <button className="setting-action" onClick={onShortcuts}>
-          <Keyboard size={14} /> Find your shortcuts
-        </button>
       </div>
-      <p className="about-copy-status" role="status">
-        {status}
-      </p>
-      <footer className="about-credits">
-        <span>BUILT WITH GOOD TOOLS</span>
-        <p>
-          Rust <i /> Tauri <i /> React <i /> CodeMirror <i /> xterm.js
-        </p>
-        <small>
-          Independent software. A little less interface. A lot more flow.
-        </small>
-      </footer>
-    </div>
+    </section>
   );
 }

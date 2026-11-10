@@ -18,6 +18,7 @@ fn app() -> tauri::App<MockRuntime> {
         .manage(debug::Debugger::default())
         .invoke_handler(tauri::generate_handler![
             workspace::open_workspace,
+            crate::app_info::build_info,
             crate::shells::terminal_profiles,
             terminal::terminal_create,
             terminal::terminal_write,
@@ -63,6 +64,25 @@ fn event(rx: &mpsc::Receiver<String>, name: &str) -> Value {
             return value;
         }
     }
+}
+#[test]
+fn build_metadata_reports_actual_native_os_and_compilation_time() {
+    let app = app();
+    let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let info = call(&view, "build_info", json!({}));
+    assert_eq!(info["version"], env!("CARGO_PKG_VERSION"));
+    assert!(!info["osBuild"].as_str().unwrap().is_empty());
+    assert_eq!(info["arch"], std::env::consts::ARCH);
+    let time = info["builtAt"].as_str().unwrap().parse::<u64>().unwrap();
+    assert!(time > 1_700_000_000);
+    assert!(
+        time <= std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
 }
 #[test]
 fn terminal_runs_a_real_shell_and_closes_it() {

@@ -139,29 +139,7 @@ export const defaults: Settings = {
   vibrancy: true,
   reduceMotion: false,
 };
-export function language(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase();
-  return (
-    (
-      {
-        rs: "rust",
-        ts: "typescript",
-        tsx: "typescript",
-        js: "javascript",
-        jsx: "javascript",
-        py: "python",
-        json: "json",
-        html: "html",
-        css: "css",
-        md: "markdown",
-        toml: "toml",
-        yaml: "yaml",
-        yml: "yaml",
-        sh: "shell",
-      } as Record<string, string>
-    )[ext ?? ""] ?? "text"
-  );
-}
+export { languageId as language } from "./languages";
 export function filename(path: string) {
   return path.split("/").pop() ?? path;
 }

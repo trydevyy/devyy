@@ -377,9 +377,74 @@ pub async fn search_workspace(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn read_preview_image(
+    path: String,
+    state: State<'_, Workspace>,
+) -> Result<String, String> {
+    let base = root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || preview_image(&base, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+fn preview_image(base: &Path, path: &str) -> Result<String, String> {
+    let full = resolve(base, path, false)?;
+    let mime = match full
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "ico" => "image/x-icon",
+        _ => return Err("Unsupported image format".into()),
+    };
+    let file = fs::File::open(full).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(8 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("Image exceeds 8 MiB".into());
+    }
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preview_images_are_bounded_and_confined_to_the_workspace() {
+        let base = std::env::temp_dir().join(format!("devyy-preview-{}", std::process::id()));
+        fs::create_dir_all(base.join("assets")).unwrap();
+        let base = base.canonicalize().unwrap();
+        fs::write(base.join("assets/image.svg"), "<svg/>").unwrap();
+        assert!(preview_image(&base, "assets/image.svg")
+            .unwrap()
+            .starts_with("data:image/svg+xml;base64,"));
+        fs::write(base.join("text.txt"), "text").unwrap();
+        assert!(preview_image(&base, "text.txt").is_err());
+        assert!(preview_image(&base, "../image.svg").is_err());
+        let big = fs::File::create(base.join("big.png")).unwrap();
+        big.set_len(8 * 1024 * 1024 + 1).unwrap();
+        assert!(preview_image(&base, "big.png")
+            .unwrap_err()
+            .contains("8 MiB"));
+        #[cfg(unix)]
+        {
+            let outside = base.with_extension("svg");
+            fs::write(&outside, "<svg/>").unwrap();
+            std::os::unix::fs::symlink(&outside, base.join("escape.svg")).unwrap();
+            assert!(preview_image(&base, "escape.svg").is_err());
+            fs::remove_file(outside).unwrap();
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
     #[test]
     fn discovers_asset_png_above_the_previous_512_kib_limit() {
         let base = std::env::temp_dir().join(format!("devyy-large-logo-{}", std::process::id()));

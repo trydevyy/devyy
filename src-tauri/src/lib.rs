@@ -1,3 +1,4 @@
+mod app_info;
 mod appearance;
 mod debug;
 mod git;
@@ -12,6 +13,7 @@ pub fn run() {
     use tauri::Manager;
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(workspace::Workspace::default())
         .manage(terminal::Terminals::default())
         .manage(lsp::LanguageServers::default())
@@ -27,6 +29,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             appearance::set_appearance,
+            app_info::build_info,
+            app_info::check_updates,
+            workspace::read_preview_image,
             menus::set_menu_shortcuts,
             workspace::open_workspace,
             workspace::refresh_workspace,

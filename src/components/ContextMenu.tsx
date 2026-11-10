@@ -158,9 +158,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
                       item.action?.();
                     }}
                   >
-                    <span className="menu-check">
-                      {item.checked && <Check size={12} />}
-                    </span>
+                    {item.checked && <Check className="menu-check" size={12} />}
                     <span>{item.label}</span>
                     {item.shortcut && <kbd>{item.shortcut}</kbd>}
                   </button>

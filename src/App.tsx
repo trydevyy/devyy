@@ -17,6 +17,8 @@ import {
   ArrowUpRight,
   Asterisk,
   BookOpen,
+  Eye,
+  Columns2,
   Braces,
   Blend,
   ChevronsUpDown,
@@ -57,6 +59,8 @@ import type { SettingsCategory } from "./lib/settingsCatalog";
 import SearchResults from "./components/SearchResults";
 import ProjectBadge from "./components/ProjectBadge";
 import Palette, { type PaletteItem } from "./components/Palette";
+import { Toaster, toast as showToast } from "sonner";
+const MarkdownPreview = lazy(() => import("./components/MarkdownPreview"));
 const TerminalGroup = lazy(() => import("./components/TerminalGroup"));
 import type { TerminalsHandle } from "./components/TerminalGroup";
 import ResizeHandle from "./components/ResizeHandle";
@@ -140,6 +144,17 @@ export default function App() {
         })),
     ]),
     [active, setActive] = useState(initialTab.path);
+  const [markdownModes, setMarkdownModes] = useState<
+    Record<string, "source" | "preview" | "split">
+  >({});
+  const markdownMode = markdownModes[active] ?? "source";
+  function setMarkdownMode(
+    mode: "source" | "preview" | "split",
+    path = active,
+  ) {
+    setMarkdownModes((old) => ({ ...old, [path]: mode }));
+    setSplit(mode === "split");
+  }
   const [section, setSection] = useState<Section>("files"),
     [sidebar, setSidebar] = useState(true),
     [panel, setPanel] = useState(true),
@@ -168,7 +183,6 @@ export default function App() {
       "devyy is ready. Open a folder to connect your tools.",
     ]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 }),
-    [toast, setToast] = useState<{ text: string; error: boolean } | null>(null),
     [dialog, setDialog] = useState<Dialog | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null),
     [runCommand, setRunCommand] = useState("cargo run"),
@@ -279,9 +293,7 @@ export default function App() {
   // Cut the editor out of the one continuous chrome tint so its opacity is truly independent.
   const updateChrome = useCallback(() => {
     const shell = document.querySelector<HTMLElement>(".devyy"),
-      surface =
-        document.querySelector<HTMLElement>(".settings-modal") ??
-        document.querySelector<HTMLElement>(".editor-surface");
+      surface = document.querySelector<HTMLElement>(".editor-surface");
     if (!shell || !surface) return;
     const a = shell.getBoundingClientRect(),
       b = surface.getBoundingClientRect();
@@ -289,7 +301,7 @@ export default function App() {
       t = b.top - a.top,
       r = b.right - a.left,
       d = b.bottom - a.top,
-      c = surface.classList.contains("settings-modal") ? 13 : 9;
+      c = 9;
     shell.style.setProperty(
       "--chrome-clip",
       `path(evenodd, 'M0 0H${a.width}V${a.height}H0Z M${l + c} ${t}H${r - c}Q${r} ${t} ${r} ${t + c}V${d - c}Q${r} ${d} ${r - c} ${d}H${l + c}Q${l} ${d} ${l} ${d - c}V${t + c}Q${l} ${t} ${l + c} ${t}Z')`,
@@ -312,7 +324,9 @@ export default function App() {
     return () => observer.disconnect();
   }, [updateChrome, settingsOpen]);
   function notify(error: unknown, isError = true) {
-    setToast({ text: String(error).replace(/^Error: /, ""), error: isError });
+    const message = String(error).replace(/^Error: /, "");
+    if (isError) showToast.error(message);
+    else showToast.success(message);
   }
   function log(text: string) {
     setOutput((lines) => [
@@ -326,11 +340,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("devyy.playground", JSON.stringify(demo));
   }, [demo]);
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(null), 6000);
-    return () => clearTimeout(id);
-  }, [toast]);
   useEffect(() => {
     if (!palette && !settingsOpen && !help && !dialog) return;
     const previous =
@@ -437,6 +446,7 @@ export default function App() {
       setBreakpoints({});
       setDebugSession({ running: false, path: null, line: null });
       setWorkspace(next);
+      setMarkdownModes({});
       wsRef.current = next;
       setTabs([]);
       tabsRef.current = [];
@@ -1092,7 +1102,19 @@ export default function App() {
         50,
       );
     },
-    split: () => setSplit((v) => !v),
+    split: () => {
+      if (language(active) === "markdown" && !split) setMarkdownMode("split");
+      else setSplit((v) => !v);
+    },
+    "markdown-preview": () => {
+      if (language(active) === "markdown")
+        setMarkdownMode(markdownMode === "preview" ? "source" : "preview");
+      else notify("Open a Markdown file to preview it.", false);
+    },
+    "markdown-preview-beside": () => {
+      if (language(active) === "markdown") setMarkdownMode("split");
+      else notify("Open a Markdown file to preview it.", false);
+    },
     sidebar: toggleSidebar,
     terminal: togglePanel,
     focus: toggleFocus,
@@ -1259,7 +1281,9 @@ export default function App() {
               label: "Open in split editor",
               action: () => {
                 void openFile(path);
-                setSplit(true);
+                if (language(path) === "markdown")
+                  setMarkdownMode("split", path);
+                else setSplit(true);
               },
             },
           ]),
@@ -1306,9 +1330,28 @@ export default function App() {
         label: "Split editor",
         action: () => {
           setActive(path);
-          setSplit(true);
+          if (language(path) === "markdown") setMarkdownMode("split", path);
+          else setSplit(true);
         },
       },
+      ...(language(path) === "markdown"
+        ? [
+            {
+              label: "Open Markdown preview",
+              action: () => {
+                setActive(path);
+                setMarkdownMode("preview", path);
+              },
+            },
+            {
+              label: "Open preview to the side",
+              action: () => {
+                setActive(path);
+                setMarkdownMode("split", path);
+              },
+            },
+          ]
+        : []),
       { label: "Copy path", action: () => copyPath(path) },
       {
         label: "Close tab",
@@ -1333,6 +1376,32 @@ export default function App() {
     ]);
   }
   function editorMenu(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest(".markdown-preview")) {
+      openMenu(e, [
+        { label: "Edit Markdown", action: () => setMarkdownMode("source") },
+        {
+          label: "Open preview to the side",
+          action: () => setMarkdownMode("split"),
+        },
+        {
+          label: "Copy selection",
+          separator: true,
+          disabled: !window.getSelection()?.toString(),
+          action: () =>
+            void navigator.clipboard
+              .writeText(window.getSelection()?.toString() ?? "")
+              .catch(notify),
+        },
+        {
+          label: "Copy Markdown",
+          action: () =>
+            void navigator.clipboard
+              .writeText(tab?.content ?? "")
+              .catch(notify),
+        },
+      ]);
+      return;
+    }
     const view = currentView.current;
     if (!view) return;
     const selection = view.state.selection.main;
@@ -1391,28 +1460,79 @@ export default function App() {
     { id: "run" as const, icon: Play, label: "Run & build" },
     { id: "tools" as const, icon: PanelsTopLeft, label: "Language tools" },
   ];
+  const openPreviewLink = useCallback(
+    (path: string, line?: number) => {
+      void openFile(path, line);
+    },
+    [workspace.root, demo],
+  );
   function renderEditor(isSplit = false) {
     return (
       <div className="editor-stack" onContextMenu={editorMenu}>
-        {tabs.map((t) => (
-          <div
-            key={t.path}
-            className={`editor-document ${active === t.path ? "visible" : ""}`}
-          >
-            <Editor
-              path={t.path}
-              value={t.content}
-              settings={settings}
-              diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
-              onChange={edit}
-              onCursor={handleCursor}
-              onView={isSplit ? handleSplitView : handleView}
-              onDefinition={handleDefinition}
-              breakpoints={breakpoints[t.path] ?? emptyLines}
-              onBreakpoint={handleBreakpoint}
-            />
+        {split && (
+          <div className="editor-pane-heading">
+            <span className="pane-number">{isSplit ? 2 : 1}</span>
+            <FileIcon path={active} size={12} />
+            <span>{filename(active)}</span>
+            <small>
+              {language(active) === "markdown" &&
+              (markdownMode === "preview" ||
+                (markdownMode === "split" && isSplit))
+                ? "Preview"
+                : "Editor"}
+            </small>
+            {isSplit && (
+              <button
+                className="icon-button"
+                aria-label="Close split"
+                onClick={() => setSplit(false)}
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
-        ))}
+        )}
+        {tabs.map((t) => {
+          const preview =
+            language(t.path) === "markdown" &&
+            (markdownModes[t.path] === "preview" ||
+              (markdownModes[t.path] === "split" && split && isSplit));
+          return (
+            <div
+              key={t.path}
+              className={`editor-document ${active === t.path ? "visible" : ""}`}
+            >
+              <div className="editor-source" hidden={preview}>
+                <Editor
+                  path={t.path}
+                  value={t.content}
+                  settings={settings}
+                  diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
+                  onChange={edit}
+                  onCursor={handleCursor}
+                  onView={isSplit ? handleSplitView : handleView}
+                  onDefinition={handleDefinition}
+                  breakpoints={breakpoints[t.path] ?? emptyLines}
+                  onBreakpoint={handleBreakpoint}
+                />
+              </div>
+              {preview && (
+                <Suspense
+                  fallback={
+                    <div className="preview-loading">Loading preview…</div>
+                  }
+                >
+                  <MarkdownPreview
+                    path={t.path}
+                    root={workspace.root}
+                    content={t.content}
+                    onOpen={openPreviewLink}
+                  />
+                </Suspense>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -1968,7 +2088,7 @@ export default function App() {
               <div className="tabs" role="tablist" aria-label="Open files">
                 {tabs.map((t) => (
                   <div
-                    className={`tab ${active === t.path ? "active" : ""}`}
+                    className={`tab ${active === t.path ? "active" : ""} ${split && active === t.path ? "is-split" : ""}`}
                     key={t.path}
                     draggable
                     onDragStart={(e) => {
@@ -2010,6 +2130,12 @@ export default function App() {
                     <button
                       role="tab"
                       aria-selected={active === t.path}
+                      aria-label={filename(t.path)}
+                      aria-description={
+                        split && active === t.path
+                          ? "Split across two editor panes"
+                          : undefined
+                      }
                       onClick={() => {
                         setActive(t.path);
                         activeRef.current = t.path;
@@ -2018,6 +2144,16 @@ export default function App() {
                     >
                       <FileIcon path={t.path} size={14} />
                       {filename(t.path)}
+                      {split && active === t.path && (
+                        <span
+                          className="split-tab-indicator"
+                          title="Open in two panes"
+                          aria-hidden="true"
+                        >
+                          <Columns2 size={12} />
+                          <span>1 · 2</span>
+                        </span>
+                      )}
                       {t.content !== t.saved && <span className="dirty-dot" />}
                     </button>
                     <button
@@ -2040,6 +2176,41 @@ export default function App() {
                 <Plus size={15} />
               </button>
               <div className="tabbar-actions">
+                {language(active) === "markdown" && (
+                  <div
+                    className="markdown-view-switch"
+                    role="group"
+                    aria-label="Markdown view"
+                  >
+                    <button
+                      title="Markdown source"
+                      aria-label="Markdown source"
+                      aria-pressed={
+                        markdownMode === "source" ||
+                        (markdownMode === "split" && !split)
+                      }
+                      onClick={() => setMarkdownMode("source")}
+                    >
+                      <Code2 size={14} />
+                    </button>
+                    <button
+                      title="Markdown preview"
+                      aria-label="Markdown preview"
+                      aria-pressed={markdownMode === "preview"}
+                      onClick={() => setMarkdownMode("preview")}
+                    >
+                      <Eye size={14} />
+                    </button>
+                    <button
+                      title="Markdown preview to the side"
+                      aria-label="Markdown preview to the side"
+                      aria-pressed={markdownMode === "split" && split}
+                      onClick={() => setMarkdownMode("split")}
+                    >
+                      <Columns2 size={14} />
+                    </button>
+                  </div>
+                )}
                 <button
                   className="icon-button"
                   title="Format document"
@@ -2052,7 +2223,7 @@ export default function App() {
                   className="icon-button"
                   title="Split editor"
                   aria-label="Split editor"
-                  onClick={() => setSplit((v) => !v)}
+                  onClick={() => commandActions.split()}
                 >
                   <SplitSquareHorizontal size={15} />
                 </button>
@@ -2100,16 +2271,6 @@ export default function App() {
                         percentOf={() => editorsRef.current?.clientWidth ?? 1}
                       />
 
-                      <div className="split-label">
-                        {filename(tab.path)}
-                        <button
-                          className="icon-button"
-                          aria-label="Close split"
-                          onClick={() => setSplit(false)}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
                       {renderEditor(true)}
                     </div>
                   )}
@@ -2533,19 +2694,13 @@ export default function App() {
       {dialog && (
         <InputDialog dialog={dialog} onClose={() => setDialog(null)} />
       )}
-      {toast && (
-        <div className={`toast ${toast.error ? "error" : ""}`} role="status">
-          {toast.error ? <CircleAlert size={17} /> : <Check size={17} />}
-          <span>{toast.text}</span>
-          <button
-            className="icon-button"
-            aria-label="Dismiss notification"
-            onClick={() => setToast(null)}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <Toaster
+        theme={settings.theme === "paper" ? "light" : "dark"}
+        position="bottom-right"
+        closeButton
+        visibleToasts={3}
+        toastOptions={{ className: "devyy-toast", duration: 5000 }}
+      />
       {opening && (
         <div className="opening-indicator">
           <RefreshCw size={15} className="spinning" /> Opening your workspace…

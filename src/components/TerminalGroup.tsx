@@ -79,10 +79,21 @@ export default forwardRef<
     if (active === key) setActive(rest.at(-1)?.key ?? 0);
     if (!rest.length) cb.current(null);
   }
+  const sessionGroups = sessions
+    .filter((s) => s.key !== split?.[1])
+    .map((s) =>
+      s.key === split?.[0]
+        ? split
+            .map((key) => sessions.find((x) => x.key === key)!)
+            .filter(Boolean)
+        : [s],
+    );
+  const sessionOrder = sessionGroups.flat();
   function cycle(delta: number) {
-    const i = sessions.findIndex((s) => s.key === active);
+    const i = sessionOrder.findIndex((s) => s.key === active);
     const key =
-      sessions[(i + delta + sessions.length) % sessions.length]?.key ?? 0;
+      sessionOrder[(i + delta + sessionOrder.length) % sessionOrder.length]
+        ?.key ?? 0;
     setActive(key);
     if (split && !split.includes(key)) setSplit(null);
   }
@@ -99,6 +110,110 @@ export default forwardRef<
       else handles.current.get(active)?.ensure();
     },
   }));
+  function renderSession(s: (typeof sessions)[number]) {
+    return (
+      <div
+        key={s.key}
+        className={`terminal-session ${active === s.key ? "active" : ""}`}
+        onContextMenu={(e) =>
+          openMenu(e, [
+            { label: "New terminal", action: () => create() },
+            { label: "Split terminal", action: () => create(true, s.key) },
+            {
+              label: "Rename terminal",
+              separator: true,
+              action: () => setRenaming(s.key),
+            },
+            {
+              label: "Clear terminal",
+              action: () => handles.current.get(s.key)?.clear(),
+            },
+            {
+              label: "Restart shell",
+              action: () => handles.current.get(s.key)?.restart(),
+            },
+            {
+              label: "Close terminal",
+              separator: true,
+              danger: true,
+              action: () => close(s.key),
+            },
+          ])
+        }
+      >
+        {renaming === s.key ? (
+          <input
+            autoFocus
+            aria-label="Terminal name"
+            defaultValue={s.name}
+            onBlur={(e) => {
+              const name = e.target.value.trim();
+              if (name)
+                setSessions((all) =>
+                  all.map((x) => (x.key === s.key ? { ...x, name } : x)),
+                );
+              setRenaming(null);
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") setRenaming(null);
+            }}
+          />
+        ) : (
+          <button
+            role="tab"
+            aria-label={s.name}
+            aria-description={
+              split?.includes(s.key)
+                ? `Pane ${split.indexOf(s.key) + 1} of split terminal group`
+                : undefined
+            }
+            id={`terminal-session-${s.key}`}
+            aria-controls={`terminal-pane-${s.key}`}
+            aria-selected={active === s.key}
+            tabIndex={active === s.key ? 0 : -1}
+            title={
+              shells.profiles.find((p) => p.id === s.profile)?.name ||
+              "System default shell"
+            }
+            onKeyDown={(e) => {
+              const delta =
+                e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+              if (!delta) return;
+              e.preventDefault();
+              cycle(delta);
+              const buttons = e.currentTarget
+                .closest(".terminal-sessionbar")
+                ?.querySelectorAll<HTMLButtonElement>("[role=tab]");
+              const index = sessionOrder.findIndex((x) => x.key === s.key);
+              buttons?.[
+                (index + delta + sessionOrder.length) % sessionOrder.length
+              ]?.focus();
+            }}
+            onClick={() => {
+              setActive(s.key);
+              if (split && !split.includes(s.key)) setSplit(null);
+            }}
+          >
+            {split?.includes(s.key) && (
+              <span className="pane-number" aria-hidden="true">
+                {split.indexOf(s.key) + 1}
+              </span>
+            )}
+            {s.name}
+          </button>
+        )}
+        <button
+          className="terminal-session-close"
+          aria-label={`Close ${s.name}`}
+          onClick={() => close(s.key)}
+        >
+          <X size={11} />
+        </button>
+      </div>
+    );
+  }
   const toolbar = (
     <div className="terminal-toolbar">
       <div
@@ -106,97 +221,20 @@ export default forwardRef<
         role="tablist"
         aria-label="Terminal sessions"
       >
-        {sessions.map((s) => (
-          <div
-            key={s.key}
-            className={`terminal-session ${active === s.key ? "active" : ""}`}
-            onContextMenu={(e) =>
-              openMenu(e, [
-                { label: "New terminal", action: () => create() },
-                { label: "Split terminal", action: () => create(true, s.key) },
-                {
-                  label: "Rename terminal",
-                  separator: true,
-                  action: () => setRenaming(s.key),
-                },
-                {
-                  label: "Clear terminal",
-                  action: () => handles.current.get(s.key)?.clear(),
-                },
-                {
-                  label: "Restart shell",
-                  action: () => handles.current.get(s.key)?.restart(),
-                },
-                {
-                  label: "Close terminal",
-                  separator: true,
-                  danger: true,
-                  action: () => close(s.key),
-                },
-              ])
-            }
-          >
-            {renaming === s.key ? (
-              <input
-                autoFocus
-                aria-label="Terminal name"
-                defaultValue={s.name}
-                onBlur={(e) => {
-                  const name = e.target.value.trim();
-                  if (name)
-                    setSessions((all) =>
-                      all.map((x) => (x.key === s.key ? { ...x, name } : x)),
-                    );
-                  setRenaming(null);
-                }}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  if (e.key === "Escape") setRenaming(null);
-                }}
-              />
-            ) : (
-              <button
-                role="tab"
-                id={`terminal-session-${s.key}`}
-                aria-controls={`terminal-pane-${s.key}`}
-                aria-selected={active === s.key}
-                tabIndex={active === s.key ? 0 : -1}
-                title={
-                  shells.profiles.find((p) => p.id === s.profile)?.name ||
-                  "System default shell"
-                }
-                onKeyDown={(e) => {
-                  const delta =
-                    e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-                  if (!delta) return;
-                  e.preventDefault();
-                  cycle(delta);
-                  const buttons = e.currentTarget
-                    .closest(".terminal-sessionbar")
-                    ?.querySelectorAll<HTMLButtonElement>("[role=tab]");
-                  const index = sessions.findIndex((x) => x.key === s.key);
-                  buttons?.[
-                    (index + delta + sessions.length) % sessions.length
-                  ]?.focus();
-                }}
-                onClick={() => {
-                  setActive(s.key);
-                  if (split && !split.includes(s.key)) setSplit(null);
-                }}
-              >
-                {s.name}
-              </button>
-            )}
-            <button
-              className="terminal-session-close"
-              aria-label={`Close ${s.name}`}
-              onClick={() => close(s.key)}
+        {sessionGroups.map((group) =>
+          group.length === 2 ? (
+            <div
+              className="terminal-split-island"
+              key={`split-${group[0].key}`}
+              role="group"
+              aria-label="Split terminal group"
             >
-              <X size={11} />
-            </button>
-          </div>
-        ))}
+              {group.map(renderSession)}
+            </div>
+          ) : (
+            renderSession(group[0])
+          ),
+        )}
       </div>
       <div className="terminal-tools">
         <button
@@ -318,6 +356,12 @@ export default forwardRef<
               ])
             }
           >
+            {split?.includes(s.key) && (
+              <div className="terminal-pane-heading">
+                <span className="pane-number">{split.indexOf(s.key) + 1}</span>
+                {s.name}
+              </div>
+            )}
             <Terminal
               ref={(handle) => {
                 if (handle) handles.current.set(s.key, handle);

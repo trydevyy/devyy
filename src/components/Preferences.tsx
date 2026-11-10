@@ -1,6 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Asterisk,
+  Settings2,
   Check,
   Minus,
   Plus,
@@ -269,10 +270,9 @@ export default function Preferences({
         <div className="settings-layout">
           <aside className="settings-navigation">
             <div className="settings-identity">
-              <Asterisk size={30} />
+              <Settings2 size={18} />
               <div>
-                <strong>devyy</strong>
-                <span>Your space to build.</span>
+                <strong>Settings</strong>
               </div>
             </div>
             <div className="settings-search">
@@ -302,7 +302,7 @@ export default function Preferences({
                 </button>
               )}
             </div>
-            <span className="settings-nav-label">PREFERENCES</span>
+
             <div
               className="settings-tabs"
               role="tablist"
@@ -356,9 +356,12 @@ export default function Preferences({
             }
           >
             <header className="settings-heading">
-              <span className="settings-current-category">
+              <h3
+                id="settings-results-title"
+                className="settings-current-category"
+              >
                 {searching ? "Search results" : selected.label}
-              </span>
+              </h3>
               <button
                 className="icon-button"
                 aria-label="Close preferences"
@@ -372,17 +375,9 @@ export default function Preferences({
                 className="settings-inner"
                 key={searching ? "search" : category}
               >
-                {!searching && category === "about" ? (
-                  <About onShortcuts={() => choose("keyboard")} />
-                ) : null}
+                {!searching && category === "about" ? <About /> : null}
                 {category !== "about" || searching ? (
                   <div className="settings-section-heading">
-                    <span className="settings-eyebrow">
-                      YOUR DEVELOPER WORKSPACE
-                    </span>
-                    <h3 id="settings-results-title">
-                      {searching ? "Search results" : selected.label}
-                    </h3>
                     <p aria-live="polite">
                       {searching
                         ? `${matches.length + keys.length} results for “${query.trim()}”`
@@ -452,13 +447,7 @@ export default function Preferences({
                         : "Shell profiles are available in the desktop app."}
                   </p>
                 )}
-                {!searching && category === "appearance" && (
-                  <p className="settings-note">
-                    Transparency uses the native desktop material. Solid mode
-                    and your system’s reduced transparency preference take
-                    priority.
-                  </p>
-                )}
+
                 {!searching && category === "layout" && (
                   <div className="setting-row">
                     <span>

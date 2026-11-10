@@ -147,9 +147,7 @@ export default function Palette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
-              mode === "files"
-                ? "Find your next file…"
-                : "What would you like to do?"
+              mode === "files" ? "Search files…" : "Search commands…"
             }
             aria-label="Search"
             aria-controls="palette-results"
@@ -160,19 +158,6 @@ export default function Palette({
             spellCheck={false}
           />
           <kbd>esc</kbd>
-        </div>
-        <div className="palette-label">
-          <span>
-            {query
-              ? "SEARCH RESULTS"
-              : mode === "files"
-                ? "YOUR WORKSPACE"
-                : "ALL COMMANDS"}
-          </span>
-          <small>
-            {filtered.length}
-            {filtered.length === 80 ? "+" : ""}
-          </small>
         </div>
         <div
           className="palette-list"
@@ -221,7 +206,6 @@ export default function Palette({
           <span>
             <CornerDownLeft size={12} /> Open
           </span>
-          <span className="palette-brand">devyy</span>
         </div>
       </div>
     </div>

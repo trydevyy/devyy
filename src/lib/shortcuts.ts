@@ -14,6 +14,13 @@ export const commandInfo = [
   ["global", "Search across workspace", "Navigation", "Mod+Shift+F"],
   ["goto", "Go to line", "Navigation", "Mod+L"],
   ["definition", "Go to definition", "Editor", "F12"],
+  ["markdown-preview", "Toggle Markdown preview", "Editor", "Mod+Shift+V"],
+  [
+    "markdown-preview-beside",
+    "Open Markdown preview to the side",
+    "Editor",
+    "Mod+Alt+V",
+  ],
   ["format", "Format document", "Editor", "Alt+Shift+F"],
   ["undo", "Undo", "Editor", "Mod+Z"],
   ["redo", "Redo", "Editor", "Mod+Shift+Z"],

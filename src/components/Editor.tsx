@@ -27,16 +27,12 @@ import {
   completionKeymap,
   completeFromList,
 } from "@codemirror/autocomplete";
+import { loadLanguage } from "../lib/languages";
 import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
 import { languageRequest } from "../lib/native";
-import {
-  language,
-  type LspDiagnostic,
-  type Position,
-  type Settings,
-} from "../lib/types";
+import { type LspDiagnostic, type Position, type Settings } from "../lib/types";
 
 class BreakpointMarker extends GutterMarker {
   toDOM() {
@@ -77,34 +73,18 @@ const highlighting = HighlightStyle.define([
     color: "var(--syntax-punctuation)",
   },
   { tag: tags.meta, color: "var(--syntax-meta)" },
+  { tag: [tags.tagName, tags.attributeName], color: "var(--syntax-type)" },
+  { tag: [tags.atom, tags.null, tags.unit], color: "var(--syntax-number)" },
+  {
+    tag: [tags.regexp, tags.special(tags.string)],
+    color: "var(--syntax-string)",
+  },
+  { tag: tags.heading, color: "var(--ink)", fontWeight: "600" },
+  { tag: tags.strong, fontWeight: "600" },
+  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.link, color: "var(--accent)", textDecoration: "underline" },
+  { tag: tags.invalid, textDecoration: "underline wavy #cf9696" },
 ]);
-async function langExtension(path: string) {
-  switch (language(path)) {
-    case "rust":
-      return (await import("@codemirror/lang-rust")).rust();
-    case "typescript":
-      return (await import("@codemirror/lang-javascript")).javascript({
-        typescript: true,
-        jsx: path.endsWith("tsx"),
-      });
-    case "javascript":
-      return (await import("@codemirror/lang-javascript")).javascript({
-        jsx: true,
-      });
-    case "python":
-      return (await import("@codemirror/lang-python")).python();
-    case "json":
-      return (await import("@codemirror/lang-json")).json();
-    case "html":
-      return (await import("@codemirror/lang-html")).html();
-    case "css":
-      return (await import("@codemirror/lang-css")).css();
-    case "markdown":
-      return (await import("@codemirror/lang-markdown")).markdown();
-    default:
-      return [];
-  }
-}
 function toPosition(view: EditorView, offset: number): Position {
   const line = view.state.doc.lineAt(offset);
   return { line: line.number - 1, character: offset - line.from };
@@ -356,10 +336,12 @@ function Editor(props: EditorProps) {
       }),
     });
     editor.current = view;
-    void langExtension(current.current.path).then((ext) => {
-      if (editor.current === view)
-        view.dispatch({ effects: langConfig.current.reconfigure(ext) });
-    });
+    void loadLanguage(current.current.path)
+      .then((ext) => {
+        if (editor.current === view)
+          view.dispatch({ effects: langConfig.current.reconfigure(ext ?? []) });
+      })
+      .catch(() => {});
     current.current.onView(current.current.path, view);
     return () => {
       current.current.onView(current.current.path, null);
