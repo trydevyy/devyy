@@ -313,7 +313,12 @@ test("terminal sessions keep their processes through switching, splits, resizing
               logo: null,
             };
           if (cmd === "read_file")
-            return { content: "# Project\n", modified: "1" };
+            return {
+              content: "# Project\n\n![Project logo](assets/logo.png)\n",
+              modified: "1",
+            };
+          if (cmd === "read_preview_image")
+            return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=";
           if (cmd === "git_status") return { branch: "main", changes: [] };
           if (cmd === "terminal_profiles")
             return [
@@ -399,6 +404,15 @@ test("terminal sessions keep their processes through switching, splits, resizing
     .getByRole("button", { name: "Split terminal", exact: true })
     .click();
   await expect(page.locator(".terminal-instance.visible")).toHaveCount(2);
+  await expect(
+    page
+      .getByRole("group", { name: "Split terminal group", exact: true })
+      .getByRole("tab"),
+  ).toHaveCount(2);
+  await expect(page.locator(".terminal-pane-heading .pane-number")).toHaveText([
+    "1",
+    "2",
+  ]);
   await expect.poll(async () => (await state()).created.length).toBe(3);
   await page
     .locator(".terminal-instance.visible")
@@ -515,6 +529,27 @@ test("terminal sessions keep their processes through switching, splits, resizing
   await views.getByRole("tab", { name: "terminal", exact: true }).click();
   expect((await state()).created.length).toBe(6);
   await page.setViewportSize({ width: 1440, height: 940 });
+  await page
+    .getByRole("button", { name: "Markdown preview", exact: true })
+    .click();
+  const preview = page.getByRole("article", {
+    name: "Markdown preview: README.md",
+    exact: true,
+  });
+  await expect(
+    preview.getByRole("img", { name: "Project logo", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      preview
+        .getByRole("img", { name: "Project logo", exact: true })
+        .evaluate((el: HTMLImageElement) => el.naturalWidth),
+    )
+    .toBe(1);
+  await preview.click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Edit Markdown", exact: true })
+    .click();
   await page.screenshot({ path: "artifacts/devyy-workbench.png" });
   expect(errors).toEqual([]);
 });

@@ -103,7 +103,9 @@ test("create and rename files, add breakpoints, and expose desktop features hone
   ).toHaveCount(2); // marker + invisible sizing spacer
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
   await page.getByRole("button", { name: "Run command", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("desktop app");
+  await expect(page.locator("[data-sonner-toast]")).toContainText(
+    "desktop app",
+  );
 });
 
 test("vibrancy and motion preferences persist, and the workspace fits compact windows", async ({

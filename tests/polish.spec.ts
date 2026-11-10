@@ -11,7 +11,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
       const s = getComputedStyle(el);
       return { background: s.backgroundColor, blur: s.backdropFilter };
     });
-  await expect(page.locator(".app-body")).not.toBeVisible();
+  await expect(page.locator(".app-body")).toBeVisible();
   await page
     .getByRole("slider", { name: "Menu transparency", exact: true })
     .press("End");
@@ -180,7 +180,7 @@ test("About devyy is available from Settings and commands with usable details", 
     page.getByRole("tab", { name: "About devyy", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("heading", { name: "Room for your next great idea." }),
+    page.getByRole("heading", { name: "devyy", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Copy app details", exact: true })
@@ -188,14 +188,15 @@ test("About devyy is available from Settings and commands with usable details", 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     "devyy 0.1.0",
   );
-  await expect(page.getByRole("status")).toContainText("Copied app details");
+  await expect(page.locator("[data-sonner-toast]")).toContainText(
+    "App details copied",
+  );
   await page.screenshot({ path: "artifacts/devyy-about.png" });
-  await page
-    .getByRole("button", { name: "Find your shortcuts", exact: true })
-    .click();
-  await expect(
-    page.getByRole("tab", { name: "Keyboard shortcuts", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".about-details")).toContainText("OS build");
+  await expect(page.locator(".about-details")).toContainText("Built on");
+  await expect(page.locator(".about-details")).not.toContainText(
+    "Rust at the core",
+  );
   await page.setViewportSize({ width: 900, height: 680 });
   await page.getByRole("tab", { name: "About devyy", exact: true }).click();
   expect(
