@@ -1,0 +1,412 @@
+import { memo, useEffect, useRef } from "react";
+import {
+  EditorState,
+  Compartment,
+  RangeSet,
+  StateEffect,
+  StateField,
+} from "@codemirror/state";
+import {
+  EditorView,
+  keymap,
+  rectangularSelection,
+  crosshairCursor,
+  hoverTooltip,
+  gutter,
+  GutterMarker,
+} from "@codemirror/view";
+import { defaultKeymap, history, indentWithTab } from "@codemirror/commands";
+import {
+  syntaxHighlighting,
+  HighlightStyle,
+  defaultHighlightStyle,
+} from "@codemirror/language";
+import {
+  autocompletion,
+  closeBracketsKeymap,
+  completionKeymap,
+  completeFromList,
+} from "@codemirror/autocomplete";
+import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
+import { tags } from "@lezer/highlight";
+import { languageRequest } from "../lib/native";
+import {
+  language,
+  type LspDiagnostic,
+  type Position,
+  type Settings,
+} from "../lib/types";
+
+class BreakpointMarker extends GutterMarker {
+  toDOM() {
+    const dot = document.createElement("span");
+    dot.className = "breakpoint-dot";
+    return dot;
+  }
+}
+const marker = new BreakpointMarker();
+const breakpointEffect = StateEffect.define<number[]>();
+const breakpointField = StateField.define<RangeSet<GutterMarker>>({
+  create: () => RangeSet.empty,
+  update: (markers, tr) => {
+    markers = markers.map(tr.changes);
+    for (const effect of tr.effects)
+      if (effect.is(breakpointEffect))
+        markers = RangeSet.of(
+          effect.value
+            .filter((line) => line <= tr.state.doc.lines)
+            .map((line) => marker.range(tr.state.doc.line(line).from)),
+          true,
+        );
+    return markers;
+  },
+});
+const highlighting = HighlightStyle.define([
+  { tag: tags.keyword, color: "var(--syntax-keyword)" },
+  {
+    tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
+    color: "var(--syntax-function)",
+  },
+  { tag: tags.comment, color: "var(--syntax-comment)" },
+  { tag: tags.string, color: "var(--syntax-string)" },
+  { tag: [tags.number, tags.bool], color: "var(--syntax-number)" },
+  { tag: [tags.typeName, tags.className], color: "var(--syntax-type)" },
+  {
+    tag: [tags.operator, tags.punctuation],
+    color: "var(--syntax-punctuation)",
+  },
+  { tag: tags.meta, color: "var(--syntax-meta)" },
+]);
+async function langExtension(path: string) {
+  switch (language(path)) {
+    case "rust":
+      return (await import("@codemirror/lang-rust")).rust();
+    case "typescript":
+      return (await import("@codemirror/lang-javascript")).javascript({
+        typescript: true,
+        jsx: path.endsWith("tsx"),
+      });
+    case "javascript":
+      return (await import("@codemirror/lang-javascript")).javascript({
+        jsx: true,
+      });
+    case "python":
+      return (await import("@codemirror/lang-python")).python();
+    case "json":
+      return (await import("@codemirror/lang-json")).json();
+    case "html":
+      return (await import("@codemirror/lang-html")).html();
+    case "css":
+      return (await import("@codemirror/lang-css")).css();
+    case "markdown":
+      return (await import("@codemirror/lang-markdown")).markdown();
+    default:
+      return [];
+  }
+}
+function toPosition(view: EditorView, offset: number): Position {
+  const line = view.state.doc.lineAt(offset);
+  return { line: line.number - 1, character: offset - line.from };
+}
+function offset(view: EditorView, pos: Position) {
+  const line = view.state.doc.line(
+    Math.max(1, Math.min(pos.line + 1, view.state.doc.lines)),
+  );
+  return Math.min(line.to, line.from + pos.character);
+}
+interface CompletionItem {
+  label: string;
+  detail?: string;
+  insertText?: string;
+  textEdit?: { newText: string };
+  kind?: number;
+}
+const localComplete = completeFromList(
+  [
+    "fn",
+    "let",
+    "mut",
+    "pub",
+    "struct",
+    "impl",
+    "use",
+    "mod",
+    "match",
+    "if",
+    "else",
+    "for",
+    "while",
+    "return",
+    "const",
+    "async",
+    "await",
+    "function",
+    "import",
+    "export",
+    "class",
+    "def",
+    "self",
+    "String",
+    "Vec",
+    "Option",
+    "Result",
+    "println!",
+  ].map((label) => ({ label, type: "keyword" })),
+);
+export interface EditorProps {
+  path: string;
+  value: string;
+  settings: Settings;
+  diagnostics: LspDiagnostic[];
+  onChange: (path: string, text: string) => void;
+  onCursor: (path: string, line: number, col: number) => void;
+  onView: (path: string, view: EditorView | null) => void;
+  onDefinition: () => void;
+  readOnly?: boolean;
+  breakpoints: number[];
+  onBreakpoint: (path: string, line: number) => void;
+}
+function Editor(props: EditorProps) {
+  const host = useRef<HTMLDivElement>(null),
+    editor = useRef<EditorView | null>(null),
+    current = useRef(props);
+  current.current = props;
+  const config = useRef(new Compartment());
+  const langConfig = useRef(new Compartment());
+  function settingsExtensions(settings: Settings) {
+    return [
+      ...editorAppearance(settings),
+      settings.autocomplete
+        ? autocompletion({
+            activateOnTyping: settings.completionOnTyping,
+            activateOnTypingDelay: settings.completionDelay,
+            override: [
+              async (ctx) => {
+                const word = ctx.matchBefore(/[\w!]+/);
+                if (!word && !ctx.explicit) return null;
+                try {
+                  const result = await languageRequest<
+                    CompletionItem[] | { items: CompletionItem[] }
+                  >(
+                    current.current.path,
+                    "textDocument/completion",
+                    toPosition(ctx.view!, ctx.pos),
+                  );
+                  if (result) {
+                    const items = Array.isArray(result) ? result : result.items;
+                    if (items.length)
+                      return {
+                        from: word?.from ?? ctx.pos,
+                        options: items.map((item) => ({
+                          label: item.label,
+                          detail: item.detail,
+                          apply:
+                            item.textEdit?.newText ??
+                            item.insertText ??
+                            item.label,
+                          type:
+                            item.kind === 3
+                              ? "function"
+                              : item.kind === 6
+                                ? "variable"
+                                : "text",
+                        })),
+                      };
+                  }
+                } catch {
+                  /* Local completion remains available when a server is busy. */
+                }
+                return localComplete(ctx);
+              },
+            ],
+          })
+        : [],
+    ];
+  }
+  const configuration =
+    editorSettingKeys.map((key) => props.settings[key]).join("|") +
+    "|" +
+    props.settings.reduceMotion;
+  useEffect(() => {
+    if (!host.current) return;
+    const view = new EditorView({
+      parent: host.current,
+      state: EditorState.create({
+        doc: current.current.value,
+        extensions: [
+          breakpointField,
+          gutter({
+            class: "cm-breakpoint-gutter",
+            renderEmptyElements: true,
+            markers: (view) => view.state.field(breakpointField),
+            initialSpacer: () => marker,
+            domEventHandlers: {
+              mousedown: (view, line) => {
+                current.current.onBreakpoint(
+                  current.current.path,
+                  view.state.doc.lineAt(line.from).number,
+                );
+                return true;
+              },
+            },
+          }),
+          history(),
+          rectangularSelection(),
+          crosshairCursor(),
+          lintGutter(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          syntaxHighlighting(highlighting),
+          langConfig.current.of([]),
+          EditorState.readOnly.of(!!current.current.readOnly),
+          EditorState.lineSeparator.of(
+            current.current.value.includes("\r\n") ? "\r\n" : "\n",
+          ),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...completionKeymap,
+            indentWithTab,
+          ]),
+          hoverTooltip(async (view, pos) => {
+            try {
+              const result = await languageRequest<{
+                contents:
+                  | string
+                  | { value: string }
+                  | Array<string | { value: string }>;
+              }>(
+                current.current.path,
+                "textDocument/hover",
+                toPosition(view, pos),
+              );
+              if (!result?.contents) return null;
+              const c = result.contents;
+              const text = Array.isArray(c)
+                ? c.map((x) => (typeof x === "string" ? x : x.value)).join("\n")
+                : typeof c === "string"
+                  ? c
+                  : c.value;
+              return {
+                pos,
+                create: () => {
+                  const dom = document.createElement("pre");
+                  dom.className = "hover-doc";
+                  dom.textContent = text;
+                  return { dom };
+                },
+              };
+            } catch {
+              return null;
+            }
+          }),
+          config.current.of(settingsExtensions(current.current.settings)),
+          EditorView.updateListener.of((update) => {
+            if (update.focusChanged && update.view.hasFocus)
+              current.current.onView(current.current.path, update.view);
+            if (update.docChanged)
+              current.current.onChange(
+                current.current.path,
+                update.state.sliceDoc(),
+              );
+            if (update.selectionSet || update.docChanged) {
+              const line = update.state.doc.lineAt(
+                update.state.selection.main.head,
+              );
+              current.current.onCursor(
+                current.current.path,
+                line.number,
+                update.state.selection.main.head - line.from + 1,
+              );
+            }
+          }),
+          EditorView.theme({
+            "&": { height: "100%", background: "transparent" },
+            ".cm-scroller": {
+              fontFamily: "var(--editor-mono, var(--mono))",
+              lineHeight: "var(--editor-line-height, 1.8)",
+              overflow: "auto",
+            },
+            ".cm-content": {
+              caretColor: "var(--accent)",
+            },
+            ".cm-line": { padding: "0 28px 0 10px" },
+            ".cm-gutters": {
+              background: "transparent",
+              border: "none",
+              color: "var(--faint)",
+            },
+            ".cm-lineNumbers .cm-gutterElement": {
+              minWidth: "31px",
+              paddingRight: "12px",
+            },
+            ".cm-activeLine": { backgroundColor: "var(--active-line)" },
+            ".cm-activeLineGutter": {
+              backgroundColor: "transparent",
+              color: "var(--ink)",
+            },
+            ".cm-cursor": { borderLeftColor: "var(--accent)" },
+            ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+              background: "var(--selection) !important",
+            },
+            ".cm-foldGutter": { width: "15px" },
+            "&.cm-focused": { outline: "none" },
+          }),
+        ],
+      }),
+    });
+    editor.current = view;
+    void langExtension(current.current.path).then((ext) => {
+      if (editor.current === view)
+        view.dispatch({ effects: langConfig.current.reconfigure(ext) });
+    });
+    current.current.onView(current.current.path, view);
+    return () => {
+      current.current.onView(current.current.path, null);
+      view.destroy();
+      editor.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const view = editor.current;
+    if (view && view.state.sliceDoc() !== props.value) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: props.value },
+      });
+    }
+  }, [props.value]);
+  useEffect(() => {
+    editor.current?.dispatch({
+      effects: config.current.reconfigure(settingsExtensions(props.settings)),
+    });
+  }, [configuration]);
+  useEffect(() => {
+    const view = editor.current;
+    if (view)
+      view.dispatch(
+        setDiagnostics(
+          view.state,
+          props.diagnostics.map((d) => ({
+            from: offset(view, d.range.start),
+            to: offset(view, d.range.end),
+            severity:
+              d.severity === 1
+                ? "error"
+                : d.severity === 2
+                  ? "warning"
+                  : "info",
+            message: d.message,
+            source: d.source,
+          })),
+        ),
+      );
+  }, [props.diagnostics]);
+  useEffect(() => {
+    editor.current?.dispatch({
+      effects: breakpointEffect.of(props.breakpoints),
+    });
+  }, [props.breakpoints]);
+  return <div className="code-editor" ref={host} />;
+}
+export default memo(Editor);
+export { offset, toPosition };
