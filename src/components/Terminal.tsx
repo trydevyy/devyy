@@ -1,0 +1,293 @@
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { Terminal as XTerminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { ArrowUpRight, TerminalSquare, RotateCcw } from "lucide-react";
+import { invoke, listen, native } from "../lib/native";
+import "@xterm/xterm/css/xterm.css";
+
+const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+const subscribeMotion = (callback: () => void) => {
+  motionQuery.addEventListener("change", callback);
+  return () => motionQuery.removeEventListener("change", callback);
+};
+const motionSnapshot = () => motionQuery.matches;
+export interface TerminalHandle {
+  focus: () => void;
+  clear: () => void;
+  restart: () => void;
+  selection: () => string;
+  paste: (text: string) => void;
+  ensure: () => void;
+}
+export default forwardRef<
+  TerminalHandle,
+  {
+    root: string;
+    profile: string;
+    lineHeight: number;
+    cursorStyle: "block" | "bar" | "underline";
+    copyOnSelect: boolean;
+    onReady: (id: number | null) => void;
+    onError: (error: unknown) => void;
+    onOpen: () => void;
+    theme: "paper" | "midnight";
+    fontSize: number;
+    scrollback: number;
+    cursorBlink: boolean;
+  }
+>(function Terminal(
+  {
+    root,
+    profile,
+    lineHeight,
+    cursorStyle,
+    copyOnSelect,
+    onReady,
+    onError,
+    onOpen,
+    theme,
+    fontSize,
+    scrollback,
+    cursorBlink,
+  },
+  ref,
+) {
+  const reducedMotion = useSyncExternalStore(subscribeMotion, motionSnapshot);
+  const copySelection = useRef(copyOnSelect);
+  copySelection.current = copyOnSelect;
+  const terminal = useRef<XTerminal | null>(null);
+  const requestFit = useRef<() => void>(() => {});
+  const currentTheme = useRef(theme);
+  currentTheme.current = theme;
+  const host = useRef<HTMLDivElement>(null),
+    callback = useRef({ onReady, onError });
+  callback.current = { onReady, onError };
+  const [generation, setGeneration] = useState(0),
+    [exited, setExited] = useState(false);
+  const exitedRef = useRef(exited);
+  exitedRef.current = exited;
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => terminal.current?.focus(),
+      clear: () => terminal.current?.clear(),
+      restart: () => setGeneration((x) => x + 1),
+      selection: () => terminal.current?.getSelection() ?? "",
+      paste: (text) => terminal.current?.paste(text),
+      ensure: () => {
+        if (exitedRef.current) setGeneration((x) => x + 1);
+      },
+    }),
+    [],
+  );
+  useEffect(() => {
+    if (terminal.current) {
+      terminal.current.options.fontSize = fontSize;
+      terminal.current.options.scrollback = scrollback;
+      terminal.current.options.cursorBlink = cursorBlink && !reducedMotion;
+      terminal.current.options.cursorStyle = cursorStyle;
+      terminal.current.options.lineHeight = lineHeight;
+      requestFit.current();
+    }
+  }, [
+    fontSize,
+    scrollback,
+    cursorBlink,
+    cursorStyle,
+    lineHeight,
+    reducedMotion,
+  ]);
+  useEffect(() => {
+    if (!native || root === "demo" || !host.current) return;
+    setExited(false);
+    const term = new XTerminal({
+      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontSize,
+      scrollback,
+      lineHeight,
+      cursorStyle,
+      cursorBlink: cursorBlink && !reducedMotion,
+      allowProposedApi: false,
+      theme: terminalTheme(currentTheme.current),
+    });
+    terminal.current = term;
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(host.current);
+    let id: number | null = null,
+      disposed = false;
+    const queued = new Map<number, number[][]>();
+    const cleanup: (() => void)[] = [];
+    const drainListeners = () => cleanup.splice(0).forEach((fn) => fn());
+    const init = async () => {
+      cleanup.push(
+        await listen<{ id: number; data: number[] }>(
+          "terminal-output",
+          ({ payload }) => {
+            if (disposed) return;
+            if (payload.id === id) term.write(new Uint8Array(payload.data));
+            else if (id === null) {
+              const items = queued.get(payload.id) ?? [];
+              if (items.length < 256) items.push(payload.data);
+              queued.set(payload.id, items);
+            }
+          },
+        ),
+      );
+      cleanup.push(
+        await listen<number>("terminal-exit", ({ payload }) => {
+          if (!disposed && payload === id) {
+            setExited(true);
+            callback.current.onReady(null);
+            term.write(
+              "\r\n\x1b[90mSession ended. Use restart for a new shell.\x1b[0m\r\n",
+            );
+          }
+        }),
+      );
+      if (disposed) {
+        drainListeners();
+        return;
+      }
+      id = await invoke<number>("terminal_create", {
+        cols: term.cols,
+        rows: term.rows,
+        profile,
+      });
+      if (disposed) {
+        await invoke("terminal_close", { id });
+        return;
+      }
+      for (const data of queued.get(id) ?? []) term.write(new Uint8Array(data));
+      queued.clear();
+      callback.current.onReady(id);
+    };
+    void init().catch((e) => {
+      drainListeners();
+      if (disposed) return;
+      term.writeln(`Unable to start terminal: ${String(e)}`);
+      callback.current.onError(e);
+    });
+    const input = term.onData((data) => {
+      if (id !== null && !exitedRef.current)
+        void invoke("terminal_write", { id, data }).catch(
+          callback.current.onError,
+        );
+    });
+    const selection = term.onSelectionChange(() => {
+      const text = term.getSelection();
+      if (copySelection.current && text)
+        void navigator.clipboard
+          .writeText(text)
+          .catch(callback.current.onError);
+    });
+    let frame = 0;
+    const scheduleFit = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (
+          disposed ||
+          !host.current?.clientHeight ||
+          !host.current.clientWidth
+        )
+          return;
+        fit.fit();
+        if (id !== null)
+          void invoke("terminal_resize", {
+            id,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+      });
+    };
+    const observer = new ResizeObserver(scheduleFit);
+    requestFit.current = scheduleFit;
+    scheduleFit();
+    observer.observe(host.current);
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      drainListeners();
+      observer.disconnect();
+      requestFit.current = () => {};
+      input.dispose();
+      selection.dispose();
+      terminal.current = null;
+      // xterm 5 schedules an uncancellable viewport startup timer in open().
+      // Let that timer finish before disposing its renderer (including React's
+      // setup/cleanup replay). Detach now so another session can mount cleanly.
+      term.element?.remove();
+      setTimeout(() => term.dispose(), 0);
+      callback.current.onReady(null);
+      if (id !== null) void invoke("terminal_close", { id }).catch(() => {});
+    };
+  }, [root, profile, generation]);
+  useEffect(() => {
+    if (terminal.current) terminal.current.options.theme = terminalTheme(theme);
+  }, [theme]);
+  return (
+    <div className="terminal-content">
+      {root === "demo" || !native ? (
+        <div className="terminal-welcome">
+          <TerminalSquare size={23} />
+          <div>
+            <strong>No terminal session</strong>
+            <p>
+              {native
+                ? "Open a project folder to start an integrated shell."
+                : "Open a local project in the desktop app to use the integrated terminal."}
+            </p>
+          </div>
+          <button onClick={onOpen}>
+            Open a folder <ArrowUpRight size={14} />
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="xterm-host" ref={host} />
+          {exited && (
+            <button
+              className="restart-terminal"
+              onClick={() => setGeneration((x) => x + 1)}
+            >
+              <RotateCcw size={13} /> Restart shell
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+});
+
+function terminalTheme(theme: "paper" | "midnight") {
+  const light = theme === "paper";
+  return {
+    background: light ? "#f5f4f7" : "#1e1e21",
+    foreground: light ? "#494453" : "#d7d3de",
+    cursor: light ? "#80659f" : "#b9a2d7",
+    selectionBackground: light ? "#dcd3e8" : "#494053",
+    black: "#28262e",
+    red: "#d28c8d",
+    green: "#9eb394",
+    yellow: "#c5b189",
+    blue: "#8eaac6",
+    magenta: "#b499cd",
+    cyan: "#8eafb5",
+    white: "#ddd9e4",
+    brightBlack: "#797480",
+    brightRed: "#e4a1a1",
+    brightGreen: "#b0c8a5",
+    brightYellow: "#ddc79a",
+    brightBlue: "#a8c0dd",
+    brightMagenta: "#cab1df",
+    brightCyan: "#a3c5cb",
+    brightWhite: "#f4f1f8",
+  };
+}
