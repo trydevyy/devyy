@@ -1,0 +1,30 @@
+[package]
+name = "devyy"
+version = "0.1.0"
+description = "A little less interface. A lot more flow."
+authors = ["devyy"]
+edition = "2021"
+
+[lib]
+name = "devyy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ignore = "0.4"
+portable-pty = "0.9"
+window-vibrancy = "0.8"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSView", "NSButton", "NSControl", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
