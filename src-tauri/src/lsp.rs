@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex,
@@ -60,14 +60,6 @@ struct LspEvent {
     language: String,
     params: Value,
 }
-fn server(language: &str) -> Result<(&'static str, Vec<&'static str>), String> {
-    match language {
-        "rust" => Ok(("rust-analyzer", vec![])),
-        "typescript" | "javascript" => Ok(("typescript-language-server", vec!["--stdio"])),
-        "python" => Ok(("pylsp", vec![])),
-        _ => Err("No language server configured for this language".into()),
-    }
-}
 #[tauri::command]
 pub async fn lsp_start<R: tauri::Runtime>(
     language: String,
@@ -85,10 +77,18 @@ pub async fn lsp_start<R: tauri::Runtime>(
     }
     let base = root(&workspace)?;
     let generation = state.1.load(Ordering::SeqCst);
-    let (binary, args) = server(&language)?;
+    let config = crate::language_config::configs(&app)?
+        .into_iter()
+        .find(|s| s.language == language && s.enabled)
+        .ok_or("No language server configured for this language")?;
+    let binary = config.command;
+    let args = config.args;
+    let configuration = config.settings;
+    let initial_configuration = configuration.clone();
+    let initialization_options = config.initialization_options;
     let lang = language.clone();
     let client = tauri::async_runtime::spawn_blocking(move || {
-        let mut child = Command::new(binary).args(args).current_dir(&base).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| format!("Install {binary} to enable language intelligence: {e}"))?;
+        let mut child = crate::process::command(&binary).args(args).current_dir(&base).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| format!("Install {binary} to enable language intelligence: {e}"))?;
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("Language server stdin unavailable")?));
         let stdout = child.stdout.take().ok_or("Language server stdout unavailable")?;
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
@@ -109,7 +109,7 @@ pub async fn lsp_start<R: tauri::Runtime>(
                 let Ok(message) = serde_json::from_slice::<Value>(&body) else { continue };
                 if message.get("method").is_some() && message.get("id").is_some() {
                     let result = if message["method"] == "workspace/configuration" {
-                        Value::Array(message["params"]["items"].as_array().map(|items| items.iter().map(|_| Value::Null).collect()).unwrap_or_default())
+                        Value::Array(message["params"]["items"].as_array().map(|items| items.iter().map(|item| { let section=item["section"].as_str().unwrap_or(""); if section.is_empty() {configuration.clone()} else {section.split('.').fold(&configuration,|value,key| &value[key]).clone()} }).collect()).unwrap_or_default())
                     } else { Value::Null };
                     let _ = send(&writer, json!({"jsonrpc":"2.0","id":message["id"],"result":result}));
                 } else if let Some(id) = message["id"].as_u64() {
@@ -121,9 +121,10 @@ pub async fn lsp_start<R: tauri::Runtime>(
         });
         let mut client = Client { child, stdin, pending, next: AtomicU64::new(1) };
         let uri = tauri::Url::from_directory_path(&base).map_err(|_| "Invalid workspace URI")?.to_string();
-        let initialized = client.request("initialize", json!({"processId":std::process::id(),"rootUri":uri,"workspaceFolders":[{"uri":uri,"name":base.file_name().unwrap_or_default().to_string_lossy()}],"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"publishDiagnostics":{"relatedInformation":true}},"general":{"positionEncodings":["utf-16"]}}}));
+        let initialized = client.request("initialize", json!({"processId":std::process::id(),"initializationOptions":initialization_options,"rootUri":uri,"workspaceFolders":[{"uri":uri,"name":base.file_name().unwrap_or_default().to_string_lossy()}],"capabilities":{"workspace":{"configuration":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"publishDiagnostics":{"relatedInformation":true}},"general":{"positionEncodings":["utf-16"]}}}));
         if let Err(error) = initialized { let _ = client.child.kill(); let _ = client.child.wait(); return Err(error); }
         client.send(json!({"jsonrpc":"2.0","method":"initialized","params":{}}))?;
+        client.send(json!({"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":initial_configuration}}))?;
         Ok(Arc::new(client))
     }).await.map_err(|e| e.to_string())??;
     if generation != state.1.load(Ordering::SeqCst) {
