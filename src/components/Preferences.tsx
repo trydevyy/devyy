@@ -1,3 +1,5 @@
+import { motion } from "motion/react";
+import { useSurfaceMotion } from "../lib/motion";
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Asterisk,
@@ -23,6 +25,7 @@ import { version } from "../../package.json";
 import { native } from "../lib/native";
 import EditorPreview from "./EditorPreview";
 import About from "./About";
+import Credits from "./Credits";
 import ExtensionManager from "./ExtensionManager";
 import LanguageServers from "./LanguageServers";
 import SettingsImport from "./SettingsImport";
@@ -57,6 +60,7 @@ export default function Preferences({
   onCategoryChange: (category: SettingsCategory) => void;
 }) {
   useExtensions();
+  const { transition, instant } = useSurfaceMotion();
   const [query, setQuery] = useState("");
   const shells = useTerminalProfiles();
   const [recording, setRecording] = useState<CommandId | null>(null),
@@ -278,7 +282,11 @@ export default function Preferences({
   }
   return (
     <div className="modal-backdrop preferences-backdrop" onMouseDown={onClose}>
-      <section
+      <motion.section
+        layout
+        transition={transition}
+        initial={{ opacity: 0, scale: instant ? 1 : 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
         className={`settings-modal ${category === "ai" && !searching ? "settings-ai" : ""}`}
         role="dialog"
         aria-modal="true"
@@ -389,12 +397,15 @@ export default function Preferences({
               </button>
             </header>
             <div className="settings-scroll" ref={scrollRef}>
-              <div
+              <motion.div
                 className="settings-inner"
                 key={searching ? "search" : category}
+                initial={{ opacity: 0, x: instant ? 0 : 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={transition}
               >
                 {!searching && category === "about" ? <About /> : null}
-                {(category !== "about" && category !== "ai") || searching ? (
+                {!["about", "ai", "credits"].includes(category) || searching ? (
                   <div className="settings-section-heading">
                     <p aria-live="polite">
                       {searching
@@ -408,6 +419,7 @@ export default function Preferences({
                 )}
                 {!searching && category === "languages" && <LanguageServers />}
                 {!searching && category === "ai" && <AIProviders />}
+                {!searching && category === "credits" && <Credits />}
                 {!searching && category === "setup" && (
                   <>
                     <div className="setting-row">
@@ -644,6 +656,7 @@ export default function Preferences({
                   (searching ||
                     ![
                       "about",
+                      "credits",
                       "extensions",
                       "languages",
                       "setup",
@@ -663,11 +676,15 @@ export default function Preferences({
                       </button>
                     </div>
                   )}
-              </div>
+              </motion.div>
             </div>
             <footer className="settings-footer">
               <span>
-                <Check size={12} /> Saved automatically
+                {!["ai", "credits", "about"].includes(category) && (
+                  <>
+                    <Check size={12} /> Saved automatically
+                  </>
+                )}
               </span>
               <button
                 onClick={() => {
@@ -680,7 +697,7 @@ export default function Preferences({
             </footer>
           </div>
         </div>
-      </section>
+      </motion.section>
     </div>
   );
 }

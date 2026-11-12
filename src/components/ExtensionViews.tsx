@@ -8,6 +8,9 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import ExtensionWebviews from "./ExtensionWebviews";
+import { extensionMenuItems } from "../lib/extensionMenus";
+import { useContextMenu } from "./ContextMenu";
 import { matchesContext } from "../lib/extensionContext";
 import { useExtensions } from "../lib/extensions";
 import {
@@ -25,6 +28,7 @@ interface TreeNode {
   collapsibleState: number;
   icon?: string;
   command?: { command: string };
+  contextValue?: string;
 }
 function TreeBranch({
   id,
@@ -35,6 +39,9 @@ function TreeBranch({
   parent?: string;
   depth?: number;
 }) {
+  const extensions = useExtensions(),
+    host = useExtensionHost(),
+    openMenu = useContextMenu();
   const [items, setItems] = useState<TreeNode[]>([]);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
@@ -110,6 +117,20 @@ function TreeBranch({
             className="extension-tree-row"
             style={{ paddingLeft: 12 + depth * 14 }}
             title={item.tooltip}
+            onContextMenu={(event) => {
+              const items = extensionMenuItems(
+                extensions,
+                "view/item/context",
+                { ...host.contexts, view: id, viewItem: item.contextValue },
+                (command) =>
+                  void hostRequest("treeMenuCommand", {
+                    id,
+                    key: item.key,
+                    command,
+                  }).catch((error) => toast.error(String(error))),
+              );
+              if (items.length) openMenu(event, items);
+            }}
             onClick={() => {
               if (item.collapsibleState)
                 setOpen((previous) => {
@@ -221,6 +242,9 @@ function ContributedView({
   name: string;
   webview: boolean;
 }) {
+  const extensions = useExtensions(),
+    host = useExtensionHost(),
+    openMenu = useContextMenu();
   const [expanded, setExpanded] = useState(true);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
@@ -230,7 +254,21 @@ function ContributedView({
   }, [id, webview, expanded, revision]);
   return (
     <section className="extension-view" aria-label={name}>
-      <div className="extension-view-heading">
+      <div
+        className="extension-view-heading"
+        onContextMenu={(event) => {
+          const items = extensionMenuItems(
+            extensions,
+            "view/title",
+            { ...host.contexts, view: id },
+            (command) =>
+              void extensionCommand(command).catch((error) =>
+                toast.error(String(error)),
+              ),
+          );
+          if (items.length) openMenu(event, items);
+        }}
+      >
         <button
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
@@ -248,14 +286,23 @@ function ContributedView({
           <RefreshCw size={12} />
         </button>
       </div>
-      {expanded &&
-        (webview ? (
-          <p className="extension-view-note" role="status">
-            {error || "This extension opens its view in the extension panel."}
-          </p>
+      <div className="extension-view-body" hidden={!expanded}>
+        {webview ? (
+          error ? (
+            <p className="extension-view-note" role="alert">
+              {error}
+            </p>
+          ) : (
+            <ExtensionWebviews
+              placement="view"
+              viewId={id}
+              visible={expanded}
+            />
+          )
         ) : (
           <TreeBranch key={revision} id={id} />
-        ))}
+        )}
+      </div>
     </section>
   );
 }

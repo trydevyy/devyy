@@ -116,6 +116,11 @@ fn start(
     let script = runtime.join("host.cjs");
     fs::write(&script, include_str!("../extension-host/host.cjs")).map_err(|e| e.to_string())?;
     fs::write(
+        runtime.join("lsp-transport.cjs"),
+        include_str!("../extension-host/lsp-transport.cjs"),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::write(
         runtime.join("types.cjs"),
         include_str!("../extension-host/types.cjs"),
     )
@@ -262,8 +267,10 @@ pub async fn extension_host_request(
         "command",
         "tree",
         "treeCommand",
+        "treeMenuCommand",
         "resolveView",
         "webviewMessage",
+        "webviewState",
         "closeWebview",
         "workbenchResponse",
         "editorState",
@@ -277,6 +284,7 @@ pub async fn extension_host_request(
         "pseudoTerminalInput",
         "pseudoTerminalResize",
         "languageFeature",
+        "languageServerMessage",
     ]
     .contains(&method.as_str())
     {

@@ -10,6 +10,14 @@ pub struct ServerConfig {
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub client_capabilities: Value,
+    #[serde(default)]
     pub initialization_options: Value,
     #[serde(default)]
     pub settings: Value,
@@ -58,6 +66,10 @@ pub fn defaults() -> Vec<ServerConfig> {
         language: language.into(),
         command: command.into(),
         args: args.into_iter().map(String::from).collect(),
+        env: BTreeMap::new(),
+        cwd: None,
+        client_id: None,
+        client_capabilities: Value::Null,
         initialization_options: Value::Null,
         settings: Value::Null,
         enabled: true,
@@ -119,6 +131,16 @@ pub fn validate(s: &ServerConfig) -> Result<(), String> {
         || s.args.iter().any(|a| a.len() > 8192 || a.contains('\0'))
     {
         return Err("Invalid language server command or arguments".into());
+    }
+    if s.env.len() > 256
+        || s.env.iter().any(|(k, v)| {
+            k.is_empty() || k.contains(['=', '\0']) || v.contains('\0') || v.len() > 65536
+        })
+        || s.cwd
+            .as_ref()
+            .is_some_and(|p| p.len() > 4096 || p.contains('\0'))
+    {
+        return Err("Invalid language server environment or working directory".into());
     }
     Ok(())
 }

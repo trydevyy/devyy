@@ -3,6 +3,7 @@ mod app_info;
 mod appearance;
 mod debug;
 mod extension_host;
+mod extension_secrets;
 mod extension_servers;
 mod extensions;
 mod git;
@@ -40,6 +41,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(ai::AiState::default())
+        .manage(extension_secrets::ExtensionSecrets::default())
         .manage(workspace::Workspace::default())
         .manage(terminal::Terminals::default())
         .manage(lsp::LanguageServers::default())
@@ -63,11 +65,13 @@ pub fn run() {
             ai::ai_account,
             ai::ai_models,
             ai::ai_runtime,
+            ai::ai_install_runtime,
             ai::ai_delete_provider,
             appearance::set_appearance,
             setup_import::detect_ide_settings,
             setup_import::read_ide_settings,
             extension_host::extension_host_request,
+            extension_secrets::extension_secret,
             extension_host::extension_webview_document,
             extensions::search_extensions,
             extensions::extension_details,
@@ -77,6 +81,7 @@ pub fn run() {
             extensions::set_extension_enabled,
             extensions::uninstall_extension,
             extensions::extension_asset,
+            extensions::extension_icon,
             app_info::build_info,
             app_info::check_updates,
             workspace::read_preview_image,
@@ -96,6 +101,10 @@ pub fn run() {
             git::git_stage_all,
             git::git_discard,
             git::git_branches,
+            git::git_branch_details,
+            git::git_branch_action,
+            git::git_submodules,
+            git::git_submodule_action,
             git::git_switch_branch,
             git::git_history,
             git::git_stage,
@@ -115,6 +124,8 @@ pub fn run() {
             lsp::lsp_start,
             lsp::lsp_request,
             lsp::lsp_stop,
+            lsp::lsp_stop_language,
+            lsp::lsp_respond,
             lsp::file_uri,
         ])
         .build(tauri::generate_context!())
@@ -167,6 +178,10 @@ mod integration_tests {
                 git::git_stage_all,
                 git::git_discard,
                 git::git_branches,
+                git::git_branch_details,
+                git::git_branch_action,
+                git::git_submodules,
+                git::git_submodule_action,
                 git::git_switch_branch,
                 git::git_history
             ])
@@ -264,6 +279,85 @@ mod integration_tests {
             .unwrap()
             .iter()
             .any(|value| value == "devyy-checkpoint"));
+        // Exercise the actual IPC boundary with a separately selected submodule.
+        let source = tempfile::tempdir().unwrap();
+        let source_path = source.path();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.name", "Devyy fixture"],
+            vec!["config", "user.email", "fixture@devyy.local"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["config", "core.hooksPath", "disabled-hooks"],
+        ] {
+            assert!(crate::process::command("git")
+                .current_dir(source_path)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success());
+        }
+        std::fs::write(source_path.join("library.rs"), "original library").unwrap();
+        assert!(crate::process::command("git")
+            .current_dir(source_path)
+            .args(["add", "."])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(crate::process::command("git")
+            .current_dir(source_path)
+            .args(["commit", "-m", "Library"])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(crate::process::command("git")
+            .current_dir(&base)
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                source_path.to_str().unwrap(),
+                "packages/shared"
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        let modules = call("git_submodules", json!({}));
+        assert_eq!(modules[0]["path"], "packages/shared");
+        assert_eq!(modules[0]["initialized"], true);
+        std::fs::write(base.join("packages/shared/library.rs"), "working library").unwrap();
+        let selected = json!({"repository":"packages/shared"});
+        let child = call("git_status", selected.clone());
+        assert_eq!(child["changes"][0]["path"], "packages/shared/library.rs");
+        call(
+            "git_stage",
+            json!({"repository":"packages/shared", "path":"packages/shared/library.rs", "staged":false}),
+        );
+        assert_eq!(
+            call("git_status", selected.clone())["changes"][0]["index"],
+            "M"
+        );
+        let child_diff = call(
+            "git_diff_files",
+            json!({"repository":"packages/shared", "path":"packages/shared/library.rs", "staged":true}),
+        );
+        assert_eq!(child_diff["original"], "original library");
+        assert_eq!(child_diff["modified"], "working library");
+        assert!(call("git_branch_details", selected.clone())
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["name"] == "main"));
+        call(
+            "git_switch_branch",
+            json!({"repository":"packages/shared", "branch":"library-work", "create":true}),
+        );
+        assert_eq!(call("git_status", selected)["branch"], "library-work");
+        assert_eq!(call("git_status", json!({}))["branch"], original_branch);
         std::fs::create_dir(base.join("nested")).unwrap();
         std::fs::write(base.join("nested/child.rs"), "nested file").unwrap();
         call("open_workspace", json!({"path":base.join("nested")}));

@@ -24,7 +24,7 @@ export default function ResizeHandle({
   const cleanup = useRef<() => void>(() => {});
   useEffect(() => () => cleanup.current(), []);
   const clamp = (n: number) => Math.max(min, Math.min(max, n));
-  function start(e: PointerEvent) {
+  function start(e: PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.preventDefault();
     const start = axis === "x" ? e.clientX : e.clientY;
@@ -33,6 +33,8 @@ export default function ResizeHandle({
     let frame = 0,
       pending = value;
     document.documentElement.dataset.resizing = axis;
+    e.currentTarget.dataset.dragging = "true";
+    const handle = e.currentTarget;
     const move = (event: globalThis.PointerEvent) => {
       pending = clamp(
         value +
@@ -50,6 +52,7 @@ export default function ResizeHandle({
       cancelAnimationFrame(frame);
       onChange(pending);
       delete document.documentElement.dataset.resizing;
+      delete handle.dataset.dragging;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);

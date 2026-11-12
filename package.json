@@ -14,7 +14,10 @@
     "test:e2e": "playwright test",
     "format": "prettier --write src tests *.ts *.json && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "desktop:build": "tauri build",
-    "test:extension-host": "node --test scripts/test-extension-host.mjs"
+    "test:extension-host": "node --test scripts/test-extension-host.mjs",
+    "assets:generate": "node scripts/generate-assets.mjs",
+    "prebuild": "npm run assets:generate",
+    "predev": "npm run assets:generate"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.6",
@@ -46,6 +49,7 @@
     "codemirror": "^6.0.1",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^0.468.0",
+    "motion": "^14.13.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
@@ -63,6 +67,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "material-icon-theme": "^5.40.0",
     "prettier": "^3.9.10",
     "typescript": "~5.7.2",
     "vite": "^6.1.0",

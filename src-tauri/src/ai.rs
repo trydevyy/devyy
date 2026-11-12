@@ -46,17 +46,26 @@ fn enabled_by_default() -> bool {
 #[derive(Default)]
 pub struct AiState {
     configs: Mutex<Option<Vec<Provider>>>,
-    jobs: Mutex<HashMap<String, watch::Sender<bool>>>,
+    jobs: Mutex<HashMap<String, (String, watch::Sender<bool>)>>,
     processes: Arc<Mutex<HashSet<u32>>>,
     stopping: AtomicBool,
     oauth: tokio::sync::Mutex<()>,
     oauth_login: tokio::sync::Mutex<()>,
 }
 impl AiState {
+    fn cancel_provider(&self, provider: &str, except: &str) {
+        if let Ok(jobs) = self.jobs.lock() {
+            for (id, (owner, tx)) in jobs.iter() {
+                if owner == provider && id != except {
+                    let _ = tx.send(true);
+                }
+            }
+        }
+    }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
         if let Ok(jobs) = self.jobs.lock() {
-            for cancel in jobs.values() {
+            for (_, cancel) in jobs.values() {
                 let _ = cancel.send(true);
             }
         }
@@ -117,7 +126,6 @@ fn register_process<R: tauri::Runtime>(
 fn defaults() -> Vec<Provider> {
     [
         ("chatgpt", "ChatGPT", "chatgpt", ""),
-        ("codex", "Codex CLI", "codex", ""),
         ("claude", "Claude Code", "claude", ""),
         (
             "openai",
@@ -162,11 +170,20 @@ fn load(app: &AppHandle, state: &AiState) -> Result<Vec<Provider>, String> {
         } else {
             defaults()
         };
-        // Add the independent Devyy connection without changing existing CLI sessions.
+        // Retire the CLI connection. Devyy uses its independent ChatGPT registration.
+        values.retain(|p| p.kind != "codex");
+        // Add the independent Devyy connection.
         if !values.iter().any(|p| p.kind == "chatgpt") && values.len() < 32 {
             let mut entry = defaults().remove(0);
-            while values.iter().any(|p| p.id == entry.id) { entry.id.push('_'); }
+            while values.iter().any(|p| p.id == entry.id) {
+                entry.id.push('_');
+            }
             values.insert(0, entry);
+        }
+        for p in &mut values {
+            if p.id == "claude" && p.name == "Claude account" {
+                p.name = "Claude Code".into();
+            }
         }
         let mut ids = HashSet::new();
         if values.len() > 32 {
@@ -211,10 +228,10 @@ fn validate(p: &Provider) -> Result<(), String> {
     if p.name.trim().is_empty() || p.name.len() > 120 {
         return Err("Give this provider a name".into());
     }
-    if !["chatgpt", "codex", "claude", "openai", "anthropic", "custom"].contains(&p.kind.as_str()) {
+    if !["chatgpt", "claude", "openai", "anthropic", "custom"].contains(&p.kind.as_str()) {
         return Err("Unknown provider protocol".into());
     }
-    if !["chatgpt", "codex", "claude"].contains(&p.kind.as_str()) {
+    if !["chatgpt", "claude"].contains(&p.kind.as_str()) {
         endpoint(p)?;
     }
     if p.model.len() > 200 || p.executable.len() > 4096 {
@@ -313,7 +330,7 @@ pub async fn ai_delete_provider(
     state: State<'_, AiState>,
     provider_id: String,
 ) -> Result<(), String> {
-    if ["chatgpt", "codex", "claude", "openai", "anthropic"].contains(&provider_id.as_str()) {
+    if ["chatgpt", "claude", "openai", "anthropic"].contains(&provider_id.as_str()) {
         return Err("Built-in providers can be disabled, but cannot be removed".into());
     }
     let mut values = load(&app, &state)?;
@@ -334,9 +351,11 @@ pub async fn ai_runtime(
 ) -> Result<Value, String> {
     let p = provider(&app, &state, &provider_id)?;
     if p.kind == "chatgpt" {
-        return Ok(json!({"protocol":"Sign in with ChatGPT / Responses API", "application":"Devyy", "endpoint":"https://api.openai.com/v1"}));
+        return Ok(
+            json!({"protocol":"Sign in with ChatGPT / Responses API", "application":"Devyy", "endpoint":"https://api.openai.com/v1"}),
+        );
     }
-    if !["codex", "claude"].contains(&p.kind.as_str()) {
+    if !["claude"].contains(&p.kind.as_str()) {
         return Ok(
             json!({"protocol":if p.kind=="anthropic"{"Anthropic Messages"}else{"OpenAI compatible"},"endpoint":p.endpoint}),
         );
@@ -365,6 +384,166 @@ pub async fn ai_runtime(
         .take(200)
         .collect::<String>();
     Ok(json!({"executable":program,"version":version}))
+}
+fn trusted_installer_source(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port_or_known_default() == Some(443)
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && match url.host_str() {
+            Some("claude.ai") => matches!(url.path(), "/install.sh" | "/install.ps1"),
+            Some("downloads.claude.ai") => matches!(
+                url.path(),
+                "/claude-code-releases/bootstrap.sh" | "/claude-code-releases/bootstrap.ps1"
+            ),
+            _ => false,
+        }
+}
+fn installer_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent(concat!("Devyy/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(180))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() > 3 || !trusted_installer_source(attempt.url()) {
+                attempt.error("Untrusted Claude Code installer redirect")
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .map_err(|e| e.to_string())
+}
+/// Installs the official per-user Claude Code runtime after an explicit Settings action.
+/// The URL and shell are fixed by the platform, never supplied by a provider or webview.
+#[tauri::command]
+pub async fn ai_install_runtime(
+    app: AppHandle,
+    state: State<'_, AiState>,
+    provider_id: String,
+    request_id: String,
+) -> Result<Value, String> {
+    let mut p = provider(&app, &state, &provider_id)?;
+    if p.kind != "claude" {
+        return Err("This provider does not require an installable runtime".into());
+    }
+    let (_guard, mut cancel) = job(&state, &request_id, &provider_id)?;
+    let install = async {
+        #[cfg(windows)]
+        let (url, suffix, shell) = ("https://claude.ai/install.ps1", ".ps1", "powershell.exe");
+        #[cfg(not(windows))]
+        let (url, suffix, shell) = ("https://claude.ai/install.sh", ".sh", "bash");
+        emit(&app, &request_id, "install", json!({"phase":"downloading"}));
+        let mut response = installer_client()?
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| "Could not download the Claude Code installer")?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Claude Code installer returned HTTP {}",
+                response.status()
+            ));
+        }
+        let mut script = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "Installer download was interrupted")?
+        {
+            if script.len() + chunk.len() > 512 * 1024 {
+                return Err("Claude Code installer exceeds the download limit".into());
+            }
+            script.extend_from_slice(&chunk);
+        }
+        if script.is_empty() || std::str::from_utf8(&script).is_err() {
+            return Err("Claude Code returned an invalid installer".into());
+        }
+        let mut file = tempfile::Builder::new()
+            .prefix("devyy-claude-")
+            .suffix(suffix)
+            .tempfile()
+            .map_err(|e| e.to_string())?;
+        use std::io::Write;
+        file.write_all(&script).map_err(|e| e.to_string())?;
+        file.flush().map_err(|e| e.to_string())?;
+        let mut program = crate::process::command(shell);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            program.process_group(0);
+        }
+        #[cfg(windows)]
+        program.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ]);
+        program.arg(file.path());
+        program
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut command = tokio::process::Command::from(program);
+        command.kill_on_drop(true);
+        emit(&app, &request_id, "install", json!({"phase":"installing"}));
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("Could not start the Claude Code installer: {e}"))?;
+        let _registration = register_process(&app, child.id());
+        let complete = async {
+            let mut stdout = BufReader::new(
+                child
+                    .stdout
+                    .take()
+                    .ok_or("Installer output is unavailable")?,
+            );
+            let mut total = 0;
+            use tokio::io::AsyncReadExt;
+            let mut buffer = [0; 4096];
+            loop {
+                let n = stdout.read(&mut buffer).await.map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                total += n;
+                if total > 1024 * 1024 {
+                    return Err("Installer output exceeded the size limit".into());
+                }
+            }
+            if !child.wait().await.map_err(|e| e.to_string())?.success() {
+                return Err("Claude Code installation failed. Check your connection and the system requirements in Runtime settings.".into());
+            }
+            Ok::<(), String>(())
+        };
+        tokio::time::timeout(Duration::from_secs(900), complete)
+            .await
+            .map_err(|_| "Claude Code installation timed out")??;
+        emit(&app, &request_id, "install", json!({"phase":"verifying"}));
+        p.executable.clear();
+        let mut check = cli(&p)?;
+        let binary = check.as_std().get_program().to_string_lossy().into_owned();
+        let checked = check.arg("--version").spawn().map_err(|e| e.to_string())?;
+        let _check_registration = register_process(&app, checked.id());
+        let output = tokio::time::timeout(Duration::from_secs(15), checked.wait_with_output())
+            .await
+            .map_err(|_| "Runtime verification timed out")?
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("Claude Code installed but could not report its version".into());
+        }
+        Ok(
+            json!({"executable":binary,"version":String::from_utf8_lossy(&output.stdout).trim().chars().take(200).collect::<String>()}),
+        )
+    };
+    tokio::select! {
+        result = install => result,
+        _ = cancel.changed() => Err("Installation cancelled".into()),
+    }
 }
 fn provider(app: &AppHandle, state: &AiState, id: &str) -> Result<Provider, String> {
     load(app, state)?
@@ -448,7 +627,11 @@ impl Drop for Job<'_> {
         }
     }
 }
-fn job<'a>(state: &'a AiState, id: &str) -> Result<(Job<'a>, watch::Receiver<bool>), String> {
+fn job<'a>(
+    state: &'a AiState,
+    id: &str,
+    provider: &str,
+) -> Result<(Job<'a>, watch::Receiver<bool>), String> {
     if state.stopping.load(Ordering::Acquire) {
         return Err("Devyy is closing".into());
     }
@@ -463,7 +646,7 @@ fn job<'a>(state: &'a AiState, id: &str) -> Result<(Job<'a>, watch::Receiver<boo
         return Err("Too many AI requests are running".into());
     }
     let (tx, rx) = watch::channel(false);
-    jobs.insert(id.into(), tx);
+    jobs.insert(id.into(), (provider.into(), tx));
     Ok((
         Job {
             state,
@@ -475,7 +658,7 @@ fn job<'a>(state: &'a AiState, id: &str) -> Result<(Job<'a>, watch::Receiver<boo
 #[tauri::command]
 pub fn ai_cancel(state: State<'_, AiState>, request_id: String) {
     if let Ok(jobs) = state.jobs.lock() {
-        if let Some(tx) = jobs.get(&request_id) {
+        if let Some((_, tx)) = jobs.get(&request_id) {
             let _ = tx.send(true);
         }
     }
@@ -507,11 +690,10 @@ pub async fn ai_chat(
         }
     }
 
-    let (_guard, mut cancel) = job(&state, &request.request_id)?;
+    let (_guard, mut cancel) = job(&state, &request.request_id, &request.provider_id)?;
     let future = async {
         match p.kind.as_str() {
             "chatgpt" => chatgpt::chat(&app, &state, &p, &request).await,
-            "codex" => codex_chat(&app, &p, &request).await,
             "claude" => claude_chat(&app, &p, &request).await,
             _ => http_chat(&app, &p, &request).await,
         }
@@ -616,6 +798,58 @@ fn stream_event(value: &Value) -> Result<(Option<String>, Option<Value>, bool), 
         matches!(kind, "message_stop" | "response.completed"),
     ))
 }
+fn reasoning_event(value: &Value) -> Option<&str> {
+    match value["type"].as_str()? {
+        "response.reasoning_summary_text.delta" => value["delta"].as_str(),
+        "content_block_delta" if value["delta"]["type"] == "thinking_delta" => {
+            value["delta"]["thinking"].as_str()
+        }
+        _ => None,
+    }
+}
+fn openai_reasoning_model(model: &str) -> bool {
+    ["gpt-5", "gpt-6", "o3", "o4"]
+        .iter()
+        .any(|prefix| model.starts_with(prefix))
+}
+fn anthropic_adaptive_model(model: &str) -> bool {
+    [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-4-8",
+        "claude-opus-5",
+        "claude-sonnet-5",
+    ]
+    .iter()
+    .any(|prefix| model.starts_with(prefix))
+}
+fn http_body(p: &Provider, r: &ChatRequest) -> Value {
+    if p.kind == "anthropic" {
+        let mut body = json!({"model":p.model,"max_tokens":8192,"system":SYSTEM,"messages":r.messages,"stream":true});
+        if anthropic_adaptive_model(&p.model) {
+            body["thinking"] = json!({"type":"adaptive"});
+            if let Some(effort) = r.effort.as_ref().filter(|s| !s.is_empty()) {
+                body["output_config"] = json!({"effort":effort});
+            }
+        }
+        body
+    } else if p.kind == "openai" {
+        let mut body = json!({"model":p.model,"instructions":SYSTEM,"input":r.messages,"stream":true,"store":false});
+        if openai_reasoning_model(&p.model) {
+            body["reasoning"] = json!({"summary":"auto"});
+            if let Some(effort) = r.effort.as_ref().filter(|s| !s.is_empty()) {
+                body["reasoning"]["effort"] = json!(effort);
+            }
+        }
+        body
+    } else {
+        let mut messages = vec![json!({"role":"system","content":SYSTEM})];
+        messages.extend(r.messages.iter().map(|m| json!(m)));
+        json!({"model":p.model,"messages":messages,"stream":true,"stream_options":{"include_usage":true}})
+    }
+}
 async fn http_chat<R: tauri::Runtime>(
     app: &AppHandle<R>,
     p: &Provider,
@@ -625,17 +859,13 @@ async fn http_chat<R: tauri::Runtime>(
         return Err("Choose a model in AI provider settings first".into());
     }
     let anthropic = p.kind == "anthropic";
-    let body = if anthropic {
-        json!({"model":p.model,"max_tokens":8192,"system":SYSTEM,"messages":r.messages,"stream":true})
-    } else {
-        let mut messages = vec![json!({"role":"system","content":SYSTEM})];
-        messages.extend(r.messages.iter().map(|m| json!(m)));
-        json!({"model":p.model,"messages":messages,"stream":true,"stream_options":{"include_usage":true}})
-    };
+    let body = http_body(p, r);
     let mut response = request(
         p,
         if anthropic {
             "messages"
+        } else if p.kind == "openai" {
+            "responses"
         } else {
             "chat/completions"
         },
@@ -689,6 +919,13 @@ async fn http_chat<R: tauri::Runtime>(
             let value: Value = serde_json::from_str(&data)
                 .map_err(|_| "Provider returned an invalid stream event")?;
             let (text, usage, done) = stream_event(&value)?;
+            if let Some(reasoning) = reasoning_event(&value) {
+                total += reasoning.len();
+                if total > 4 * 1024 * 1024 {
+                    return Err("AI reply exceeded the size limit".into());
+                }
+                emit(app, &r.request_id, "reasoning", json!(reasoning));
+            }
             completed |= done;
             if let Some(text) = text {
                 total += text.len();
@@ -724,12 +961,15 @@ fn cli(p: &Provider) -> Result<tokio::process::Command, String> {
                 .find(|path| path.is_file())
             })
             .or_else(|| {
-                std::env::var_os("HOME").and_then(|home| {
-                    [".local/bin", ".cargo/bin"]
-                        .into_iter()
-                        .map(|dir| PathBuf::from(&home).join(dir).join(&p.kind))
-                        .find(|path| path.is_file())
-                })
+                std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .and_then(|home| {
+                        [".local/bin", ".cargo/bin"]
+                            .into_iter()
+                            .map(|dir| PathBuf::from(&home).join(dir).join(&p.kind))
+                            .flat_map(|path| [path.clone(), path.with_extension("exe")])
+                            .find(|path| path.is_file())
+                    })
             })
             .ok_or_else(|| {
                 format!(
@@ -751,158 +991,6 @@ fn cli(p: &Provider) -> Result<tokio::process::Command, String> {
         .stderr(Stdio::null())
         .kill_on_drop(true);
     Ok(command)
-}
-struct Codex {
-    child: tokio::process::Child,
-    input: tokio::process::ChildStdin,
-    lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    serial: u64,
-    _registration: ProcessRegistration,
-}
-impl Codex {
-    async fn start<R: tauri::Runtime>(app: &AppHandle<R>, p: &Provider) -> Result<Self, String> {
-        let mut child = cli(p)?
-            .arg("app-server")
-            .spawn()
-            .map_err(|e| format!("Could not start Codex: {e}"))?;
-        let registration = register_process(app, child.id());
-        let input = child.stdin.take().ok_or("No Codex input pipe")?;
-        let lines = BufReader::new(child.stdout.take().ok_or("No Codex output pipe")?).lines();
-        let mut server = Self {
-            child,
-            input,
-            lines,
-            serial: 0,
-            _registration: registration,
-        };
-        server
-            .call(
-                "initialize",
-                json!({"clientInfo":{"name":"devyy","title":"Devyy","version":"0.1.0"}}),
-            )
-            .await?;
-        server
-            .send(json!({"method":"initialized","params":{}}))
-            .await?;
-        Ok(server)
-    }
-    async fn send(&mut self, value: Value) -> Result<(), String> {
-        self.input
-            .write_all(format!("{value}\n").as_bytes())
-            .await
-            .map_err(|e| e.to_string())
-    }
-    async fn next(&mut self) -> Result<Value, String> {
-        let line = tokio::time::timeout(Duration::from_secs(180), self.lines.next_line())
-            .await
-            .map_err(|_| "Codex timed out")?
-            .map_err(|e| e.to_string())?
-            .ok_or("Codex exited unexpectedly")?;
-        if line.len() > MAX_EVENT {
-            return Err("Codex event is too large".into());
-        }
-        serde_json::from_str(&line).map_err(|_| "Invalid Codex protocol response".into())
-    }
-    async fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        self.serial += 1;
-        let id = self.serial;
-        self.send(json!({"id":id,"method":method,"params":params}))
-            .await?;
-        loop {
-            let v = self.next().await?;
-            if v["id"] == id {
-                if let Some(e) = v.get("error") {
-                    return Err(e["message"]
-                        .as_str()
-                        .unwrap_or("Codex request failed")
-                        .into());
-                }
-                return Ok(v["result"].clone());
-            }
-            self.deny_request(&v).await?;
-        }
-    }
-    async fn deny_request(&mut self, v: &Value) -> Result<(), String> {
-        if v.get("id").is_some() && v.get("method").is_some() {
-            self.send(json!({"id":v["id"],"error":{"code":-32601,"message":"Devyy chat does not allow tool approvals or external actions"}})).await?;
-        }
-        Ok(())
-    }
-}
-impl Drop for Codex {
-    fn drop(&mut self) {
-        if let Some(pid) = self.child.id() {
-            stop_process_tree(pid);
-        }
-        let _ = self.child.start_kill();
-    }
-}
-async fn codex_chat<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    p: &Provider,
-    r: &ChatRequest,
-) -> Result<(), String> {
-    let scratch = if r.cwd.is_none() {
-        Some(tempfile::tempdir().map_err(|e| e.to_string())?)
-    } else {
-        None
-    };
-    let cwd = r
-        .cwd
-        .as_deref()
-        .map(PathBuf::from)
-        .or_else(|| scratch.as_ref().map(|dir| dir.path().to_path_buf()));
-    let mut server = Codex::start(app, p).await?;
-    let mut params = json!({"ephemeral":true,"approvalPolicy":"never","sandbox":"read-only","developerInstructions":SYSTEM,"config":{"mcp_servers":{},"web_search":"disabled","features":{"multi_agent":false,"shell_tool":false,"apply_patch_freeform":false}}});
-    if let Some(cwd) = &cwd {
-        params["cwd"] = json!(cwd);
-    }
-    if !p.model.is_empty() {
-        params["model"] = json!(p.model);
-    }
-    let thread = server.call("thread/start", params).await?;
-    let id = thread["thread"]["id"]
-        .as_str()
-        .ok_or("Codex did not create a conversation")?;
-    let mut turn = json!({"threadId":id,"input":[{"type":"text","text":transcript(&r.messages),"text_elements":[]}]});
-    if let Some(effort) = &r.effort {
-        turn["effort"] = json!(effort);
-    }
-    server.call("turn/start", turn).await?;
-    loop {
-        let v = server.next().await?;
-        match v["method"].as_str().unwrap_or("") {
-            "item/agentMessage/delta" => {
-                emit(app, &r.request_id, "delta", v["params"]["delta"].clone())
-            }
-            "thread/tokenUsage/updated" => emit(
-                app,
-                &r.request_id,
-                "usage",
-                v["params"]["tokenUsage"]["last"].clone(),
-            ),
-            "account/rateLimits/updated" => emit(app, &r.request_id, "limits", v["params"].clone()),
-            "turn/completed" => {
-                let turn = &v["params"]["turn"];
-                if turn["status"] == "failed" {
-                    return Err(turn["error"]["message"]
-                        .as_str()
-                        .unwrap_or("Codex turn failed")
-                        .into());
-                }
-                return Ok(());
-            }
-            "error" => {
-                if v["params"]["willRetry"] != true {
-                    return Err(v["params"]["message"]
-                        .as_str()
-                        .unwrap_or("Codex reported an error")
-                        .into());
-                }
-            }
-            _ => server.deny_request(&v).await?,
-        }
-    }
 }
 async fn claude_chat<R: tauri::Runtime>(
     app: &AppHandle<R>,
@@ -956,6 +1044,7 @@ async fn claude_chat<R: tauri::Runtime>(
     let mut lines = BufReader::new(child.stdout.take().ok_or("No Claude output pipe")?).lines();
     let mut streamed = false;
     let mut finished = false;
+    let mut total = 0;
     while let Some(line) = tokio::time::timeout(Duration::from_secs(180), lines.next_line())
         .await
         .map_err(|_| "Claude timed out")?
@@ -970,7 +1059,18 @@ async fn claude_chat<R: tauri::Runtime>(
         match v["type"].as_str().unwrap_or("") {
             "stream_event" => {
                 let (text, _, _) = stream_event(&v["event"])?;
+                if let Some(reasoning) = reasoning_event(&v["event"]) {
+                    total += reasoning.len();
+                    if total > 4 * 1024 * 1024 {
+                        return Err("Claude reply exceeded the size limit".into());
+                    }
+                    emit(app, &r.request_id, "reasoning", json!(reasoning));
+                }
                 if let Some(text) = text {
+                    total += text.len();
+                    if total > 4 * 1024 * 1024 {
+                        return Err("Claude reply exceeded the size limit".into());
+                    }
                     streamed = true;
                     emit(app, &r.request_id, "delta", json!(text));
                 }
@@ -1020,44 +1120,18 @@ pub async fn ai_account(
     account_id: Option<String>,
 ) -> Result<Value, String> {
     let p = provider(&app, &state, &provider_id)?;
-    let (_guard, mut cancel) = job(&state, &request_id)?;
+    let (_guard, mut cancel) = job(&state, &request_id, &provider_id)?;
     let future = async {
         if p.kind == "chatgpt" {
-            return chatgpt::account(&app, &state, &action, &request_id, account_id.as_deref()).await;
-        }
-        if p.kind == "codex" {
-            let mut server = Codex::start(&app, &p).await?;
-            match action.as_str() {
-                "login" => {
-                    let response = server
-                        .call("account/login/start", json!({"type":"chatgpt"}))
-                        .await?;
-                    emit(&app, &request_id, "login", response.clone());
-                    loop {
-                        let v = server.next().await?;
-                        if v["method"] == "account/login/completed" {
-                            if v["params"]["success"] == true {
-                                break;
-                            }
-                            return Err(v["params"]["error"]
-                                .as_str()
-                                .unwrap_or("Codex sign-in failed")
-                                .into());
-                        }
-                        server.deny_request(&v).await?;
-                    }
-                }
-                "logout" => {
-                    server.call("account/logout", json!({})).await?;
-                }
-                "status" => {}
-                _ => return Err("Unknown account action".into()),
+            if ["logout", "select"].contains(&action.as_str()) {
+                state.cancel_provider(&provider_id, &request_id);
             }
-            let account = server
-                .call("account/read", json!({"refreshToken":false}))
-                .await?;
-            let limits = server.call("account/rateLimits/read", json!({})).await.ok();
-            return Ok(json!({"account":account["account"],"limits":limits}));
+            let result =
+                chatgpt::account(&app, &state, &action, &request_id, account_id.as_deref()).await;
+            if result.is_ok() && action != "status" {
+                state.cancel_provider(&provider_id, &request_id);
+            }
+            return result;
         }
         if p.kind == "claude" {
             if !["login", "logout", "status"].contains(&action.as_str()) {
@@ -1085,7 +1159,7 @@ pub async fn ai_account(
             }
             return Ok(json!({"completed":true}));
         }
-        Err("Account sign-in is available for Codex and Claude Code".into())
+        Err("Account sign-in is available for ChatGPT and Claude Code".into())
     };
     tokio::select! {result=tokio::time::timeout(Duration::from_secs(300), future)=>result.map_err(|_|"Account request timed out. Try signing in again.".to_string())?, _=cancel.changed()=>Err("Sign-in cancelled".into())}
 }
@@ -1127,16 +1201,6 @@ pub async fn ai_models(
             })
             .collect();
         return Ok([("sonnet","Sonnet"),("opus","Opus"),("haiku","Haiku")].into_iter().map(|(id,name)|json!({"id":id,"name":name,"reasoningEfforts":if id=="haiku"{vec![]}else{efforts.clone()}})).collect());
-    }
-    if p.kind == "codex" {
-        let mut server = Codex::start(&app, &p).await?;
-        let v = server.call("model/list", json!({})).await?;
-        return Ok(v["data"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|m| m["id"].as_str().map(|id| json!({"id":m["model"].as_str().unwrap_or(id),"name":m["displayName"].as_str().unwrap_or(id),"description":m["description"],"reasoningEfforts":m["supportedReasoningEfforts"].as_array().map(|values|values.iter().filter_map(|value|value["reasoningEffort"].as_str().or_else(||value["effort"].as_str())).collect::<Vec<_>>()).unwrap_or_default(),"defaultEffort":m["defaultReasoningEffort"],"isDefault":m["isDefault"]})))
-            .collect());
     }
     let url = format!("{}/models", endpoint(&p)?.as_str().trim_end_matches('/'));
     let mut req = client()?.get(url);
@@ -1195,7 +1259,7 @@ mod tests {
     }
     #[test]
     fn provider_endpoints_reject_credentials_and_insecure_remote_urls() {
-        let mut p = defaults().remove(2);
+        let mut p = defaults().into_iter().find(|p| p.kind == "openai").unwrap();
         for endpoint_url in [
             "http://remote.example/v1",
             "https://key:secret@example.com",
@@ -1226,6 +1290,74 @@ mod tests {
             Some("world")
         );
         assert!(stream_event(&json!({"error":{"message":"out of credits"}})).is_err());
+    }
+    #[test]
+    fn installer_redirects_stay_on_official_script_sources() {
+        for url in [
+            "https://claude.ai/install.sh",
+            "https://claude.ai/install.ps1",
+            "https://downloads.claude.ai/claude-code-releases/bootstrap.sh",
+            "https://downloads.claude.ai/claude-code-releases/bootstrap.ps1",
+        ] {
+            assert!(trusted_installer_source(&reqwest::Url::parse(url).unwrap()));
+        }
+        for url in [
+            "http://claude.ai/install.sh",
+            "https://claude.ai.evil.test/install.sh",
+            "https://claude.ai/login",
+            "https://downloads.claude.ai:8443/claude-code-releases/bootstrap.sh",
+            "https://token@claude.ai/install.sh",
+            "https://claude.ai/install.sh?script=evil",
+        ] {
+            assert!(!trusted_installer_source(
+                &reqwest::Url::parse(url).unwrap()
+            ));
+        }
+    }
+    #[test]
+    fn published_thinking_summaries_are_separate_from_answer_text() {
+        let openai = json!({"type":"response.reasoning_summary_text.delta","delta":"Checking the constraints."});
+        assert_eq!(reasoning_event(&openai), Some("Checking the constraints."));
+        assert!(stream_event(&openai).unwrap().0.is_none());
+        let claude = json!({"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Comparing approaches."}});
+        assert_eq!(reasoning_event(&claude), Some("Comparing approaches."));
+        assert!(stream_event(&claude).unwrap().0.is_none());
+        assert!(reasoning_event(&json!({"type":"content_block_delta","delta":{"type":"signature_delta","signature":"opaque"}})).is_none());
+        assert!(reasoning_event(
+            &json!({"type":"response.reasoning_text.delta","delta":"not a summary"})
+        )
+        .is_none());
+    }
+    #[test]
+    fn official_apis_request_summaries_only_on_supported_models() {
+        let mut p = defaults().into_iter().find(|p| p.kind == "openai").unwrap();
+        let request = ChatRequest {
+            request_id: "test".into(),
+            provider_id: p.id.clone(),
+            messages: vec![Message {
+                role: "user".into(),
+                content: "Hello".into(),
+            }],
+            cwd: None,
+            model: None,
+            effort: Some("high".into()),
+        };
+        p.model = "gpt-5".into();
+        let body = http_body(&p, &request);
+        assert_eq!(body["reasoning"], json!({"summary":"auto","effort":"high"}));
+        assert_eq!(body["input"][0]["content"], "Hello");
+        p.model = "gpt-4.1".into();
+        assert!(http_body(&p, &request).get("reasoning").is_none());
+        p.kind = "anthropic".into();
+        p.model = "claude-sonnet-4-6".into();
+        assert_eq!(http_body(&p, &request)["thinking"]["type"], "adaptive");
+        p.model = "claude-haiku-3-5".into();
+        assert!(http_body(&p, &request).get("thinking").is_none());
+        p.kind = "custom".into();
+        assert!(http_body(&p, &request).get("messages").is_some());
+        p.kind = "codex".into();
+        assert!(validate(&p).is_err());
+        assert!(defaults().iter().all(|p| p.kind != "codex"));
     }
     #[test]
     fn rejects_untrusted_roles_and_large_context() {
@@ -1287,58 +1419,49 @@ mod transport_tests {
         }
     }
     #[tokio::test]
-    async fn native_http_sends_conversation_and_streams_text_usage_and_limit_headers() {
+    async fn native_http_sends_conversation_and_streams_text_usage_and_summaries() {
         use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            socket
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0u8; 4096];
-            loop {
-                let n = socket.read(&mut buffer).unwrap();
-                assert!(n > 0);
-                request.extend_from_slice(&buffer[..n]);
-                if let Some(index) = request.windows(4).position(|b| b == b"\r\n\r\n") {
-                    let headers = String::from_utf8_lossy(&request[..index]).to_lowercase();
-                    let length = headers
-                        .lines()
-                        .find_map(|l| {
-                            l.strip_prefix("content-length:")
-                                .and_then(|l| l.trim().parse::<usize>().ok())
-                        })
-                        .unwrap();
-                    if request.len() >= index + 4 + length {
-                        break;
+        for (kind, path, body) in [
+            ("custom", "chat/completions", "data: {\"choices\":[{\"delta\":{\"content\":\"héllo\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n"),
+            ("openai", "responses", "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"Checking constraints.\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"héllo\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":12,\"output_tokens\":4}}}\n\n"),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                loop {
+                    let n = socket.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(index) = request.windows(4).position(|b| b == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..index]).to_lowercase();
+                        let length = headers.lines().find_map(|l| l.strip_prefix("content-length:").and_then(|l| l.trim().parse::<usize>().ok())).unwrap();
+                        if request.len() >= index + 4 + length { break; }
                     }
                 }
-            }
-            let body="data: {\"choices\":[{\"delta\":{\"content\":\"héllo\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n";
-            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-ratelimit-remaining-tokens: 500\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
-            request
-        });
-        let (mut p, r) = (fixture_provider("custom"), chat());
-        p.endpoint = format!("http://{address}/v1");
-        let (app, events) = app();
-        http_chat(app.handle(), &p, &r).await.unwrap();
-        let request = String::from_utf8(server.join().unwrap()).unwrap();
-        assert!(request.starts_with("POST /v1/chat/completions "));
-        assert!(request.contains("fixture-model"));
-        assert!(request.contains("Explain this fixture"));
-        assert!(!request.to_lowercase().contains("authorization:"));
-        let events = events.lock().unwrap();
-        assert!(events
-            .iter()
-            .any(|e| e["kind"] == "delta" && e["data"] == "héllo"));
-        assert!(events
-            .iter()
-            .any(|e| e["kind"] == "usage" && e["data"]["completion_tokens"] == 4));
-        assert!(events
-            .iter()
-            .any(|e| e["kind"] == "limits" && e["data"]["x-ratelimit-remaining-tokens"] == "500"));
+                write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-ratelimit-remaining-tokens: 500\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+                request
+            });
+            let (mut p, r) = (fixture_provider(kind), chat());
+            p.endpoint = format!("http://{address}/v1");
+            if kind == "openai" { p.model = "gpt-5".into(); }
+            let (app, events) = app();
+            http_chat(app.handle(), &p, &r).await.unwrap();
+            let request = String::from_utf8(server.join().unwrap()).unwrap();
+            assert!(request.starts_with(&format!("POST /v1/{path} ")));
+            assert!(request.contains("Explain this fixture"));
+            assert!(!request.to_lowercase().contains("authorization:"));
+            if kind == "openai" { assert!(request.contains("\"summary\":\"auto\"")); }
+            let events = events.lock().unwrap();
+            assert_eq!(events.iter().filter(|e| e["kind"] == "delta").count(), 1);
+            assert!(events.iter().any(|e| e["kind"] == "delta" && e["data"] == "héllo"));
+            assert!(events.iter().any(|e| e["kind"] == "usage"));
+            assert!(events.iter().any(|e| e["kind"] == "limits" && e["data"]["x-ratelimit-remaining-tokens"] == "500"));
+            assert_eq!(events.iter().any(|e| e["kind"] == "reasoning" && e["data"] == "Checking constraints."), kind == "openai");
+        }
     }
     #[cfg(unix)]
     fn executable(script: &str) -> (tempfile::TempDir, String) {
@@ -1351,61 +1474,14 @@ mod transport_tests {
     }
     #[cfg(unix)]
     #[tokio::test]
-    async fn codex_protocol_negotiates_readonly_chat_and_handles_server_requests() {
-        let (_dir, path) = executable(
-            r#"import sys,json
-for line in sys.stdin:
- m=json.loads(line)
- if 'method' not in m: continue
- method=m['method']
- if method=='initialized': continue
- result={}
- if method=='thread/start':
-  assert m['params']['sandbox']=='read-only'
-  assert m['params']['config']['features']['shell_tool']==False
-  result={'thread':{'id':'fixture-thread'}}
- if method=='turn/start':
-  assert m['params']['effort']=='high'
-  assert 'Explain this fixture' in m['params']['input'][0]['text']
-  result={'turn':{'id':'fixture-turn'}}
- print(json.dumps({'id':m['id'],'result':result}),flush=True)
- if method=='turn/start':
-  print(json.dumps({'id':'approval-fixture','method':'item/commandExecution/requestApproval','params':{}}),flush=True)
-  print(json.dumps({'method':'item/agentMessage/delta','params':{'delta':'Codex streamed reply'}}),flush=True)
-  print(json.dumps({'method':'thread/tokenUsage/updated','params':{'tokenUsage':{'last':{'inputTokens':10,'outputTokens':5}}}}),flush=True)
-  print(json.dumps({'method':'turn/completed','params':{'turn':{'status':'completed'}}}),flush=True)
-"#,
-        );
-        let mut p = fixture_provider("codex");
+    async fn dropping_a_cancelled_claude_request_stops_its_subprocess() {
+        let (dir, path) = executable("import sys,time,os\nopen(__file__+'.pid','w').write(str(os.getpid()))\nsys.stdin.read()\ntime.sleep(30)");
+        let mut p = fixture_provider("claude");
         p.executable = path;
-        let (app, events) = app();
-        let mut request = chat();
-        request.effort = Some("high".into());
-        codex_chat(app.handle(), &p, &request).await.unwrap();
-        let events = events.lock().unwrap();
-        assert!(events.iter().any(|e| e["data"] == "Codex streamed reply"));
-        assert!(events
-            .iter()
-            .any(|e| e["kind"] == "usage" && e["data"]["outputTokens"] == 5));
-    }
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn dropping_a_cancelled_codex_request_stops_its_subprocess() {
-        let (dir, path) = executable(
-            r#"import sys,json,time,os
-open(__file__+'.pid','w').write(str(os.getpid()))
-for line in sys.stdin:
- m=json.loads(line)
- if m.get('method')=='initialize': print(json.dumps({'id':m['id'],'result':{}}),flush=True)
- elif m.get('method')=='thread/start': time.sleep(30)
-"#,
-        );
-        let mut p = fixture_provider("codex");
-        p.executable = path.clone();
         let (app, _) = app();
         assert!(tokio::time::timeout(
             Duration::from_secs(1),
-            codex_chat(app.handle(), &p, &chat())
+            claude_chat(app.handle(), &p, &chat())
         )
         .await
         .is_err());
@@ -1433,6 +1509,7 @@ assert sys.argv[sys.argv.index('--effort')+1]=='medium'
 assert sys.argv[sys.argv.index('--model')+1]=='fixture-model'
 assert 'Explain this fixture' in sys.stdin.read()
 for value in [
+ {'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'thinking_delta','thinking':'Considering the fixture.'}}},
  {'type':'stream_event','event':{'type':'content_block_delta','delta':{'text':'Claude streamed reply'}}},
  {'type':'rate_limit_event','rate_limit_info':{'status':'allowed','resetsAt':1900000000}},
  {'type':'result','is_error':False,'result':'Claude streamed reply','usage':{'input_tokens':20,'output_tokens':7},'total_cost_usd':0.0123}]:
@@ -1447,6 +1524,9 @@ for value in [
         claude_chat(app.handle(), &p, &request).await.unwrap();
         let events = events.lock().unwrap();
         assert_eq!(events.iter().filter(|e| e["kind"] == "delta").count(), 1);
+        assert!(events
+            .iter()
+            .any(|e| e["kind"] == "reasoning" && e["data"] == "Considering the fixture."));
         assert!(events
             .iter()
             .any(|e| e["kind"] == "cost" && e["data"]["amount"] == 0.0123));

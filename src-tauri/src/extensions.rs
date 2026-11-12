@@ -647,6 +647,20 @@ pub async fn extension_asset(id: String, path: String, app: AppHandle) -> Result
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn extension_icon(id: String, path: String, app: AppHandle) -> Result<String, String> {
+    id_parts(&id)?;
+    let base = directory(&app)?.join(id.to_lowercase());
+    tauri::async_runtime::spawn_blocking(move || {
+        if !manifest(&base)?.enabled {
+            return Err("Extension is disabled".into());
+        }
+        icon_data(&base, &path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

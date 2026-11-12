@@ -1,3 +1,5 @@
+import { AnimatePresence, motion } from "motion/react";
+import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
 import {
   Check,
@@ -8,6 +10,7 @@ import {
   RefreshCw,
   Trash2,
   ChartNoAxesColumn,
+  Download,
 } from "lucide-react";
 import {
   aiAccount,
@@ -18,13 +21,13 @@ import {
   useAI,
   type AIProvider,
 } from "../lib/ai";
-import { invoke, native } from "../lib/native";
+import { invoke, listen, native } from "../lib/native";
 import AIProviderIcon from "./AIProviderIcon";
 import AIUsage from "./AIUsage";
 function accountInfo(provider: AIProvider, account?: Record<string, unknown>) {
   const identity = (account?.account ?? account) as
     Record<string, unknown> | undefined;
-  const connected = ["chatgpt", "codex"].includes(provider.kind)
+  const connected = ["chatgpt"].includes(provider.kind)
     ? !!account?.account
     : account?.loggedIn === true;
   return {
@@ -41,7 +44,7 @@ function accountInfo(provider: AIProvider, account?: Record<string, unknown>) {
               ? "Configured"
               : account
                 ? "Signed out"
-                : ["chatgpt", "codex", "claude"].includes(provider.kind)
+                : ["chatgpt", "claude"].includes(provider.kind)
                   ? "Not checked"
                   : "Not configured",
   };
@@ -53,8 +56,9 @@ function ProviderDetail({
 }: {
   provider: AIProvider;
   onRemoved: () => void;
-  onUsage: () => void;
+  onUsage: (button: HTMLButtonElement) => void;
 }) {
+  const { transition } = useSurfaceMotion();
   const state = useAI(),
     [form, setForm] = useState(provider),
     [key, setKey] = useState(""),
@@ -62,7 +66,10 @@ function ProviderDetail({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [runtime, setRuntime] = useState<Record<string, string>>(),
-    [runtimeOpen, setRuntimeOpen] = useState(false);
+    [runtimeOpen, setRuntimeOpen] = useState(false),
+    [runtimeMissing, setRuntimeMissing] = useState(false),
+    [installPhase, setInstallPhase] = useState("");
+  const installCancelled = useRef(false);
   const request = useRef<string | null>(null),
     saved = useRef(provider);
   useEffect(() => {
@@ -82,6 +89,7 @@ function ProviderDetail({
   }, [provider]);
   useEffect(
     () => () => {
+      installCancelled.current = true;
       if (request.current)
         void invoke("ai_cancel", { requestId: request.current }).catch(
           () => {},
@@ -93,8 +101,8 @@ function ProviderDetail({
       provider,
       state.accounts[provider.id],
     ),
-    accountProvider = ["chatgpt", "codex", "claude"].includes(form.kind),
-    custom = !["chatgpt", "codex", "claude", "openai", "anthropic"].includes(
+    accountProvider = ["chatgpt", "claude"].includes(form.kind),
+    custom = !["chatgpt", "claude", "openai", "anthropic"].includes(
       provider.id,
     );
   async function action(name: string, work: () => Promise<unknown>) {
@@ -132,6 +140,66 @@ function ProviderDetail({
       request.current = null;
     }
   }
+  useEffect(() => {
+    if (provider.kind === "chatgpt" && native)
+      void action("status", () => accountAction("status"));
+    if (provider.kind === "claude" && native) {
+      let current = true;
+      void invoke<Record<string, string>>("ai_runtime", {
+        providerId: provider.id,
+      })
+        .then((value) => {
+          if (current) {
+            setRuntime(value);
+            setRuntimeMissing(false);
+          }
+        })
+        .catch(() => {
+          if (current) setRuntimeMissing(true);
+        });
+      return () => {
+        current = false;
+      };
+    }
+  }, [provider.id]);
+  async function installRuntime() {
+    const id = crypto.randomUUID();
+    request.current = id;
+    installCancelled.current = false;
+    let unlisten: (() => void) | undefined;
+    try {
+      setInstallPhase("Downloading installer");
+      unlisten = await listen<{
+        requestId: string;
+        kind: string;
+        data: { phase?: string };
+      }>("devyy-ai", ({ payload }) => {
+        if (payload.requestId !== id || payload.kind !== "install") return;
+        setInstallPhase(
+          payload.data.phase === "verifying"
+            ? "Checking installation"
+            : payload.data.phase === "installing"
+              ? "Installing Claude Code"
+              : "Downloading installer",
+        );
+      });
+      if (installCancelled.current) return;
+      const result = await invoke<Record<string, string>>(
+        "ai_install_runtime",
+        { providerId: provider.id, requestId: id },
+      );
+      const installed = { ...form, executable: result.executable };
+      await saveAIProvider(installed, "");
+      setForm(installed);
+      setRuntime(result);
+      setRuntimeMissing(false);
+      setNotice("Claude Code installed");
+    } finally {
+      unlisten?.();
+      request.current = null;
+      setInstallPhase("");
+    }
+  }
   function patch(patch: Partial<AIProvider>) {
     setForm((old) => ({ ...old, ...patch }));
     setNotice("");
@@ -146,13 +214,27 @@ function ProviderDetail({
         </span>
       </header>
       <div className="ai-provider-detail-scroll">
-        <div className="ai-provider-status">
-          <h4>Status</h4>
-          <p>
-            {connected
-              ? `Authenticated as ${String(identity?.email ?? identity?.type ?? "account")}`
-              : label}
-          </p>
+        <div className="ai-connection-card">
+          <AIProviderIcon kind={provider.kind} size={28} />
+          <div>
+            <strong>
+              {connected
+                ? String(identity?.email ?? "Connected account")
+                : accountProvider
+                  ? "Connect your account"
+                  : "Connect with an API key"}
+            </strong>
+            <span>
+              {connected
+                ? String(identity?.planType ?? "Ready to use in Devyy")
+                : form.kind === "chatgpt"
+                  ? "Sign in securely in your browser"
+                  : form.kind === "claude"
+                    ? "Claude Code on this computer"
+                    : "Your endpoint, your models"}
+            </span>
+          </div>
+          {connected && <Check size={16} />}
         </div>
         <div className="ai-provider-field">
           <label htmlFor={`ai-name-${provider.id}`}>Display name</label>
@@ -163,7 +245,39 @@ function ProviderDetail({
           />
         </div>
         <section className="ai-provider-section">
-          <h4>Setup</h4>
+          <h4>Connection</h4>
+          {form.kind === "claude" && runtimeMissing && (
+            <div className="ai-runtime-install">
+              <div>
+                <strong>Install Claude Code</strong>
+                <span>Official runtime for your Claude account</span>
+              </div>
+              <button
+                className="setting-action"
+                disabled={!!busy || !native}
+                onClick={() => void action("install", installRuntime)}
+              >
+                {busy === "install" ? (
+                  <LoaderCircle className="spinning" size={14} />
+                ) : (
+                  <Download size={14} />
+                )}
+                {installPhase || "Install"}
+              </button>
+              {busy === "install" && (
+                <button
+                  className="ai-text-action"
+                  onClick={() => {
+                    installCancelled.current = true;
+                    if (request.current)
+                      void invoke("ai_cancel", { requestId: request.current });
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
           {accountProvider ? (
             <>
               <div className="ai-provider-account-row">
@@ -171,23 +285,23 @@ function ProviderDetail({
                   <strong>
                     {form.kind === "chatgpt"
                       ? "ChatGPT"
-                      : form.kind === "codex"
-                        ? "Codex CLI account"
-                        : "Claude Code account"}
+                      : "Claude Code account"}
                   </strong>
                   <small>
                     {connected
-                      ? String(identity?.email ?? "Signed in")
+                      ? "Account connected"
                       : form.kind === "chatgpt"
                         ? "Authorize Devyy in your browser"
-                        : form.kind === "claude"
-                          ? "Uses Claude Code’s browser sign-in"
-                          : "Uses the Codex CLI account on this computer"}
+                        : "Uses Claude Code’s browser sign-in"}
                   </small>
                 </span>
                 <button
                   className="setting-action"
-                  disabled={!!busy || !native}
+                  disabled={
+                    !!busy ||
+                    !native ||
+                    (form.kind === "claude" && runtimeMissing)
+                  }
                   onClick={() =>
                     void action("login", () => accountAction("login"))
                   }
@@ -440,34 +554,42 @@ function ProviderDetail({
             <h4>Runtime</h4>
             {runtime?.version && <code>{runtime.version}</code>}
           </button>
-          {runtimeOpen && (
-            <div>
-              {["codex", "claude"].includes(form.kind) && (
-                <div className="ai-provider-field">
-                  <label htmlFor={`ai-cli-${provider.id}`}>
-                    CLI executable
-                  </label>
-                  <input
-                    id={`ai-cli-${provider.id}`}
-                    value={form.executable}
-                    onChange={(e) => patch({ executable: e.target.value })}
-                    placeholder={`${form.kind} (auto-detect)`}
-                    spellCheck={false}
-                  />
-                </div>
-              )}
-              {runtime && (
-                <dl>
-                  {Object.entries(runtime).map(([name, value]) => (
-                    <div key={name}>
-                      <dt>{name}</dt>
-                      <dd>{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {runtimeOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={transition}
+                style={{ overflow: "hidden" }}
+              >
+                {["claude"].includes(form.kind) && (
+                  <div className="ai-provider-field">
+                    <label htmlFor={`ai-cli-${provider.id}`}>
+                      CLI executable
+                    </label>
+                    <input
+                      id={`ai-cli-${provider.id}`}
+                      value={form.executable}
+                      onChange={(e) => patch({ executable: e.target.value })}
+                      placeholder={`${form.kind} (auto-detect)`}
+                      spellCheck={false}
+                    />
+                  </div>
+                )}
+                {runtime && (
+                  <dl>
+                    {Object.entries(runtime).map(([name, value]) => (
+                      <div key={name}>
+                        <dt>{name}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
         {error && (
           <p className="ai-error" role="alert">
@@ -495,7 +617,10 @@ function ProviderDetail({
             <Trash2 size={12} /> Remove
           </button>
         )}
-        <button className="ai-text-action" onClick={onUsage}>
+        <button
+          className="ai-text-action"
+          onClick={(event) => onUsage(event.currentTarget)}
+        >
           <ChartNoAxesColumn size={13} /> Usage
         </button>
         {accountProvider && (
@@ -530,8 +655,13 @@ function ProviderDetail({
   );
 }
 export default function AIProviders() {
+  const { transition, instant } = useSurfaceMotion();
+  const usageTrigger = useRef<HTMLButtonElement | null>(null);
+  const restoreUsageFocus = useRef(false);
   const state = useAI(),
-    [selected, setSelected] = useState(() => state.providers[0]?.id ?? "codex"),
+    [selected, setSelected] = useState(
+      () => state.providers[0]?.id ?? "chatgpt",
+    ),
     [draft, setDraft] = useState<AIProvider>(),
     [usage, setUsage] = useState(false),
     [busy, setBusy] = useState(false),
@@ -553,9 +683,7 @@ export default function AIProviders() {
     const results = await Promise.allSettled(
       state.providers
         .filter(
-          (p) =>
-            p.enabled !== false &&
-            ["chatgpt", "codex", "claude"].includes(p.kind),
+          (p) => p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
         )
         .map((p) => aiAccount(p.id, "status", crypto.randomUUID())),
     );
@@ -593,136 +721,183 @@ export default function AIProviders() {
   }
   return (
     <div className="ai-provider-settings">
-      <header className="ai-providers-toolbar">
-        <strong>Providers</strong>
-        <button
-          className="icon-button"
-          aria-label="Add AI provider"
-          onClick={add}
+      <div className="ai-provider-pages">
+        <motion.div
+          className="ai-provider-page"
+          inert={usage}
+          aria-hidden={usage}
+          animate={
+            usage
+              ? {
+                  x: instant ? 0 : -55,
+                  opacity: 0,
+                  transitionEnd: { visibility: "hidden" },
+                }
+              : { x: 0, opacity: 1, visibility: "visible" }
+          }
+          transition={transition}
+          onAnimationComplete={() => {
+            if (!usage && restoreUsageFocus.current) {
+              restoreUsageFocus.current = false;
+              requestAnimationFrame(() => usageTrigger.current?.focus());
+            }
+          }}
         >
-          <Plus size={15} />
-        </button>
-        <span />
-        {checked && (
-          <small>
-            Checked{" "}
-            {new Date(checked).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </small>
-        )}
-        <button
-          className="ai-text-action"
-          disabled={busy || !native}
-          onClick={() => void refresh()}
-        >
-          {busy ? (
-            <LoaderCircle className="spinning" size={13} />
-          ) : (
-            <RefreshCw size={13} />
-          )}{" "}
-          Refresh all
-        </button>
-      </header>
-      {(error || state.error) && (
-        <p className="ai-error" role="alert">
-          {error || state.error}
-        </p>
-      )}
-      <div className="ai-provider-workspace">
-        <nav className="ai-provider-list" aria-label="AI providers">
-          <div
-            role="tablist"
-            aria-label="Provider connections"
-            aria-orientation="vertical"
-            onKeyDown={(event) => {
-              const tabs = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    '[role="tab"]',
-                  ),
-                ),
-                index = providers.findIndex((p) => p.id === chosen),
-                next =
-                  event.key === "ArrowDown"
-                    ? (index + 1) % tabs.length
-                    : event.key === "ArrowUp"
-                      ? (index - 1 + tabs.length) % tabs.length
-                      : event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? tabs.length - 1
-                          : -1;
-              if (next >= 0) {
-                event.preventDefault();
-                setSelected(providers[next].id);
-                tabs[next]?.focus();
-              }
-            }}
-          >
-            {providers.map((provider) => {
-              const { label } = accountInfo(
-                provider,
-                state.accounts[provider.id],
-              );
-              return (
+          <header className="ai-providers-toolbar">
+            <strong>Providers</strong>
+            <button
+              className="icon-button"
+              aria-label="Add AI provider"
+              onClick={add}
+            >
+              <Plus size={15} />
+            </button>
+            <span />
+            {checked && (
+              <small>
+                Checked{" "}
+                {new Date(checked).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </small>
+            )}
+            <button
+              className="ai-text-action"
+              disabled={busy || !native}
+              onClick={() => void refresh()}
+            >
+              {busy ? (
+                <LoaderCircle className="spinning" size={13} />
+              ) : (
+                <RefreshCw size={13} />
+              )}{" "}
+              Refresh all
+            </button>
+          </header>
+          {(error || state.error) && (
+            <p className="ai-error" role="alert">
+              {error || state.error}
+            </p>
+          )}
+          <div className="ai-provider-workspace">
+            <nav className="ai-provider-list" aria-label="AI providers">
+              <div
+                role="tablist"
+                aria-label="Provider connections"
+                aria-orientation="vertical"
+                onKeyDown={(event) => {
+                  const tabs = Array.from(
+                      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                        '[role="tab"]',
+                      ),
+                    ),
+                    index = providers.findIndex((p) => p.id === chosen),
+                    next =
+                      event.key === "ArrowDown"
+                        ? (index + 1) % tabs.length
+                        : event.key === "ArrowUp"
+                          ? (index - 1 + tabs.length) % tabs.length
+                          : event.key === "Home"
+                            ? 0
+                            : event.key === "End"
+                              ? tabs.length - 1
+                              : -1;
+                  if (next >= 0) {
+                    event.preventDefault();
+                    setSelected(providers[next].id);
+                    tabs[next]?.focus();
+                  }
+                }}
+              >
+                {providers.map((provider) => {
+                  const { label } = accountInfo(
+                    provider,
+                    state.accounts[provider.id],
+                  );
+                  return (
+                    <div
+                      key={provider.id}
+                      className={provider.id === chosen ? "selected" : ""}
+                    >
+                      <button
+                        role="tab"
+                        aria-selected={provider.id === chosen}
+                        aria-controls={`provider-${provider.id}`}
+                        tabIndex={provider.id === chosen ? 0 : -1}
+                        onClick={() => setSelected(provider.id)}
+                      >
+                        <AIProviderIcon kind={provider.kind} />
+                        <span>
+                          <strong>{provider.name}</strong>
+                          <small>{label}</small>
+                        </span>
+                      </button>
+                      <button
+                        role="switch"
+                        aria-checked={provider.enabled !== false}
+                        aria-label={`Enable ${provider.name}`}
+                        className="ai-provider-toggle"
+                        disabled={!native}
+                        onClick={() => void toggle(provider)}
+                      >
+                        <i />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button className="ai-add-provider" onClick={add}>
+                <Plus size={15} /> Add provider
+              </button>
+            </nav>
+            <div className="ai-provider-details">
+              {providers.map((provider) => (
                 <div
                   key={provider.id}
-                  className={provider.id === chosen ? "selected" : ""}
+                  id={`provider-${provider.id}`}
+                  role="tabpanel"
+                  aria-label={provider.name}
+                  hidden={provider.id !== chosen}
                 >
-                  <button
-                    role="tab"
-                    aria-selected={provider.id === chosen}
-                    aria-controls={`provider-${provider.id}`}
-                    tabIndex={provider.id === chosen ? 0 : -1}
-                    onClick={() => setSelected(provider.id)}
-                  >
-                    <AIProviderIcon kind={provider.kind} />
-                    <span>
-                      <strong>{provider.name}</strong>
-                      <small>{label}</small>
-                    </span>
-                  </button>
-                  <button
-                    role="switch"
-                    aria-checked={provider.enabled !== false}
-                    aria-label={`Enable ${provider.name}`}
-                    className="ai-provider-toggle"
-                    disabled={!native}
-                    onClick={() => void toggle(provider)}
-                  >
-                    <i />
-                  </button>
+                  <ProviderDetail
+                    provider={provider}
+                    onRemoved={() => {
+                      setDraft(undefined);
+                      setSelected(state.providers[0]?.id ?? "chatgpt");
+                    }}
+                    onUsage={(button) => {
+                      usageTrigger.current = button;
+                      setUsage(true);
+                    }}
+                  />
                 </div>
-              );
-            })}
-          </div>
-          <button className="ai-add-provider" onClick={add}>
-            <Plus size={15} /> Add provider
-          </button>
-        </nav>
-        <div className="ai-provider-details">
-          {providers.map((provider) => (
-            <div
-              key={provider.id}
-              id={`provider-${provider.id}`}
-              role="tabpanel"
-              aria-label={provider.name}
-              hidden={provider.id !== chosen}
-            >
-              <ProviderDetail
-                provider={provider}
-                onRemoved={() => {
-                  setDraft(undefined);
-                  setSelected(state.providers[0]?.id ?? "codex");
-                }}
-                onUsage={() => setUsage(true)}
-              />
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        </motion.div>
+        <AnimatePresence initial={false}>
+          {usage && (
+            <motion.div
+              key="usage"
+              className="ai-provider-page ai-provider-usage-page"
+              initial={{ x: instant ? 0 : 55, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: instant ? 0 : 55, opacity: 0 }}
+              transition={transition}
+            >
+              <AIUsage
+                embedded
+                providerId={chosen}
+                onClose={() => {
+                  restoreUsageFocus.current = true;
+                  setUsage(false);
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-      {usage && <AIUsage providerId={chosen} onClose={() => setUsage(false)} />}
     </div>
   );
 }

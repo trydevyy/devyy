@@ -1,3 +1,5 @@
+import { motion, useIsPresent } from "motion/react";
+import { useSurfaceMotion } from "../lib/motion";
 import {
   useEffect,
   useLayoutEffect,
@@ -20,8 +22,13 @@ export default function AIPopover({
   children: ReactNode;
   width?: number;
 }) {
+  const { transition, instant } = useSurfaceMotion();
+  const present = useIsPresent();
   const ref = useRef<HTMLDivElement>(null),
-    [position, setPosition] = useState({ left: 12, top: 100 });
+    [position, setPosition] = useState<{ left: number; top: number } | null>(
+      null,
+    );
+  const positioned = position !== null;
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
@@ -46,6 +53,7 @@ export default function AIPopover({
     };
   }, [anchor, width]);
   useEffect(() => {
+    if (!present || !positioned) return;
     const previous = document.activeElement as HTMLElement | null;
     (
       ref.current?.querySelector<HTMLElement>("input") ??
@@ -88,18 +96,28 @@ export default function AIPopover({
       document.removeEventListener("keydown", key, true);
       if (previous?.isConnected) previous.focus();
     };
-  }, [anchor]);
+  }, [anchor, present, positioned]);
   return createPortal(
-    <div
+    <motion.div
+      layout={position !== null}
+      transition={transition}
+      initial={{ opacity: 0, scale: instant ? 1 : 0.97, y: instant ? 0 : 5 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: instant ? 1 : 0.98, y: instant ? 0 : 4 }}
       ref={ref}
       role="dialog"
       aria-label={label}
       aria-modal="true"
+      data-escape-scope={present ? "active" : undefined}
       className="ai-popover"
-      style={{ ...position, width: `min(${width}px, calc(100vw - 24px))` }}
+      style={{
+        ...position,
+        visibility: position ? "visible" : "hidden",
+        width: `min(${width}px, calc(100vw - 24px))`,
+      }}
     >
       {children}
-    </div>,
+    </motion.div>,
     document.body,
   );
 }

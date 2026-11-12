@@ -28,6 +28,7 @@ export interface InstalledExtension {
       title: string;
       category?: string;
       enablement?: string;
+      toggled?: string | { condition: string };
     }[];
     keybindings?: {
       command: string;

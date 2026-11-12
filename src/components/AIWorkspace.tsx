@@ -8,7 +8,6 @@ import {
   GitBranch,
   History,
   LoaderCircle,
-  MessageSquare,
   Paperclip,
   Pencil,
   Plus,
@@ -45,14 +44,18 @@ import {
 } from "../lib/aiContext";
 import AIContextPicker, { AttachmentIcon } from "./AIContextPicker";
 import AIModelPicker from "./AIModelPicker";
+import DevyyLogo from "./DevyyLogo";
 import AIProviderIcon from "./AIProviderIcon";
 import AIUsage from "./AIUsage";
-import { isAIExtension } from "../lib/aiExtensions";
+import { isAIExtension, aiMainView } from "../lib/aiExtensions";
 import { useExtensions } from "../lib/extensions";
-import { useExtensionHost, type HostEvent } from "../lib/extensionHost";
+import {
+  hostRequest,
+  useExtensionHost,
+  type HostEvent,
+} from "../lib/extensionHost";
 import { native } from "../lib/native";
 import ResizeHandle from "./ResizeHandle";
-import ExtensionViews from "./ExtensionViews";
 import ExtensionWebviews from "./ExtensionWebviews";
 const Reply = lazy(() => import("./AIReply"));
 
@@ -70,9 +73,12 @@ function ChatPanel({
   const ai = useAI();
   const [providerId, setProviderId] = useState(() => {
     try {
-      return localStorage.getItem("devyy.ai.provider") || "codex";
+      const saved = localStorage.getItem("devyy.ai.provider");
+      if (saved === "codex")
+        localStorage.setItem("devyy.ai.provider", "chatgpt");
+      return saved && saved !== "codex" ? saved : "chatgpt";
     } catch {
-      return "codex";
+      return "chatgpt";
     }
   });
   const [draft, setDraft] = useState(""),
@@ -109,7 +115,7 @@ function ChatPanel({
   }, []);
   useEffect(() => {
     if (follow.current) bottom.current?.scrollIntoView({ block: "end" });
-  }, [last?.content, last?.error, chat?.id, running]);
+  }, [last?.content, last?.reasoning, last?.error, chat?.id, running]);
   useEffect(() => {
     const el = composer.current;
     if (el) {
@@ -417,7 +423,7 @@ function ChatPanel({
         >
           {!chat?.messages.length ? (
             <div className="ai-empty-conversation">
-              <MessageSquare size={22} strokeWidth={1.2} />
+              <DevyyLogo size={26} />
             </div>
           ) : (
             chat.messages.map((message, index) => {
@@ -448,11 +454,26 @@ function ChatPanel({
                           onClick={() => setPreview(item)}
                           title={item.path ?? item.title}
                         >
-                          <AttachmentIcon kind={item.kind} />
+                          <AttachmentIcon
+                            kind={item.kind}
+                            path={item.path ?? item.id}
+                          />
                           <span>{item.title}</span>
                         </button>
                       ))}
                     </div>
+                  )}
+                  {message.role === "assistant" && message.reasoning && (
+                    <details className="ai-reasoning">
+                      <summary>
+                        {running &&
+                        index === chat.messages.length - 1 &&
+                        !message.content
+                          ? "Thinking"
+                          : "Thinking summary"}
+                      </summary>
+                      <div>{message.reasoning}</div>
+                    </details>
                   )}
                   {message.role === "assistant" ? (
                     <Suspense fallback={<p>{message.content}</p>}>
@@ -467,6 +488,7 @@ function ChatPanel({
                   )}
                   {message.role === "assistant" &&
                     !message.content &&
+                    !message.reasoning &&
                     running &&
                     index === chat.messages.length - 1 && (
                       <span className="ai-thinking" role="status">
@@ -595,7 +617,10 @@ function ChatPanel({
                     onClick={() => setPreview(item)}
                     title={`${item.path ?? item.title}${item.truncated ? " (truncated)" : ""}`}
                   >
-                    <AttachmentIcon kind={item.kind} />
+                    <AttachmentIcon
+                      kind={item.kind}
+                      path={item.path ?? item.id}
+                    />
                     <span>{item.title}</span>
                   </button>
                   <button
@@ -750,11 +775,15 @@ function ChatPanel({
         <div
           ref={previewRef}
           className="ai-context-preview"
+          data-escape-scope="active"
           role="dialog"
           aria-label="Attachment preview"
         >
           <header>
-            <AttachmentIcon kind={preview.kind} />
+            <AttachmentIcon
+              kind={preview.kind}
+              path={preview.path ?? preview.id}
+            />
             <strong>{preview.title}</strong>
             <button
               className="icon-button"
@@ -809,15 +838,38 @@ export default function AIWorkspace({
       }
     });
   const extensions = installed.filter((e) => e.enabled && isAIExtension(e.id));
-  const containers = extensions.flatMap((ext) =>
-    Object.keys(ext.contributes.views ?? {}).map((id) => ({
-      id,
-      extension: ext.id,
-      title: ext.name,
-    })),
-  );
+  const containers = extensions.map((ext) => ({
+    id: ext.id,
+    extension: ext.id,
+    title: ext.name,
+  }));
+  const [viewError, setViewError] = useState("");
+  const [viewRetry, setViewRetry] = useState(0);
+  useEffect(() => {
+    const id = aiMainView(selection);
+    if (!open || !id) return;
+    let disposed = false;
+    setViewError("");
+    void hostRequest("resolveView", { id }).catch((error) => {
+      if (!disposed) setViewError(String(error));
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [selection, open, viewRetry]);
+  useEffect(() => {
+    const toggle = () => setOpen((value) => !value);
+    window.addEventListener("devyy-ai-toggle", toggle);
+    return () => window.removeEventListener("devyy-ai-toggle", toggle);
+  }, []);
   const [focusTicket, setFocusTicket] = useState(0);
   const [dragPeek, setDragPeek] = useState(false);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("devyy-ai-visibility", { detail: open || dragPeek }),
+    );
+  }, [open, dragPeek]);
+
   const handledFocus = useRef(0);
   const known = useRef(new Set<string>());
   useEffect(() => {
@@ -849,7 +901,11 @@ export default function AIWorkspace({
       const detail = (
         event as CustomEvent<{ container?: string; extension?: string }>
       ).detail;
-      if (detail?.container) setSelection(detail.container);
+      if (detail?.container)
+        setSelection(
+          extensions.find((ext) => ext.contributes.views?.[detail.container!])
+            ?.id ?? detail.container,
+        );
       else if (detail?.extension) {
         const container = containers.find(
           (c) => c.extension === detail.extension,
@@ -875,7 +931,7 @@ export default function AIWorkspace({
     return () => cancelAnimationFrame(frame);
   }, [open, selection, focusTicket]);
   useEffect(() => {
-    const views = host.webviews.filter((v) => isAIExtension(v.extension));
+    const views = host.webviews.filter((v) => v.id === aiMainView(v.extension));
     const created = views.find((v) => !known.current.has(v.id));
     known.current = new Set(views.map((v) => v.id));
     if (created) {
@@ -966,7 +1022,7 @@ export default function AIWorkspace({
             tabIndex={selection === "chat" ? 0 : -1}
             onClick={() => setSelection("chat")}
           >
-            <MessageSquare size={13} /> Devyy
+            <DevyyLogo size={14} /> Devyy
           </button>
           {tabs.map((tab) => (
             <button
@@ -1017,18 +1073,19 @@ export default function AIWorkspace({
         className="ai-extension-region"
         hidden={selection === "chat"}
       >
-        {containers.map((container) => (
-          <div
-            className="ai-extension-resolver"
-            key={container.id}
-            hidden={selection !== container.id}
-          >
-            {selection === container.id && (
-              <ExtensionViews container={container.id} />
-            )}
+        {viewError && (
+          <div className="extension-view-note" role="alert">
+            <p>{viewError}</p>
+            <button
+              className="setting-action"
+              onClick={() => setViewRetry((n) => n + 1)}
+            >
+              Try again
+            </button>
           </div>
-        ))}
+        )}
         <ExtensionWebviews
+          visible={open && selection !== "chat"}
           placement="ai"
           owner={selectedOwner}
           shortcuts={shortcuts}

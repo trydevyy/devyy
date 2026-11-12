@@ -1,3 +1,5 @@
+import { AnimatePresence, motion } from "motion/react";
+import { useSurfaceMotion } from "../lib/motion";
 import {
   createContext,
   useCallback,
@@ -28,6 +30,7 @@ import {
   Redo2,
   Save,
   File,
+  ChevronRight,
 } from "lucide-react";
 function actionIcon(label: string) {
   if (/copy/i.test(label)) return Copy;
@@ -56,6 +59,7 @@ export interface MenuItem {
   danger?: boolean;
   checked?: boolean;
   separator?: boolean;
+  children?: MenuItem[];
 }
 type MenuState = { x: number; y: number; items: MenuItem[] };
 type MenuEvent = {
@@ -70,6 +74,7 @@ const MenuContext = createContext<(e: MenuEvent, items: MenuItem[]) => void>(
 );
 export const useContextMenu = () => useContext(MenuContext);
 export function ContextMenuProvider({ children }: { children: ReactNode }) {
+  const { transition, instant } = useSurfaceMotion();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const ref = useRef<HTMLDivElement>(null),
     restore = useRef<HTMLElement | null>(null);
@@ -138,87 +143,199 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   return (
     <MenuContext.Provider value={open}>
       {children}
-      {menu &&
-        createPortal(
+      {createPortal(
+        <AnimatePresence>
+          {menu && (
+            <motion.div
+              key="context-menu"
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: instant ? 0 : 0.12 }}
+              className="context-dismiss"
+              onPointerDown={() => close()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                close();
+              }}
+            >
+              <motion.div
+                layout
+                transition={transition}
+                initial={{ opacity: 0, scale: instant ? 1 : 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                ref={ref}
+                className="context-menu"
+                role="menu"
+                aria-label="Actions"
+                style={{ left: menu.x, top: menu.y }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onContextMenu={(e) => e.preventDefault()}
+                onKeyDown={(e) => {
+                  const buttons = Array.from(
+                    ref.current?.querySelectorAll<HTMLButtonElement>(
+                      ":scope > .context-menu-entry > button:not(:disabled)",
+                    ) ?? [],
+                  );
+                  const i = buttons.indexOf(
+                    document.activeElement as HTMLButtonElement,
+                  );
+                  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                    e.preventDefault();
+                    buttons[
+                      e.key === "Home"
+                        ? 0
+                        : e.key === "End"
+                          ? buttons.length - 1
+                          : (i +
+                              (e.key === "ArrowDown" ? 1 : -1) +
+                              buttons.length) %
+                            buttons.length
+                    ]?.focus();
+                  }
+                  if (e.key === "Escape" || e.key === "Tab") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    close();
+                  }
+                }}
+              >
+                <MenuEntries items={menu.items} close={close} />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
+    </MenuContext.Provider>
+  );
+}
+
+function MenuEntries({
+  items,
+  close,
+}: {
+  items: MenuItem[];
+  close: () => void;
+}) {
+  const { transition, instant } = useSurfaceMotion();
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [left, setLeft] = useState(false);
+  return (
+    <>
+      {items.map((item, i) => {
+        const Icon = actionIcon(item.label),
+          submenu = item.children?.length;
+        const open = (button: HTMLElement) => {
+          setLeft(button.getBoundingClientRect().right + 250 > innerWidth);
+          setExpanded(i);
+        };
+        return (
           <div
-            className="context-dismiss"
-            onPointerDown={() => close()}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              close();
+            key={i}
+            className="context-menu-entry"
+            onPointerEnter={(e) => {
+              if (submenu && !item.disabled) open(e.currentTarget);
+              else setExpanded(null);
             }}
           >
-            <div
-              ref={ref}
-              className="context-menu"
-              role="menu"
-              aria-label="Actions"
-              style={{ left: menu.x, top: menu.y }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onContextMenu={(e) => e.preventDefault()}
+            {item.separator && i > 0 && (
+              <div role="separator" className="context-separator" />
+            )}
+            <button
+              role={
+                item.checked !== undefined ? "menuitemcheckbox" : "menuitem"
+              }
+              aria-checked={item.checked}
+              aria-label={item.label}
+              aria-haspopup={submenu ? "menu" : undefined}
+              aria-expanded={submenu ? expanded === i : undefined}
+              disabled={item.disabled}
+              className={item.danger ? "danger" : ""}
               onKeyDown={(e) => {
-                const buttons = Array.from(
-                  ref.current?.querySelectorAll<HTMLButtonElement>(
-                    "button:not(:disabled)",
-                  ) ?? [],
-                );
-                const i = buttons.indexOf(
-                  document.activeElement as HTMLButtonElement,
-                );
-                if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-                  e.preventDefault();
-                  buttons[
-                    e.key === "Home"
-                      ? 0
-                      : e.key === "End"
-                        ? buttons.length - 1
-                        : (i +
-                            (e.key === "ArrowDown" ? 1 : -1) +
-                            buttons.length) %
-                          buttons.length
-                  ]?.focus();
-                }
-                if (e.key === "Escape" || e.key === "Tab") {
+                if (
+                  submenu &&
+                  (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ")
+                ) {
                   e.preventDefault();
                   e.stopPropagation();
+                  const button = e.currentTarget;
+                  open(button);
+                  requestAnimationFrame(() =>
+                    button.parentElement
+                      ?.querySelector<HTMLButtonElement>(
+                        '[role="menu"] button:not(:disabled)',
+                      )
+                      ?.focus(),
+                  );
+                }
+              }}
+              onClick={(e) => {
+                if (submenu) open(e.currentTarget);
+                else {
                   close();
+                  item.action?.();
                 }
               }}
             >
-              {menu.items.map((item, i) => {
-                const Icon = actionIcon(item.label);
-                return (
-                  <div key={i}>
-                    {item.separator && i > 0 && (
-                      <div role="separator" className="context-separator" />
-                    )}
-                    <button
-                      role="menuitem"
-                      aria-label={item.label}
-                      disabled={item.disabled}
-                      className={item.danger ? "danger" : ""}
-                      onClick={() => {
-                        close();
-                        item.action?.();
-                      }}
-                    >
-                      <span className="menu-leading" aria-hidden="true">
-                        {item.checked ? (
-                          <Check className="menu-check" size={13} />
-                        ) : (
-                          <Icon size={13} strokeWidth={1.6} />
-                        )}
-                      </span>
-                      <span>{item.label}</span>
-                      {item.shortcut && <kbd>{item.shortcut}</kbd>}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>,
-          document.body,
-        )}
-    </MenuContext.Provider>
+              <span className="menu-leading" aria-hidden="true">
+                {item.checked ? (
+                  <Check size={13} />
+                ) : (
+                  <Icon size={13} strokeWidth={1.6} />
+                )}
+              </span>
+              <span>{item.label}</span>
+              {item.shortcut && <kbd>{item.shortcut}</kbd>}
+              {!!submenu && <ChevronRight size={12} />}
+            </button>
+            {!!submenu && expanded === i && (
+              <motion.div
+                layout
+                transition={transition}
+                initial={{ opacity: 0, x: instant ? 0 : left ? 5 : -5 }}
+                animate={{ opacity: 1, x: 0 }}
+                className={`context-menu context-submenu ${left ? "opens-left" : ""}`}
+                role="menu"
+                aria-label={item.label}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setExpanded(null);
+                    e.currentTarget.parentElement
+                      ?.querySelector<HTMLButtonElement>(":scope > button")
+                      ?.focus();
+                  }
+                  if (["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const buttons = Array.from(
+                        e.currentTarget.querySelectorAll<HTMLButtonElement>(
+                          ":scope > .context-menu-entry > button:not(:disabled)",
+                        ),
+                      ),
+                      index = buttons.indexOf(
+                        document.activeElement as HTMLButtonElement,
+                      );
+                    buttons[
+                      e.key === "Home"
+                        ? 0
+                        : e.key === "End"
+                          ? buttons.length - 1
+                          : (index +
+                              (e.key === "ArrowDown" ? 1 : -1) +
+                              buttons.length) %
+                            buttons.length
+                    ]?.focus();
+                  }
+                }}
+              >
+                <MenuEntries items={item.children!} close={close} />
+              </motion.div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }

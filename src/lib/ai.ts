@@ -32,6 +32,7 @@ export interface AIMessage {
   context?: { path: string; content: string };
   error?: string;
   stopped?: boolean;
+  reasoning?: string;
   attachments?: AIAttachment[];
   startedAt?: number;
   finishedAt?: number;
@@ -79,15 +80,6 @@ const initialProviders: AIProvider[] = [
     hasKey: false,
   },
   {
-    id: "codex",
-    name: "Codex CLI",
-    kind: "codex",
-    endpoint: "",
-    model: "",
-    executable: "",
-    hasKey: false,
-  },
-  {
     id: "claude",
     name: "Claude Code",
     kind: "claude",
@@ -122,7 +114,7 @@ function savedConversations(): AIConversation[] {
       localStorage.getItem("devyy.ai.chats") ?? "[]",
     );
     if (!Array.isArray(data)) return [];
-    return data
+    const chats = data
       .filter(
         (c): c is AIConversation =>
           c &&
@@ -138,7 +130,30 @@ function savedConversations(): AIConversation[] {
               typeof m.content === "string",
           ),
       )
-      .slice(0, 40);
+      .slice(0, 40)
+      .map((chat) =>
+        chat.providerId === "codex"
+          ? { ...chat, providerId: "chatgpt", model: "", effort: "" }
+          : chat,
+      )
+      .map((chat) => ({
+        ...chat,
+        messages: chat.messages.map((message) => ({
+          ...message,
+          reasoning:
+            typeof message.reasoning === "string"
+              ? message.reasoning.slice(0, 256 * 1024)
+              : undefined,
+        })),
+      }));
+    if (data.some((chat) => chat?.providerId === "codex")) {
+      try {
+        localStorage.setItem("devyy.ai.chats", JSON.stringify(chats));
+      } catch {
+        /* Keep readable history when storage is full. */
+      }
+    }
+    return chats;
   } catch {
     return [];
   }
@@ -157,7 +172,8 @@ function savedChoices(): Record<string, AIChoice> {
         typeof choice.model === "string" &&
         typeof choice.effort === "string"
       )
-        result[key] = { model: choice.model, effort: choice.effort };
+        if (key !== "codex")
+          result[key] = { model: choice.model, effort: choice.effort };
     }
     return result;
   } catch {
@@ -221,7 +237,9 @@ export function loadAI(force = false): Promise<void> {
     try {
       const providers = await invoke<AIProvider[]>("ai_providers");
       update({
-        providers: Array.isArray(providers) ? providers : initialProviders,
+        providers: Array.isArray(providers)
+          ? providers.filter((p) => p.kind !== "codex")
+          : initialProviders,
         loaded: true,
         error: "",
       });
@@ -331,12 +349,14 @@ export function chooseAIModel(
   } catch {}
   persist();
 }
+const modelVersions = new Map<string, number>();
 export async function discoverAIModels(
   providerId: string,
   force = false,
 ): Promise<AIModel[]> {
   if (!force && state.models[providerId]) return state.models[providerId];
   if (!native) return [];
+  const version = modelVersions.get(providerId) ?? 0;
   const values = await invoke<(string | AIModel)[]>("ai_models", {
     providerId,
   });
@@ -345,6 +365,7 @@ export async function discoverAIModels(
       typeof model === "string" ? { id: model, name: model } : model,
     )
     .filter((model) => model && typeof model.id === "string");
+  if ((modelVersions.get(providerId) ?? 0) !== version) return [];
   update({ models: { ...state.models, [providerId]: models } });
   return models;
 }
@@ -515,20 +536,26 @@ export async function sendAIMessage(
     output = 0,
     stopped = false,
     cost = 0;
+  let pendingReasoning = "";
   let pendingText = "",
     frame = 0;
   const flushText = () => {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    if (!pendingText) return;
+    if (!pendingText && !pendingReasoning) return;
     const current = state.conversations
       .find((c) => c.id === chatId)
       ?.messages.find((m) => m.id === assistant.id);
     if (current)
       editMessage(chatId, assistant.id, {
         content: current.content + pendingText,
+        reasoning: ((current.reasoning ?? "") + pendingReasoning).slice(
+          0,
+          256 * 1024,
+        ),
       });
     pendingText = "";
+    pendingReasoning = "";
   };
   try {
     unlisten = await listen<{ requestId: string; kind: string; data: unknown }>(
@@ -538,6 +565,10 @@ export async function sendAIMessage(
         if (e.requestId !== requestId) return;
         if (e.kind === "delta" && typeof e.data === "string") {
           pendingText += e.data;
+          if (!frame) frame = requestAnimationFrame(flushText);
+        }
+        if (e.kind === "reasoning" && typeof e.data === "string") {
+          pendingReasoning = (pendingReasoning + e.data).slice(0, 256 * 1024);
           if (!frame) frame = requestAnimationFrame(flushText);
         }
         if (e.kind === "error")
@@ -663,17 +694,21 @@ export async function aiAccount(
       const parsed = new URL(url);
       if (
         parsed.protocol !== "https:" ||
+        parsed.username ||
+        parsed.password ||
+        (parsed.port && parsed.port !== "443") ||
         !["auth.openai.com", "chatgpt.com", "auth0.openai.com"].includes(
           parsed.hostname,
         )
       )
         return;
-      void openUrl(url).catch(() =>
+      void openUrl(url).catch(() => {
+        void invoke("ai_cancel", { requestId }).catch(() => {});
         update({
           error:
             "Could not open the sign-in browser. Check your default browser and try again.",
-        }),
-      );
+        });
+      });
     } catch {
       /* Ignore unexpected URLs from a CLI. */
     }
@@ -686,7 +721,15 @@ export async function aiAccount(
       accountId,
     });
     const models = { ...state.models };
-    if (action !== "status") delete models[providerId];
+    const identity = (value: Record<string, unknown> | undefined) =>
+      (value?.account as { clientId?: string } | undefined)?.clientId;
+    if (
+      action !== "status" ||
+      identity(account) !== identity(state.accounts[providerId])
+    ) {
+      delete models[providerId];
+      modelVersions.set(providerId, (modelVersions.get(providerId) ?? 0) + 1);
+    }
     const usage = state.usage[providerId] ?? {
       tokens: 0,
       inputTokens: 0,

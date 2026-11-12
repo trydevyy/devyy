@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 import { hostRequest, type HostEvent } from "../lib/extensionHost";
 import { fileUri } from "../lib/extensionWorkbench";
-import { native } from "../lib/native";
+import { invoke, native } from "../lib/native";
 export interface WorkbenchRequest {
   id: string;
   method: string;
@@ -70,6 +70,27 @@ export default function ExtensionServices({
       void (async () => {
         const p = request.params;
         switch (request.method) {
+          case "secretGet":
+          case "secretStore":
+          case "secretDelete":
+            return invoke("extension_secret", {
+              id: request.extension,
+              key: p.key,
+              value: p.value ?? null,
+              action:
+                request.method === "secretGet"
+                  ? "get"
+                  : request.method === "secretStore"
+                    ? "store"
+                    : "delete",
+            });
+          case "languageClientStart":
+            return invoke("lsp_start", { language: p.language });
+          case "languageClientRequest":
+            return invoke("lsp_request", p);
+          case "languageClientStop":
+            await invoke("lsp_stop_language", { language: p.language });
+            return true;
           case "clipboardRead":
             return readText();
           case "clipboardWrite":

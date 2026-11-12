@@ -14,7 +14,15 @@ import {
 import { toast } from "sonner";
 import { invoke } from "../lib/native";
 import { filename, type GitState, type GitChange } from "../lib/types";
-import { FileIcon } from "./FileTree";
+import FileIcon from "./FileIcon";
+import type {
+  GitBranchInfo,
+  GitBranchAction,
+  GitSubmodule,
+  GitSubmoduleAction,
+} from "../lib/git";
+import GitBranches from "./GitBranches";
+import GitSubmodules from "./GitSubmodules";
 import { useContextMenu } from "./ContextMenu";
 interface Commit {
   hash: string;
@@ -26,6 +34,11 @@ interface Commit {
 export default function SourceControl({
   state,
   root,
+  repository,
+  onRepository,
+  onBranchAction,
+  onSubmoduleAction,
+  onRenameBranch,
   busy,
   commit,
   onCommitChange,
@@ -41,6 +54,19 @@ export default function SourceControl({
 }: {
   state: GitState;
   root: string;
+  repository: string;
+  onRepository: (repository: string) => void;
+  onBranchAction: (
+    action: GitBranchAction,
+    branch: string,
+    name?: string,
+  ) => void;
+  onSubmoduleAction: (
+    action: GitSubmoduleAction,
+    path?: string,
+    url?: string,
+  ) => Promise<boolean>;
+  onRenameBranch: (branch: string, name: string) => void;
   busy: boolean;
   commit: string;
   onCommitChange: (message: string) => void;
@@ -52,9 +78,10 @@ export default function SourceControl({
   onOpen: (path: string) => void;
   onDiscard: (path: string) => void;
   onSwitch: (branch: string) => void;
-  onCreateBranch: () => void;
+  onCreateBranch: (startPoint?: string) => void;
 }) {
-  const [branches, setBranches] = useState<string[]>([]),
+  const [branches, setBranches] = useState<GitBranchInfo[]>([]),
+    [modules, setModules] = useState<GitSubmodule[]>([]),
     [history, setHistory] = useState<Commit[]>([]),
     [showHistory, setShowHistory] = useState(false),
     [error, setError] = useState("");
@@ -62,14 +89,16 @@ export default function SourceControl({
   useEffect(() => {
     let current = true;
     void Promise.allSettled([
-      invoke<string[]>("git_branches"),
-      invoke<Commit[]>("git_history"),
-    ]).then(([branches, history]) => {
+      invoke<GitBranchInfo[]>("git_branch_details", { repository }),
+      invoke<Commit[]>("git_history", { repository }),
+      invoke<GitSubmodule[]>("git_submodules"),
+    ]).then(([branches, history, submodules]) => {
       if (!current) return;
       if (branches.status === "fulfilled") setBranches(branches.value ?? []);
       if (history.status === "fulfilled") setHistory(history.value ?? []);
+      if (submodules.status === "fulfilled") setModules(submodules.value ?? []);
       setError(
-        [branches, history]
+        [branches, history, submodules]
           .filter((item) => item.status === "rejected")
           .map((item) => String((item as PromiseRejectedResult).reason))
           .join("\n"),
@@ -78,7 +107,7 @@ export default function SourceControl({
     return () => {
       current = false;
     };
-  }, [root, state]);
+  }, [root, repository, state]);
   const staged = state.changes.filter(
     (change) => change.index.trim() && !["?", "!", "U"].includes(change.index),
   );
@@ -115,14 +144,22 @@ export default function SourceControl({
                 },
                 {
                   label: "Open working file",
-                  action: () => onOpen(change.path),
+                  disabled: modules.some(
+                    (item) => item.path === change.path && !item.initialized,
+                  ),
+                  action: () =>
+                    modules.some((item) => item.path === change.path)
+                      ? onRepository(change.path)
+                      : onOpen(change.path),
                 },
                 {
                   label: isStaged ? "Unstage file" : "Stage file",
                   disabled: busy,
                   action: () => onStage(change.path, isStaged),
                 },
-                ...(!isStaged && change.index !== "?"
+                ...(!isStaged &&
+                change.index !== "?" &&
+                !modules.some((item) => item.path === change.path)
                   ? [
                       {
                         label: "Discard working changes",
@@ -141,7 +178,7 @@ export default function SourceControl({
               onClick={() => onDiff(change.path, isStaged)}
             >
               <FileIcon path={change.path} size={13} />
-              <span>
+              <span className="change-label">
                 <strong>{filename(change.path)}</strong>
                 <small>
                   {change.path.includes("/")
@@ -151,16 +188,18 @@ export default function SourceControl({
               </span>
               <b>{isStaged ? change.index : change.worktree}</b>
             </button>
-            {!isStaged && change.index !== "?" && (
-              <button
-                className="icon-button change-tool"
-                aria-label={`Discard changes to ${change.path}`}
-                disabled={busy}
-                onClick={() => onDiscard(change.path)}
-              >
-                <RotateCcw size={12} />
-              </button>
-            )}
+            {!isStaged &&
+              change.index !== "?" &&
+              !modules.some((item) => item.path === change.path) && (
+                <button
+                  className="icon-button change-tool"
+                  aria-label={`Discard changes to ${change.path}`}
+                  disabled={busy}
+                  onClick={() => onDiscard(change.path)}
+                >
+                  <RotateCcw size={12} />
+                </button>
+              )}
             <button
               className="icon-button change-tool"
               aria-label={`${isStaged ? "Unstage" : "Stage"} ${change.path}`}
@@ -176,6 +215,26 @@ export default function SourceControl({
   }
   return (
     <div className="source-control">
+      {!!modules.length && (
+        <label className="scm-repository-picker">
+          <span>Repository</span>
+          <select
+            aria-label="Source Control repository"
+            value={repository}
+            disabled={busy}
+            onChange={(event) => onRepository(event.target.value)}
+          >
+            <option value="">{filename(root)}</option>
+            {modules
+              .filter((item) => item.initialized && !item.conflict)
+              .map((item) => (
+                <option key={item.path} value={item.path}>
+                  {item.path}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
       <div className="branch-card">
         <GitBranch size={15} />
         <select
@@ -184,17 +243,37 @@ export default function SourceControl({
           disabled={busy}
           onChange={(event) => onSwitch(event.target.value)}
         >
-          {[...new Set([state.branch, ...branches])].map((branch) => (
-            <option key={branch} value={branch}>
-              {branch}
-            </option>
-          ))}
+          {!branches.some(
+            (branch) => !branch.remote && branch.name === state.branch,
+          ) && <option value={state.branch}>{state.branch}</option>}
+          <optgroup label="Local branches">
+            {branches
+              .filter((branch) => !branch.remote)
+              .map((branch) => (
+                <option
+                  key={branch.reference}
+                  value={branch.name}
+                  disabled={!branch.current && !!branch.worktree}
+                >
+                  {branch.name}
+                </option>
+              ))}
+          </optgroup>
+          <optgroup label="Remote branches">
+            {branches
+              .filter((branch) => branch.remote)
+              .map((branch) => (
+                <option key={branch.reference} value={branch.reference}>
+                  {branch.name}
+                </option>
+              ))}
+          </optgroup>
         </select>
         <button
           className="icon-button"
           aria-label="Create Git branch"
           disabled={busy}
-          onClick={onCreateBranch}
+          onClick={() => onCreateBranch()}
         >
           <Plus size={13} />
         </button>
@@ -207,6 +286,15 @@ export default function SourceControl({
           <RefreshCw size={13} />
         </button>
       </div>
+      <GitBranches
+        branches={branches}
+        current={state.branch}
+        busy={busy}
+        onSwitch={onSwitch}
+        onCreate={onCreateBranch}
+        onAction={onBranchAction}
+        onRename={onRenameBranch}
+      />
       {state.upstream && (
         <p className="scm-upstream" title={state.upstream}>
           {state.upstream}
@@ -215,6 +303,13 @@ export default function SourceControl({
           </span>
         </p>
       )}
+      <div className="scm-summary" aria-label="Change summary">
+        <strong>
+          {state.changes.length}{" "}
+          {state.changes.length === 1 ? "changed file" : "changed files"}
+        </strong>
+        <span>{staged.length} staged</span>
+      </div>
       <textarea
         className="commit-message"
         value={commit}
@@ -248,6 +343,13 @@ export default function SourceControl({
           <Check size={14} /> Working tree clean
         </p>
       )}
+      <GitSubmodules
+        modules={modules}
+        repository={repository}
+        busy={busy}
+        onSelect={onRepository}
+        onAction={onSubmoduleAction}
+      />
       <button
         className="scm-history-toggle"
         aria-expanded={showHistory}

@@ -2,35 +2,15 @@ import { writeAIContextDrag } from "../lib/aiContext";
 import { useMemo, useState } from "react";
 import {
   ChevronRight,
-  File,
-  FileCode2,
-  FileJson,
-  FileText,
-  Folder,
-  FolderOpen,
   MoreHorizontal,
   Plus,
   FolderPlus,
   RefreshCw,
 } from "lucide-react";
-import {
-  filename,
-  language,
-  type FileEntry,
-  type GitChange,
-} from "../lib/types";
-export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
-  const lang = language(path);
-  const Icon =
-    lang === "json"
-      ? FileJson
-      : lang === "markdown"
-        ? FileText
-        : lang === "text" || lang === "toml"
-          ? File
-          : FileCode2;
-  return <Icon size={size} className={`file-icon file-${lang}`} />;
-}
+import { filename, type FileEntry, type GitChange } from "../lib/types";
+import FileIcon from "./FileIcon";
+export { default as FileIcon } from "./FileIcon";
+
 interface Props {
   files: FileEntry[];
   active: string;
@@ -100,7 +80,7 @@ export default function FileTree(p: Props) {
               {file.directory ? (
                 <>
                   <ChevronRight size={12} className={open ? "rotated" : ""} />
-                  {open ? <FolderOpen size={15} /> : <Folder size={15} />}
+                  <FileIcon path={file.path} directory expanded={open} />
                 </>
               ) : (
                 <>

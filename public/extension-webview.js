@@ -112,10 +112,49 @@
       }
       if (event.data?.channel === "devyy-theme") {
         document.documentElement.style.cssText = event.data.tokens;
+        document.documentElement.style.setProperty(
+          "--vscode-editor-background",
+          "transparent",
+        );
+        document.documentElement.style.setProperty(
+          "--vscode-sideBar-background",
+          "transparent",
+        );
         document.documentElement.style.colorScheme =
           event.data.theme === "paper" ? "light" : "dark";
         applyTheme(event.data.theme);
       }
+    });
+    document.addEventListener("contextmenu", (event) => {
+      const context = {};
+      let element = event.target instanceof Element ? event.target : null;
+      const ancestors = [];
+      while (element) {
+        ancestors.unshift(element);
+        element = element.parentElement;
+      }
+      for (const node of ancestors) {
+        const raw = node.getAttribute("data-vscode-context");
+        if (!raw || raw.length > 16384) continue;
+        try {
+          const value = JSON.parse(raw);
+          for (const [key, item] of Object.entries(value)) {
+            if (["__proto__", "constructor", "prototype"].includes(key))
+              continue;
+            if (Object.keys(context).length < 128) context[key] = item;
+          }
+        } catch {}
+      }
+      event.preventDefault();
+      parent.postMessage(
+        {
+          channel: "devyy-context-menu",
+          context,
+          x: event.clientX,
+          y: event.clientY,
+        },
+        "*",
+      );
     });
     document.addEventListener("click", (event) => {
       if (event.defaultPrevented || !(event.target instanceof Element)) return;
@@ -143,7 +182,7 @@
       "\\u003c",
     );
     const runtime = `(${initialize.toString()})(${config},${window.__DEVYY_INSTALL_WEBVIEW_STORAGE__.toString()})`;
-    const bootstrap = `<meta http-equiv="Content-Security-Policy" content="${csp}"><style>:root{${tokens};--vscode-font-family:'DM Sans',system-ui,sans-serif;--vscode-font-size:12px;color-scheme:${theme === "paper" ? "light" : "dark"}}body{margin:0;padding:0;background:var(--vscode-editor-background);color:var(--vscode-foreground);font:var(--vscode-font-size)/1.6 var(--vscode-font-family)}button,input,select,textarea{font:inherit;color:inherit;border:1px solid var(--vscode-input-border);border-radius:6px;padding:7px 10px;background:var(--vscode-input-background)}button{cursor:pointer}button:hover{background:var(--vscode-list-hoverBackground)}*:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:2px}h1,h2,h3{font-weight:500;letter-spacing:-.02em}a{color:var(--vscode-focusBorder)}</style><script>${runtime}<\/script>`;
+    const bootstrap = `<meta http-equiv="Content-Security-Policy" content="${csp}"><style>:root{${tokens};--vscode-font-family:'DM Sans',system-ui,sans-serif;--vscode-font-size:12px;color-scheme:${theme === "paper" ? "light" : "dark"}}body{margin:0;padding:0;background:transparent;color:var(--vscode-foreground);font:var(--vscode-font-size)/1.6 var(--vscode-font-family)}:where(button,input,select,textarea){font:inherit;color:inherit}:where(a){color:var(--vscode-textLink-foreground)}:where(*:focus-visible){outline:1px solid var(--vscode-focusBorder);outline-offset:2px}:root{--vscode-editor-font-size:13px;--vscode-editor-font-weight:400;--vscode-window-activeBorder:transparent;--vscode-contrastBorder:transparent}</style><script>${runtime}<\/script>`;
     const source = (html || "<html><head></head><body></body></html>").replace(
       /<!doctype[^>]*>/i,
       "",

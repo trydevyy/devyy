@@ -18,6 +18,7 @@ export interface ExtensionWebview {
   title: string;
   html: string;
   enableScripts: boolean;
+  viewKind?: "view" | "panel";
   extension: string;
 }
 export type NativeNode = {
@@ -45,6 +46,7 @@ export function takeWebviewMessages(id: string) {
   webviewMessages.delete(id);
   return messages;
 }
+let lspSubscribed: Promise<void> | undefined;
 let snapshot = {
   contexts: {} as Record<string, unknown>,
   statusItems: {} as Record<string, ExtensionStatusItem>,
@@ -80,6 +82,45 @@ export function hostRequest<T = unknown>(
 }
 async function subscribe() {
   if (!native) return;
+  await (lspSubscribed ??= Promise.all([
+    listen<{ language: string; method: string; params: unknown; id?: unknown }>(
+      "lsp-server-message",
+      ({ payload: p }) => {
+        void hostRequest("languageServerMessage", {
+          ...p,
+          request: p.id !== undefined,
+        })
+          .then((result) => {
+            if (p.id !== undefined)
+              return invoke("lsp_respond", {
+                language: p.language,
+                id: p.id,
+                result,
+                error: null,
+              });
+          })
+          .catch((error) => {
+            if (p.id !== undefined)
+              void invoke("lsp_respond", {
+                language: p.language,
+                id: p.id,
+                result: null,
+                error: { code: -32601, message: String(error) },
+              }).catch(() => {});
+          });
+      },
+    ),
+    listen<{ language: string; text: string }>("lsp-output", ({ payload: p }) =>
+      window.dispatchEvent(
+        new CustomEvent("devyy-extension-event", {
+          detail: {
+            event: "output",
+            payload: { name: p.language, text: p.text },
+          },
+        }),
+      ),
+    ),
+  ]).then(() => {}));
   await (subscribed ??= listen<HostEvent>(
     "extension-host",
     ({ payload: message }) => {
@@ -137,6 +178,8 @@ export async function syncExtensionHost() {
     .catch(() => {})
     .then(async () => {
       await subscribe();
+      await invoke("lsp_stop");
+      clearLanguageServers();
       window.dispatchEvent(new Event("devyy-extension-host-reset"));
       languages.clear();
       webviewMessages.clear();
@@ -164,8 +207,6 @@ export async function syncExtensionHost() {
           .map((e) => ({ id: e.id, status: "error", error: String(error) }));
         publish();
       }
-      await invoke("lsp_stop");
-      clearLanguageServers();
       await refreshLanguageServers();
       window.dispatchEvent(new Event("devyy-language-servers-changed"));
     });
@@ -195,14 +236,14 @@ export async function activateExtensionLanguage(language: string) {
 export async function extensionCommand(id: string, args: unknown[] = []) {
   await queue;
   await subscribe();
-  const before = JSON.stringify(await refreshLanguageServers());
-  await hostRequest("command", { id, args });
-  const after = JSON.stringify(await refreshLanguageServers());
+  const before = JSON.stringify(await refreshLanguageServers().catch(() => []));
+  const result = await hostRequest("command", { id, args });
+  const after = JSON.stringify(await refreshLanguageServers().catch(() => []));
   if (before !== after) {
-    await invoke("lsp_stop");
     clearLanguageServers();
     window.dispatchEvent(new Event("devyy-language-servers-changed"));
   }
+  return result;
 }
 
 export async function extensionLanguageFeature<T>(

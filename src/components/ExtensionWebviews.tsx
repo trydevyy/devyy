@@ -1,6 +1,6 @@
-import { isAIExtension } from "../lib/aiExtensions";
+import { isAIExtension, aiMainView } from "../lib/aiExtensions";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanelsTopLeft, X } from "lucide-react";
+import { X } from "lucide-react";
 import { toast } from "sonner";
 import {
   hostRequest,
@@ -10,23 +10,104 @@ import {
   type HostEvent,
 } from "../lib/extensionHost";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { extensionMenuItems } from "../lib/extensionMenus";
+import { useExtensions } from "../lib/extensions";
+import { useContextMenu } from "./ContextMenu";
 import { invoke, native } from "../lib/native";
-const themeProperties: Record<string, string> = {
-  "--vscode-editor-background": "--surface",
-  "--vscode-editor-foreground": "--ink",
-  "--vscode-foreground": "--ink",
-  "--vscode-descriptionForeground": "--muted",
-  "--vscode-focusBorder": "--accent",
-  "--vscode-button-background": "--accent",
-  "--vscode-button-foreground": "--primary-ink",
-  "--vscode-button-secondaryBackground": "--hover",
-  "--vscode-input-background": "--hover",
-  "--vscode-input-foreground": "--ink",
-  "--vscode-input-border": "--line",
-  "--vscode-panel-border": "--line",
-  "--vscode-list-hoverBackground": "--hover",
-  "--vscode-sideBar-background": "--surface",
-};
+// Supply VS Code's public design tokens while leaving extension CSS in control.
+const themeProperties: Record<string, string> = {};
+for (const [source, names] of Object.entries({
+  "--ink": [
+    "foreground",
+    "editor-foreground",
+    "sideBar-foreground",
+    "panelTitle-activeForeground",
+    "input-foreground",
+    "dropdown-foreground",
+    "list-activeSelectionForeground",
+    "list-inactiveSelectionForeground",
+    "list-hoverForeground",
+    "menu-foreground",
+    "menu-selectionForeground",
+    "quickInput-foreground",
+    "notificationCenterHeader-foreground",
+    "chat-requestForeground",
+    "icon-foreground",
+  ],
+  "--muted": [
+    "descriptionForeground",
+    "disabledForeground",
+    "input-placeholderForeground",
+    "sideBarTitle-foreground",
+    "sideBarSectionHeader-foreground",
+    "panelTitle-inactiveForeground",
+    "tab-inactiveForeground",
+    "breadcrumb-foreground",
+    "chat-slashCommandForeground",
+  ],
+  "--surface": [
+    "editor-background",
+    "sideBar-background",
+    "panel-background",
+    "chat-requestBackground",
+  ],
+  "--raised": [
+    "dropdown-background",
+    "menu-background",
+    "quickInput-background",
+    "notifications-background",
+    "editorWidget-background",
+    "editorHoverWidget-background",
+  ],
+  "--line": [
+    "input-border",
+    "dropdown-border",
+    "panel-border",
+    "sideBar-border",
+    "sideBarSectionHeader-border",
+    "widget-border",
+    "menu-border",
+    "menu-separatorBackground",
+    "editorWidget-border",
+    "chat-requestBorder",
+    "toolbar-separator",
+  ],
+  "--hover": [
+    "input-background",
+    "button-secondaryBackground",
+    "list-hoverBackground",
+    "toolbar-hoverBackground",
+    "list-inactiveSelectionBackground",
+    "tab-hoverBackground",
+  ],
+  "--selection": [
+    "list-activeSelectionBackground",
+    "editor-selectionBackground",
+    "selection-background",
+  ],
+  "--accent": [
+    "focusBorder",
+    "textLink-foreground",
+    "textLink-activeForeground",
+    "button-background",
+    "button-hoverBackground",
+    "progressBar-background",
+    "badge-background",
+    "checkbox-selectBackground",
+    "inputOption-activeBorder",
+    "activityBar-activeBorder",
+  ],
+  "--primary-ink": ["button-foreground", "badge-foreground"],
+  "--secondary": ["button-secondaryForeground", "textPreformat-foreground"],
+  "--accent-soft": [
+    "button-secondaryHoverBackground",
+    "inputOption-activeBackground",
+  ],
+  "--green": ["testing-iconPassed", "gitDecoration-addedResourceForeground"],
+  "--mono": ["editor-font-family"],
+}))
+  for (const name of names) themeProperties[`--vscode-${name}`] = source;
+
 function themeTokens() {
   const css = getComputedStyle(document.documentElement);
   return Object.entries(themeProperties)
@@ -39,10 +120,24 @@ let documentRevision = 0;
 function Frame({
   view,
   shortcuts,
+  visible,
 }: {
   view: ExtensionWebview;
   shortcuts: string[];
+  visible: boolean;
 }) {
+  const openMenu = useContextMenu();
+  const installed = useExtensions();
+  const host = useExtensionHost();
+  const menuData = useRef({ installed, contexts: host.contexts });
+  menuData.current = { installed, contexts: host.contexts };
+  useEffect(() => {
+    void hostRequest("webviewState", {
+      id: view.id,
+      visible,
+      active: visible,
+    }).catch(() => {});
+  }, [view.id, visible]);
   const shortcutRef = useRef(shortcuts);
   shortcutRef.current = shortcuts;
   const frame = useRef<HTMLIFrameElement>(null);
@@ -113,9 +208,39 @@ function Frame({
           "devyy-storage",
           "devyy-open-link",
           "devyy-shortcut",
+          "devyy-context-menu",
         ].includes(event.data?.channel)
       )
         return;
+      if (event.data.channel === "devyy-context-menu") {
+        const context = {
+          ...menuData.current.contexts,
+          webviewId: view.id,
+          ...event.data.context,
+        };
+        const items = extensionMenuItems(
+          menuData.current.installed,
+          "webview/context",
+          context,
+          (id) =>
+            void hostRequest("command", { id, args: [context] }).catch(
+              (error) => toast.error(String(error)),
+            ),
+        );
+        const rect = frame.current!.getBoundingClientRect();
+        if (items.length)
+          openMenu(
+            {
+              clientX: rect.left + Number(event.data.x || 0),
+              clientY: rect.top + Number(event.data.y || 0),
+              preventDefault() {},
+              stopPropagation() {},
+              currentTarget: frame.current,
+            },
+            items,
+          );
+        return;
+      }
       if (event.data.channel === "devyy-shortcut") {
         if (shortcutRef.current.includes(event.data.binding))
           window.dispatchEvent(
@@ -297,22 +422,30 @@ export default function ExtensionWebviews({
   shortcuts = [],
   placement = "main",
   owner,
+  viewId,
+  visible = true,
 }: {
   shortcuts?: string[];
-  placement?: "main" | "ai";
+  placement?: "main" | "ai" | "view";
   owner?: string;
+  viewId?: string;
+  visible?: boolean;
 }) {
   const host = useExtensionHost();
   const webviews = host.webviews.filter((view) =>
     placement === "ai"
-      ? isAIExtension(view.extension)
-      : !isAIExtension(view.extension),
+      ? view.id === aiMainView(view.extension)
+      : placement === "view"
+        ? view.id === viewId
+        : !isAIExtension(view.extension) && view.viewKind !== "view",
   );
   const [selected, setSelected] = useState("");
-  const active =
-    webviews.find(
-      (view) => view.id === selected && (!owner || view.extension === owner),
-    ) ?? webviews.filter((view) => !owner || view.extension === owner).at(-1);
+  const active = !visible
+    ? undefined
+    : (webviews.find(
+        (view) => view.id === selected && (!owner || view.extension === owner),
+      ) ??
+      webviews.filter((view) => !owner || view.extension === owner).at(-1));
   useEffect(() => {
     setSelected(webviews.at(-1)?.id ?? "");
   }, [webviews.at(-1)?.id]);
@@ -328,37 +461,59 @@ export default function ExtensionWebviews({
   if (!active && placement === "main") return null;
   return (
     <section className="extension-dock" aria-label="Extension panel">
-      <div className="extension-dock-header">
-        <PanelsTopLeft size={14} />
-        <select
-          aria-label="Active extension view"
-          value={active?.id ?? ""}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          {webviews
-            .filter((view) => !owner || view.extension === owner)
-            .map((view) => (
-              <option key={view.id} value={view.id}>
+      {placement === "main" && (
+        <div className="extension-dock-header">
+          <div
+            className="extension-panel-tabs"
+            role="tablist"
+            aria-label="Extension panels"
+          >
+            {webviews.map((view) => (
+              <button
+                key={view.id}
+                role="tab"
+                aria-selected={active?.id === view.id}
+                tabIndex={active?.id === view.id ? 0 : -1}
+                onClick={() => setSelected(view.id)}
+                onKeyDown={(event) => {
+                  const i = webviews.findIndex((v) => v.id === view.id),
+                    next =
+                      event.key === "ArrowRight"
+                        ? (i + 1) % webviews.length
+                        : event.key === "ArrowLeft"
+                          ? (i - 1 + webviews.length) % webviews.length
+                          : -1;
+                  if (next >= 0) {
+                    event.preventDefault();
+                    setSelected(webviews[next].id);
+                    const tabs =
+                      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                        '[role="tab"]',
+                      );
+                    tabs?.[next]?.focus();
+                  }
+                }}
+              >
                 {view.title}
-              </option>
+              </button>
             ))}
-        </select>
-        <button
-          aria-label={`Close ${active?.title ?? "extension view"}`}
-          disabled={!active}
-          onClick={() => {
-            void hostRequest("closeWebview", { id: active?.id }).catch((e) =>
-              toast.error(String(e)),
-            );
-          }}
-        >
-          <X size={15} />
-        </button>
-      </div>
+          </div>
+          <button
+            aria-label={`Close ${active?.title ?? "extension view"}`}
+            disabled={!active}
+            onClick={() =>
+              void hostRequest("closeWebview", { id: active?.id }).catch(
+                (error) => toast.error(String(error)),
+              )
+            }
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
       {!active && (
         <p className="extension-view-note" role="status">
-          Open the extension’s view to get started. If it is still loading,
-          check its runtime status in Installed extensions.
+          Opening extension…
         </p>
       )}
       {webviews.map((view) => (
@@ -367,7 +522,11 @@ export default function ExtensionWebviews({
           hidden={view.id !== active?.id}
           key={view.id}
         >
-          <Frame view={view} shortcuts={shortcuts} />
+          <Frame
+            view={view}
+            shortcuts={shortcuts}
+            visible={view.id === active?.id}
+          />
         </div>
       ))}
     </section>

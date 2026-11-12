@@ -1,3 +1,5 @@
+import { motion } from "motion/react";
+import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
@@ -7,7 +9,9 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { FileIcon } from "./FileTree";
+import FileIcon from "./FileIcon";
+import ExtensionIcon from "./ExtensionIcon";
+import AIProviderIcon from "./AIProviderIcon";
 import { readLocal } from "../lib/types";
 import { searchScore } from "../lib/search";
 export interface PaletteItem {
@@ -15,6 +19,7 @@ export interface PaletteItem {
   label: string;
   detail?: string;
   shortcut?: string;
+  extension?: { id: string; icon?: string };
   run: () => void;
 }
 export default function Palette({
@@ -28,6 +33,7 @@ export default function Palette({
   onClose: () => void;
   onModeChange: (mode: "files" | "commands") => void;
 }) {
+  const { transition, instant } = useSurfaceMotion();
   const [query, setQuery] = useState(""),
     [selected, setSelected] = useState(0);
   const recent = useMemo(
@@ -83,7 +89,11 @@ export default function Palette({
   }
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div
+      <motion.div
+        layout
+        transition={transition}
+        initial={{ opacity: 0, scale: instant ? 1 : 0.97, y: instant ? 0 : -8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
         className="palette"
         role="dialog"
         aria-label={mode === "files" ? "Go to file" : "Command palette"}
@@ -178,11 +188,21 @@ export default function Palette({
               onClick={() => choose(item)}
             >
               {mode === "files" ? (
-                <FileIcon path={item.id} />
+                <FileIcon path={item.id} size={18} />
+              ) : item.extension?.id === "openai.chatgpt" ? (
+                <AIProviderIcon kind="codex" size={18} />
+              ) : item.extension?.id === "anthropic.claude-code" ? (
+                <AIProviderIcon kind="claude" size={18} />
+              ) : item.extension ? (
+                <ExtensionIcon
+                  id={item.extension.id}
+                  fallback={item.extension.icon}
+                  size={18}
+                />
               ) : (
-                <Command size={15} />
+                <Command size={18} />
               )}
-              <span>
+              <span className="palette-item-content">
                 <strong>{item.label}</strong>
                 {item.detail && <small>{item.detail}</small>}
               </span>
@@ -207,7 +227,7 @@ export default function Palette({
             <CornerDownLeft size={12} /> Open
           </span>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

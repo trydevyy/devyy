@@ -18,6 +18,10 @@ fn config(
     args: Vec<String>,
 ) -> ServerConfig {
     ServerConfig {
+        env: Default::default(),
+        cwd: None,
+        client_id: None,
+        client_capabilities: Value::Null,
         language: language.into(),
         command,
         args,

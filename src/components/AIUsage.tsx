@@ -1,6 +1,14 @@
+import { useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Clock3, ExternalLink, LoaderCircle, RefreshCw, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Clock3,
+  ExternalLink,
+  LoaderCircle,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { aiAccount, remainingLimits, useAI } from "../lib/ai";
 import { invoke, native } from "../lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -17,10 +25,13 @@ export function timeUntil(timestamp?: number, now = Date.now()): string {
 export default function AIUsage({
   providerId,
   onClose,
+  embedded = false,
 }: {
   providerId?: string;
+  embedded?: boolean;
   onClose: () => void;
 }) {
+  const present = useIsPresent();
   const state = useAI(),
     [filter, setFilter] = useState(providerId ?? "all"),
     [tab, setTab] = useState("limits"),
@@ -38,6 +49,7 @@ export default function AIUsage({
       : p.id === filter,
   );
   useEffect(() => {
+    if (!present) return;
     const previous = document.activeElement as HTMLElement;
     dialog.current?.querySelector<HTMLElement>("select,button")?.focus();
     const key = (event: KeyboardEvent) => {
@@ -46,7 +58,7 @@ export default function AIUsage({
         event.stopPropagation();
         close.current();
       }
-      if (event.key === "Tab") {
+      if (!embedded && event.key === "Tab") {
         const buttons = Array.from(
             dialog.current?.querySelectorAll<HTMLElement>(
               'select,button,a,[tabindex="0"]',
@@ -68,18 +80,18 @@ export default function AIUsage({
     return () => {
       clearInterval(timer);
       document.removeEventListener("keydown", key, true);
-      previous?.isConnected && previous.focus();
+      if (!embedded && previous?.isConnected) previous.focus();
       for (const requestId of requests.current)
         void invoke("ai_cancel", { requestId }).catch(() => {});
     };
-  }, []);
+  }, [present]);
   async function refresh() {
     if (!native) return;
     setBusy(true);
     const failed: Record<string, string> = {};
     await Promise.allSettled(
       providers
-        .filter((p) => ["codex", "claude"].includes(p.kind))
+        .filter((p) => ["chatgpt", "claude"].includes(p.kind))
         .map(async (p) => {
           const id = crypto.randomUUID();
           requests.current.push(id);
@@ -97,59 +109,64 @@ export default function AIUsage({
     setBusy(false);
   }
   // Only the user-triggered refresh queries accounts; opening Usage also works offline.
-  return createPortal(
+  const content = (
     <div
-      className="ai-modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      className={`ai-usage-dialog ${embedded ? "ai-usage-embedded" : ""}`}
+      ref={dialog}
+      role={embedded ? "region" : "dialog"}
+      aria-modal={embedded ? undefined : true}
+      aria-label="AI usage"
+      data-escape-scope={present ? "active" : undefined}
     >
-      <div
-        className="ai-usage-dialog"
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label="AI usage"
-      >
-        <header className="ai-usage-header">
-          <strong>Usage</strong>
-          <span className="ai-header-slash">/</span>
-          <select
-            aria-label="Usage provider"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All providers</option>
-            {state.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <div role="tablist" aria-label="Usage metrics">
-            {["cost", "tokens", "limits"].map((metric) => (
-              <button
-                role="tab"
-                key={metric}
-                aria-selected={tab === metric}
-                onClick={() => setTab(metric)}
-              >
-                {metric}
-              </button>
-            ))}
-          </div>
+      <header className="ai-usage-header">
+        {embedded && (
           <button
             className="icon-button"
-            aria-label="Refresh AI usage"
-            onClick={() => void refresh()}
-            disabled={busy || !native}
+            aria-label="Back to providers"
+            onClick={onClose}
           >
-            {busy ? (
-              <LoaderCircle className="spinning" size={15} />
-            ) : (
-              <RefreshCw size={15} />
-            )}
+            <ArrowLeft size={16} />
           </button>
+        )}
+        <strong>Usage</strong>
+        <span className="ai-header-slash">/</span>
+        <select
+          aria-label="Usage provider"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        >
+          <option value="all">All providers</option>
+          {state.providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <div role="tablist" aria-label="Usage metrics">
+          {["cost", "tokens", "limits"].map((metric) => (
+            <button
+              role="tab"
+              key={metric}
+              aria-selected={tab === metric}
+              onClick={() => setTab(metric)}
+            >
+              {metric}
+            </button>
+          ))}
+        </div>
+        <button
+          className="icon-button"
+          aria-label="Refresh AI usage"
+          onClick={() => void refresh()}
+          disabled={busy || !native}
+        >
+          {busy ? (
+            <LoaderCircle className="spinning" size={15} />
+          ) : (
+            <RefreshCw size={15} />
+          )}
+        </button>
+        {!embedded && (
           <button
             className="icon-button"
             aria-label="Close AI usage"
@@ -157,178 +174,195 @@ export default function AIUsage({
           >
             <X size={17} />
           </button>
-        </header>
-        <div className="ai-usage-content" role="tabpanel" aria-label={tab}>
-          {providers.map((provider) => {
-            const usage = state.usage[provider.id],
-              account = state.accounts[provider.id],
-              raw = (usage?.limits ?? account?.limits) as
-                Record<string, unknown> | undefined,
-              limits = remainingLimits(raw),
-              identity = (account?.account ?? account) as
-                Record<string, unknown> | undefined;
-            return (
-              <section className="ai-usage-provider" key={provider.id}>
-                <h3>
-                  <AIProviderIcon kind={provider.kind} />
-                  {provider.name}
-                </h3>
-                {tab === "limits" ? (
-                  <>
-                    {limits.length ? (
-                      limits.map((limit) => (
-                        <div className="ai-quota-card" key={limit.label}>
-                          <div>
-                            <span>
-                              {limit.label === "Weekly window"
-                                ? "Weekly"
-                                : "Session"}
-                            </span>
-                            <strong>
-                              {Math.round(limit.remaining)}% <small>left</small>
-                            </strong>
-                          </div>
-                          <div
-                            className="ai-quota-track"
-                            role="meter"
-                            aria-label={`${provider.name} ${limit.label === "Weekly window" ? "weekly" : "session"} remaining`}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-valuenow={limit.remaining}
-                          >
-                            <i style={{ width: `${limit.remaining}%` }} />
-                            {limit.resetsAt && (
-                              <span
-                                title={`Resets ${new Date(limit.resetsAt * 1000).toLocaleString()}`}
-                              >
-                                <Clock3 size={11} />
-                                {timeUntil(limit.resetsAt, now)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="ai-quota-unavailable">
-                        <strong>—</strong>
-                        <span>
-                          {provider.kind === "claude"
-                            ? "Remaining quota isn’t reported by Claude Code"
-                            : ["chatgpt", "codex"].includes(provider.kind)
-                              ? "Refresh to check account limits"
-                              : "Account balance isn’t reported by this API"}
-                        </span>
-                      </div>
-                    )}
-                    {raw && !limits.length && (
-                      <details className="ai-raw-limits">
-                        <summary>Request limits</summary>
-                        <pre>{JSON.stringify(raw, null, 2)}</pre>
-                      </details>
-                    )}
-                    {identity && (
-                      <div className="ai-usage-account">
-                        <AIProviderIcon kind={provider.kind} />
-                        <span>
+        )}
+      </header>
+      <div className="ai-usage-content" role="tabpanel" aria-label={tab}>
+        {providers.map((provider) => {
+          const usage = state.usage[provider.id],
+            account = state.accounts[provider.id],
+            raw = (usage?.limits ?? account?.limits) as
+              Record<string, unknown> | undefined,
+            limits = remainingLimits(raw),
+            identity = (
+              ["chatgpt"].includes(provider.kind)
+                ? account?.account
+                : account?.loggedIn
+                  ? account
+                  : undefined
+            ) as Record<string, unknown> | undefined;
+          return (
+            <section className="ai-usage-provider" key={provider.id}>
+              <h3>
+                <AIProviderIcon kind={provider.kind} />
+                {provider.name}
+              </h3>
+              {tab === "limits" ? (
+                <>
+                  {limits.length ? (
+                    limits.map((limit) => (
+                      <div className="ai-quota-card" key={limit.label}>
+                        <div>
+                          <span>
+                            {limit.label === "Weekly window"
+                              ? "Weekly"
+                              : "Session"}
+                          </span>
                           <strong>
-                            {String(
-                              identity.email ??
-                                identity.planType ??
-                                provider.name,
-                            )}
+                            {Math.round(limit.remaining)}% <small>left</small>
                           </strong>
-                          <small>
-                            {String(
-                              identity.planType ??
-                                identity.subscriptionType ??
-                                (["chatgpt", "codex"].includes(provider.kind)
-                                  ? "Account usage"
-                                  : "Connected account"),
-                            )}
-                          </small>
-                        </span>
-                        <button
-                          onClick={() =>
-                            void openUrl(
-                              ["chatgpt", "codex"].includes(provider.kind)
-                                ? "https://chatgpt.com/settings/usage"
-                                : "https://claude.ai",
-                            ).catch(() => {})
-                          }
+                        </div>
+                        <div
+                          className="ai-quota-track"
+                          role="meter"
+                          aria-label={`${provider.name} ${limit.label === "Weekly window" ? "weekly" : "session"} remaining`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={limit.remaining}
                         >
-                          Manage account <ExternalLink size={12} />
-                        </button>
+                          <i style={{ width: `${limit.remaining}%` }} />
+                          {limit.resetsAt && (
+                            <span
+                              title={`Resets ${new Date(limit.resetsAt * 1000).toLocaleString()}`}
+                            >
+                              <Clock3 size={11} />
+                              {timeUntil(limit.resetsAt, now)}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </>
-                ) : tab === "tokens" ? (
-                  <div className="ai-token-card">
-                    <div>
-                      <span>Input</span>
-                      <strong>
-                        {(usage?.inputTokens ?? 0).toLocaleString()}
-                      </strong>
+                    ))
+                  ) : (
+                    <div className="ai-quota-unavailable">
+                      <strong>—</strong>
+                      <span>
+                        {provider.kind === "claude"
+                          ? "Remaining quota isn’t reported by Claude Code"
+                          : ["chatgpt"].includes(provider.kind)
+                            ? "Refresh to check account limits"
+                            : "Account balance isn’t reported by this API"}
+                      </span>
                     </div>
-                    <div>
-                      <span>Output</span>
-                      <strong>
-                        {(usage?.outputTokens ?? 0).toLocaleString()}
-                      </strong>
+                  )}
+                  {raw && !limits.length && (
+                    <details className="ai-raw-limits">
+                      <summary>Request limits</summary>
+                      <pre>{JSON.stringify(raw, null, 2)}</pre>
+                    </details>
+                  )}
+                  {identity && (
+                    <div className="ai-usage-account">
+                      <AIProviderIcon kind={provider.kind} />
+                      <span>
+                        <strong>
+                          {String(
+                            identity.email ??
+                              identity.planType ??
+                              provider.name,
+                          )}
+                        </strong>
+                        <small>
+                          {String(
+                            identity.planType ??
+                              identity.subscriptionType ??
+                              (["chatgpt"].includes(provider.kind)
+                                ? "Account usage"
+                                : "Connected account"),
+                          )}
+                        </small>
+                      </span>
+                      <button
+                        onClick={() =>
+                          void openUrl(
+                            ["chatgpt"].includes(provider.kind)
+                              ? "https://chatgpt.com/settings/usage"
+                              : "https://claude.ai",
+                          ).catch(() => {})
+                        }
+                      >
+                        Manage account <ExternalLink size={12} />
+                      </button>
                     </div>
-                    <div>
-                      <span>Requests</span>
-                      <strong>{usage?.requests ?? 0}</strong>
-                    </div>
-                    <div
-                      className="ai-token-bar"
-                      role="img"
-                      aria-label={`${usage?.inputTokens ?? 0} input tokens, ${usage?.outputTokens ?? 0} output tokens`}
-                    >
-                      <i
-                        style={{
-                          width: `${usage?.tokens ? (usage.inputTokens / usage.tokens) * 100 : 0}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="ai-cost-card">
-                    <span>Reported usage cost</span>
+                  )}
+                </>
+              ) : tab === "tokens" ? (
+                <div className="ai-token-card">
+                  <div>
+                    <span>Input</span>
                     <strong>
-                      {usage?.costUSD !== undefined
-                        ? new Intl.NumberFormat(undefined, {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 4,
-                          }).format(usage.costUSD)
-                        : "—"}
+                      {(usage?.inputTokens ?? 0).toLocaleString()}
                     </strong>
-                    <small>
-                      {usage?.costUSD !== undefined
-                        ? "Provider-reported cost, separate from subscription billing"
-                        : "Not reported by this provider"}
-                    </small>
                   </div>
-                )}
-                {errors[provider.id] && (
-                  <p className="ai-error" role="alert">
-                    {errors[provider.id]}
-                  </p>
-                )}
-              </section>
-            );
-          })}
-          {tab !== "limits" && (
-            <p className="ai-usage-scope">
-              Current Devyy session
-              {checked
-                ? ` / Checked ${new Date(checked).toLocaleTimeString()}`
-                : ""}
-            </p>
-          )}
-        </div>
+                  <div>
+                    <span>Output</span>
+                    <strong>
+                      {(usage?.outputTokens ?? 0).toLocaleString()}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Requests</span>
+                    <strong>{usage?.requests ?? 0}</strong>
+                  </div>
+                  <div
+                    className="ai-token-bar"
+                    role="img"
+                    aria-label={`${usage?.inputTokens ?? 0} input tokens, ${usage?.outputTokens ?? 0} output tokens`}
+                  >
+                    <i
+                      style={{
+                        width: `${usage?.tokens ? (usage.inputTokens / usage.tokens) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="ai-cost-card">
+                  <span>Reported usage cost</span>
+                  <strong>
+                    {usage?.costUSD !== undefined
+                      ? new Intl.NumberFormat(undefined, {
+                          style: "currency",
+                          currency: "USD",
+                          maximumFractionDigits: 4,
+                        }).format(usage.costUSD)
+                      : "—"}
+                  </strong>
+                  <small>
+                    {usage?.costUSD !== undefined
+                      ? "Provider-reported cost, separate from subscription billing"
+                      : "Not reported by this provider"}
+                  </small>
+                </div>
+              )}
+              {errors[provider.id] && (
+                <p className="ai-error" role="alert">
+                  {errors[provider.id]}
+                </p>
+              )}
+            </section>
+          );
+        })}
+        {tab !== "limits" && (
+          <p className="ai-usage-scope">
+            Current Devyy session
+            {checked
+              ? ` / Checked ${new Date(checked).toLocaleTimeString()}`
+              : ""}
+          </p>
+        )}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+  return embedded
+    ? content
+    : createPortal(
+        <div
+          className="ai-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) onClose();
+          }}
+        >
+          {content}
+        </div>,
+        document.body,
+      );
 }

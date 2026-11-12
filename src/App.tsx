@@ -58,6 +58,7 @@ import {
   X,
 } from "lucide-react";
 import { useAppearance } from "./lib/appearance";
+import type { GitBranchAction, GitSubmoduleAction } from "./lib/git";
 import SourceControl from "./components/SourceControl";
 import type { Comparison } from "./components/DiffEditor";
 const DiffEditor = lazy(() => import("./components/DiffEditor"));
@@ -70,6 +71,12 @@ import ExtensionStatusItems from "./components/ExtensionStatusItems";
 import ExtensionServices, {
   type WorkbenchRequest,
 } from "./components/ExtensionServices";
+import {
+  extensionMenuItems,
+  commandPaletteVisible,
+  resourceContext,
+  commandUri,
+} from "./lib/extensionMenus";
 import { matchesContext } from "./lib/extensionContext";
 import { fileUri, sendExtensionEditorState } from "./lib/extensionWorkbench";
 import {
@@ -83,7 +90,8 @@ import {
 import { initializeExtensions, useExtensions } from "./lib/extensions";
 import Preferences from "./components/Preferences";
 import AIWorkspace from "./components/AIWorkspace";
-import AIProviderIcon from "./components/AIProviderIcon";
+import AIPanelToggle from "./components/AIPanelToggle";
+import ExtensionIcon from "./components/ExtensionIcon";
 import { isAIExtension } from "./lib/aiExtensions";
 import type { SettingsCategory } from "./lib/settingsCatalog";
 import SearchResults from "./components/SearchResults";
@@ -166,16 +174,33 @@ export default function App() {
   const extensionContainers = useMemo(() => {
     const map = new Map<
       string,
-      { id: string; title: string; extension?: string }
+      {
+        id: string;
+        title: string;
+        icon?: string;
+        extension?: string;
+        fallback?: string;
+      }
     >();
-    for (const ext of installedExtensions.filter((e) => e.enabled)) {
+    for (const ext of installedExtensions.filter(
+      (e) => e.enabled && !isAIExtension(e.id),
+    )) {
       for (const container of Object.values(
         ext.contributes.viewsContainers ?? {},
       ).flat())
-        map.set(container.id, { ...container, extension: ext.id });
+        map.set(container.id, {
+          ...container,
+          extension: ext.id,
+          fallback: ext.icon,
+        });
       for (const id of Object.keys(ext.contributes.views ?? {}))
         if (!["explorer", "scm", "debug", "test"].includes(id) && !map.has(id))
-          map.set(id, { id, title: id, extension: ext.id });
+          map.set(id, {
+            id,
+            title: ext.name,
+            extension: ext.id,
+            fallback: ext.icon,
+          });
     }
     return [...map.values()].filter((container) =>
       installedExtensions.some(
@@ -187,6 +212,29 @@ export default function App() {
       ),
     );
   }, [installedExtensions, extensionHost.contexts]);
+  useEffect(() => {
+    const focus = (event: Event) => {
+      const message = (
+        event as CustomEvent<{
+          event: string;
+          payload: { id: string; extension: string };
+        }>
+      ).detail;
+      if (message.event !== "focusContainer") return;
+      if (isAIExtension(message.payload.extension))
+        window.dispatchEvent(
+          new CustomEvent("devyy-ai-open", {
+            detail: { extension: message.payload.extension },
+          }),
+        );
+      else {
+        setSection(`extension:${message.payload.id}`);
+        setSidebar(true);
+      }
+    };
+    window.addEventListener("devyy-extension-event", focus);
+    return () => window.removeEventListener("devyy-extension-event", focus);
+  }, []);
   const [setupOpen, setSetupOpen] = useState(
     () =>
       !readLocal("devyy.setupCompleted", false) &&
@@ -268,7 +316,12 @@ export default function App() {
   const [git, setGit] = useState<GitState | null>(null),
     [gitError, setGitError] = useState(""),
     [commit, setCommit] = useState(""),
-    [gitBusy, setGitBusy] = useState(false);
+    [gitBusy, setGitBusy] = useState(false),
+    [gitRepository, setGitRepository] = useState("");
+  const gitRepositoryRef = useRef("");
+  const gitStatusRequest = useRef(0);
+  const gitOperationBusy = useRef(false);
+  const gitDrafts = useRef(new Map<string, string>());
   const [query, setQuery] = useState(""),
     [caseSensitive, setCaseSensitive] = useState(false),
     [matches, setMatches] = useState<SearchMatch[]>([]),
@@ -503,15 +556,25 @@ export default function App() {
   }
   async function refreshGit() {
     if (!native || wsRef.current.root === "demo") return;
-    const root = wsRef.current.root;
+    const root = wsRef.current.root,
+      repository = gitRepositoryRef.current,
+      request = ++gitStatusRequest.current;
     try {
-      const next = await invoke<GitState>("git_status");
-      if (root === wsRef.current.root) {
+      const next = await invoke<GitState>("git_status", { repository });
+      if (
+        root === wsRef.current.root &&
+        repository === gitRepositoryRef.current &&
+        request === gitStatusRequest.current
+      ) {
         setGit(next);
         setGitError("");
       }
     } catch (e) {
-      if (root === wsRef.current.root) {
+      if (
+        root === wsRef.current.root &&
+        repository === gitRepositoryRef.current &&
+        request === gitStatusRequest.current
+      ) {
         setGit(null);
         setGitError(String(e));
       }
@@ -580,6 +643,11 @@ export default function App() {
       tabsRef.current = [];
       setActive("");
       setGit(null);
+      setGitRepository("");
+      gitRepositoryRef.current = "";
+      ++gitStatusRequest.current;
+      gitDrafts.current.clear();
+      setCommit("");
       setProblems([]);
       setLspStatus({});
       setMatches([]);
@@ -1837,29 +1905,120 @@ export default function App() {
       .catch((e) => notify(e));
   }, [terminalId, pendingRun]);
   async function gitAction(action: () => Promise<unknown>) {
-    if (gitBusy) return false;
+    if (gitOperationBusy.current) return false;
+    gitOperationBusy.current = true;
     setGitBusy(true);
+    const root = wsRef.current.root,
+      repository = gitRepositoryRef.current;
     try {
       await action();
+      if (
+        root !== wsRef.current.root ||
+        repository !== gitRepositoryRef.current
+      )
+        return false;
       await refreshGit();
       return true;
     } catch (e) {
       notify(e);
       return false;
     } finally {
+      gitOperationBusy.current = false;
       setGitBusy(false);
     }
   }
+  function selectGitRepository(repository: string) {
+    if (gitOperationBusy.current || repository === gitRepositoryRef.current)
+      return;
+    gitDrafts.current.set(gitRepositoryRef.current, commit);
+    setCommit(gitDrafts.current.get(repository) ?? "");
+    gitRepositoryRef.current = repository;
+    setGitRepository(repository);
+    setGit(null);
+    setGitError("");
+    setComparison(null);
+    setDiffActive(false);
+    ++diffRequest.current;
+    void refreshGit();
+  }
+  async function manageGitBranch(
+    action: GitBranchAction,
+    branch: string,
+    name?: string,
+  ) {
+    if (
+      action === "merge" &&
+      tabsRef.current.some((tab) => tab.content !== tab.saved)
+    ) {
+      notify("Save or close your unsaved files before updating the branch.");
+      return;
+    }
+    if (
+      action === "delete" &&
+      !(await ask(
+        `Delete ${branch.replace(/^refs\/heads\//, "")}? Git will keep branches with unmerged commits.`,
+      ))
+    )
+      return;
+    if (
+      await gitAction(() =>
+        invoke("git_branch_action", {
+          repository: gitRepositoryRef.current,
+          action,
+          branch,
+          name,
+        }),
+      )
+    ) {
+      if (action === "merge") {
+        setComparison(null);
+        setDiffActive(false);
+        await reloadBuffers();
+      }
+    }
+  }
+  async function manageGitSubmodule(
+    action: GitSubmoduleAction,
+    path?: string,
+    url?: string,
+  ) {
+    if (
+      action === "update" &&
+      tabsRef.current.some((tab) => tab.content !== tab.saved)
+    ) {
+      notify("Save or close your unsaved files before updating submodules.");
+      return false;
+    }
+    if (
+      await gitAction(() =>
+        invoke("git_submodule_action", {
+          repository: gitRepositoryRef.current,
+          action,
+          path,
+          url,
+        }),
+      )
+    ) {
+      await reloadBuffers();
+      return true;
+    }
+    return false;
+  }
   async function showDiff(path: string, staged: boolean) {
     const request = ++diffRequest.current,
-      root = wsRef.current.root;
+      root = wsRef.current.root,
+      repository = gitRepositoryRef.current;
     try {
       const document = await invoke<{
         original: string;
         modified: string;
         binary: boolean;
-      }>("git_diff_files", { path, staged });
-      if (request !== diffRequest.current || root !== wsRef.current.root)
+      }>("git_diff_files", { path, staged, repository });
+      if (
+        request !== diffRequest.current ||
+        root !== wsRef.current.root ||
+        repository !== gitRepositoryRef.current
+      )
         return;
       setComparison({
         ...document,
@@ -1909,7 +2068,11 @@ export default function App() {
       ))
     )
       return;
-    if (await gitAction(() => invoke("git_discard", { path }))) {
+    if (
+      await gitAction(() =>
+        invoke("git_discard", { path, repository: gitRepositoryRef.current }),
+      )
+    ) {
       const file = await invoke<{ content: string; modified: string }>(
         "read_file",
         { path },
@@ -1933,13 +2096,24 @@ export default function App() {
       if (comparison?.path === path) await showDiff(path, !!comparison.staged);
     }
   }
-  async function switchGitBranch(branch: string, create = false) {
+  async function switchGitBranch(
+    branch: string,
+    create = false,
+    startPoint?: string,
+  ) {
     if (tabsRef.current.some((tab) => tab.content !== tab.saved)) {
       notify("Save or close your unsaved files before switching branches.");
       return;
     }
     if (
-      await gitAction(() => invoke("git_switch_branch", { branch, create }))
+      await gitAction(() =>
+        invoke("git_switch_branch", {
+          branch,
+          create,
+          startPoint,
+          repository: gitRepositoryRef.current,
+        }),
+      )
     ) {
       setComparison(null);
       setDiffActive(false);
@@ -1947,7 +2121,15 @@ export default function App() {
     }
   }
   async function stageGitFile(path: string, staged: boolean) {
-    if (await gitAction(() => invoke("git_stage", { path, staged }))) {
+    if (
+      await gitAction(() =>
+        invoke("git_stage", {
+          path,
+          staged,
+          repository: gitRepositoryRef.current,
+        }),
+      )
+    ) {
       if (comparison?.source === "git" && comparison.path === path)
         await showDiff(path, !staged);
     }
@@ -2136,6 +2318,19 @@ export default function App() {
     wrap: () => setSettings((s) => ({ ...s, wordWrap: !s.wordWrap })),
     help: () => setHelp(true),
   };
+  const extensionContexts = {
+    ...extensionHost.contexts,
+    ...resourceContext(
+      fileUri(
+        `${workspace.root === "demo" ? "/demo" : workspace.root}/${active}`,
+      ),
+      language(active),
+    ),
+    workspaceFolderCount: workspace.root === "demo" ? 0 : 1,
+    editorIsOpen: !!tab,
+    editorHasSelection:
+      !!currentView.current && !currentView.current.state.selection.main.empty,
+  };
   const commands: PaletteItem[] = commandInfo.map(([id, label, detail]) => ({
     id,
     label,
@@ -2144,11 +2339,16 @@ export default function App() {
     run: commandActions[id],
   }));
   for (const extension of installedExtensions.filter((e) => e.enabled))
-    for (const item of extension.contributes.commands ?? [])
+    for (const item of (extension.contributes.commands ?? []).filter(
+      (item) =>
+        matchesContext(item.enablement, extensionContexts) &&
+        commandPaletteVisible(extension, item.command, extensionContexts),
+    ))
       commands.push({
         id: item.command,
         label: item.category ? `${item.category}: ${item.title}` : item.title,
         detail: extension.name,
+        extension: { id: extension.id, icon: extension.icon },
         run: () => {
           void extensionCommand(item.command).catch(notify);
         },
@@ -2311,7 +2511,10 @@ export default function App() {
           e.preventDefault();
           return;
         }
-        if (document.querySelector('[role="menu"]')) return;
+        if (
+          document.querySelector('[role="menu"], [data-escape-scope="active"]')
+        )
+          return;
         if (ui.palette || ui.settingsOpen || ui.help || ui.dialog) {
           setPalette(null);
           setSettingsOpen(false);
@@ -2414,6 +2617,29 @@ export default function App() {
       .then(() => notify("Path copied.", false))
       .catch(notify);
   }
+  function contributedMenu(location: string, path: string, folder = false) {
+    const uri = fileUri(
+      `${workspace.root === "demo" ? "/demo" : workspace.root}/${path}`,
+    );
+    const context = {
+      ...extensionHost.contexts,
+      ...resourceContext(uri, language(path), folder),
+      editorHasSelection:
+        !!currentView.current &&
+        !currentView.current.state.selection.main.empty,
+    };
+    const items = extensionMenuItems(
+      installedExtensions,
+      location,
+      context,
+      (id) =>
+        void extensionCommand(id, [commandUri(uri), [commandUri(uri)]]).catch(
+          notify,
+        ),
+    );
+    if (items.length) items[0].separator = true;
+    return items;
+  }
   function fileMenu(e: React.MouseEvent, path: string) {
     const directory = workspace.files.find((f) => f.path === path)?.directory;
     openMenu(e, [
@@ -2455,6 +2681,7 @@ export default function App() {
         danger: true,
         action: () => void deleteItem(path),
       },
+      ...contributedMenu("explorer/context", path, !!directory),
     ]);
   }
   function tabMenu(e: React.MouseEvent, path: string) {
@@ -2530,6 +2757,7 @@ export default function App() {
         action: () => void closeMany(order.slice(i + 1).map((t) => t.path)),
       },
       menuCommand("close-all"),
+      ...contributedMenu("editor/title/context", path),
     ]);
   }
   function editorMenu(e: React.MouseEvent) {
@@ -2608,6 +2836,7 @@ export default function App() {
       menuCommand("definition"),
       menuCommand("format"),
       menuCommand("wrap"),
+      ...contributedMenu("editor/context", active),
     ]);
   }
   const railItems = [
@@ -2875,6 +3104,7 @@ export default function App() {
           >
             <PanelBottom size={16} />
           </button>
+          <AIPanelToggle />
           <button
             className="header-layout-button"
             aria-label="Workspace layout"
@@ -2979,31 +3209,15 @@ export default function App() {
                   else activateSection(`extension:${container.id}`);
                 }}
               >
-                {container.extension && isAIExtension(container.extension) ? (
-                  <AIProviderIcon
-                    kind={
-                      container.extension === "openai.chatgpt"
-                        ? "codex"
-                        : "claude"
-                    }
-                    size={20}
-                  />
-                ) : (
-                  <PanelsTopLeft size={20} />
-                )}
+                <ExtensionIcon
+                  id={container.extension!}
+                  path={container.icon}
+                  fallback={container.fallback}
+                />
               </button>
             ))}
           </div>
           <div className="activity-bottom">
-            <button
-              title="AI assistant"
-              aria-label="Open AI assistant"
-              onClick={() =>
-                window.dispatchEvent(new CustomEvent("devyy-ai-open"))
-              }
-            >
-              <Sparkles size={20} />
-            </button>
             <button
               title="Keyboard shortcuts & help"
               aria-label="Help"
@@ -3161,15 +3375,41 @@ export default function App() {
                 <SourceControl
                   state={git}
                   root={workspace.root}
+                  repository={gitRepository}
+                  onRepository={selectGitRepository}
+                  onBranchAction={(action, branch, name) =>
+                    void manageGitBranch(action, branch, name)
+                  }
+                  onSubmoduleAction={manageGitSubmodule}
+                  onRenameBranch={(branch, name) =>
+                    setDialog({
+                      title: "Rename branch",
+                      label: "Branch name",
+                      initial: name,
+                      description: "Rename the local branch.",
+                      submit: async (name) => {
+                        await manageGitBranch("rename", branch, name);
+                      },
+                    })
+                  }
                   busy={gitBusy}
                   commit={commit}
                   onCommitChange={setCommit}
                   onRefresh={() => void refreshGit()}
                   onCommit={() =>
                     void gitAction(async () => {
+                      const root = wsRef.current.root,
+                        repository = gitRepositoryRef.current;
                       const message = await invoke<string>("git_commit", {
                         message: commit,
+                        repository,
                       });
+                      if (
+                        root !== wsRef.current.root ||
+                        repository !== gitRepositoryRef.current
+                      )
+                        return;
+                      gitDrafts.current.delete(repository);
                       setCommit("");
                       log(message);
                       notify("Changes committed.", false);
@@ -3177,20 +3417,27 @@ export default function App() {
                   }
                   onStage={(path, staged) => void stageGitFile(path, staged)}
                   onStageAll={(staged) =>
-                    void gitAction(() => invoke("git_stage_all", { staged }))
+                    void gitAction(() =>
+                      invoke("git_stage_all", {
+                        staged,
+                        repository: gitRepositoryRef.current,
+                      }),
+                    )
                   }
                   onDiff={(path, staged) => void showDiff(path, staged)}
                   onOpen={(path) => void openFile(path)}
                   onDiscard={(path) => void discardGitFile(path)}
                   onSwitch={(branch) => void switchGitBranch(branch)}
-                  onCreateBranch={() =>
+                  onCreateBranch={(startPoint) =>
                     setDialog({
                       title: "Create branch",
-                      description: "Create and switch to a new branch.",
+                      description: startPoint
+                        ? `Create a branch from ${startPoint.replace(/^refs\/(heads|remotes)\//, "")}.`
+                        : "Create and switch to a new branch.",
                       initial: "",
                       label: "Branch name",
                       submit: async (branch) => {
-                        await switchGitBranch(branch, true);
+                        await switchGitBranch(branch, true, startPoint);
                       },
                     })
                   }
@@ -3200,8 +3447,12 @@ export default function App() {
                   icon={<GitBranch size={28} />}
                   title="No repository connected."
                   text={gitError || "Checking for a Git repository…"}
-                  action={() => void refreshGit()}
-                  actionLabel="Check again"
+                  action={() =>
+                    gitRepository ? selectGitRepository("") : void refreshGit()
+                  }
+                  actionLabel={
+                    gitRepository ? "Main repository" : "Check again"
+                  }
                 />
               )}
             </div>

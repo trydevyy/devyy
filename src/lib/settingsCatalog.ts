@@ -11,6 +11,7 @@ import {
   Plug,
   Sparkles,
   SlidersHorizontal,
+  HeartHandshake,
 } from "lucide-react";
 import type { Settings } from "./types";
 export const categories = [
@@ -79,6 +80,12 @@ export const categories = [
     label: "Setup & import",
     description: "Bring over preferences or revisit your setup.",
     icon: SlidersHorizontal,
+  },
+  {
+    id: "credits",
+    label: "Credits & licenses",
+    description: "Open source projects and their licenses.",
+    icon: HeartHandshake,
   },
   {
     id: "about",
