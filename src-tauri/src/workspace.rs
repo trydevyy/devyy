@@ -50,6 +50,14 @@ pub fn root(state: &Workspace) -> Result<PathBuf, String> {
         .clone()
         .ok_or("Open a folder first".into())
 }
+pub fn display_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", unc)
+    } else {
+        text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+    }
+}
 // All frontend paths are workspace-relative. Canonicalization prevents symlink escapes.
 pub fn resolve(base: &Path, relative: &str, create: bool) -> Result<PathBuf, String> {
     let path = Path::new(relative);
@@ -201,7 +209,7 @@ fn workspace_info(base: &Path) -> WorkspaceInfo {
     let files = entries(base);
     let logo = project_logo(base, &files);
     WorkspaceInfo {
-        root: base.to_string_lossy().into(),
+        root: display_path(base),
         name: base
             .file_name()
             .unwrap_or_default()

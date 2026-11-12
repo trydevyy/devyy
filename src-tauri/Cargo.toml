@@ -14,8 +14,15 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
-tauri = { version = "2", features = ["macos-private-api"] }
+ring = "0.17"
+jsonwebtoken = "9.3"
+percent-encoding = "2"
+uuid = { version = "1", features = ["v4"] }
+mime_guess = "2"
+tauri = { version = "2", features = ["macos-private-api", "image-png"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ignore = "0.4"
@@ -24,6 +31,18 @@ window-vibrancy = "0.8"
 tauri-plugin-opener = "2.7.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 semver = "1.0.28"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+json5 = "0.4"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "process", "sync", "time", "macros", "net"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
@@ -31,3 +50,18 @@ tauri = { version = "2", features = ["test"] }
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSView", "NSButton", "NSControl", "NSResponder"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+[target.'cfg(target_os = "macos")'.dependencies.keyring]
+version = "3.6.3"
+features = ["apple-native"]
+
+[target.'cfg(windows)'.dependencies.keyring]
+version = "3.6.3"
+features = ["windows-native"]
+
+[target.'cfg(target_os = "linux")'.dependencies.keyring]
+version = "3.6.3"
+features = ["sync-secret-service", "crypto-rust", "vendored"]

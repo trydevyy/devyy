@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex,
@@ -79,7 +79,7 @@ pub async fn debug_start<R: tauri::Runtime>(
     }
     let base = root(&workspace)?;
     let adapter = tauri::async_runtime::spawn_blocking(move || -> Result<Arc<Adapter>, String> {
-        let mut cmd = match kind.as_str() { "python" => { let mut c = Command::new("python3"); c.args(["-m", "debugpy.adapter"]); c }, "lldb" => Command::new("lldb-dap"), _ => return Err("Choose LLDB or Python as the debug adapter".into()) };
+        let mut cmd = match kind.as_str() { "python" => { let binary = if cfg!(windows) { "python" } else { "python3" }; let mut c = crate::process::command(binary); c.args(["-m", "debugpy.adapter"]); c }, "lldb" => crate::process::command("lldb-dap"), _ => return Err("Choose LLDB or Python as the debug adapter".into()) };
         let mut child = cmd.current_dir(base).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| format!("Debug adapter unavailable. Install lldb-dap (LLVM) or debugpy (Python): {e}"))?;
         let stdin = child.stdin.take().ok_or("Missing debug adapter stdin")?;
         let stdout = child.stdout.take().ok_or("Missing debug adapter stdout")?;

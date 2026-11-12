@@ -1,9 +1,16 @@
+mod ai;
 mod app_info;
 mod appearance;
 mod debug;
+mod extension_host;
+mod extension_servers;
+mod extensions;
 mod git;
+mod language_config;
 mod lsp;
 mod menus;
+mod process;
+mod setup_import;
 mod shells;
 mod terminal;
 mod workspace;
@@ -11,13 +18,34 @@ mod workspace;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     use tauri::Manager;
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("context-menu-policy")
+                .js_init_script_on_all_frames(include_str!("../../public/context-menu.js"))
+                .build(),
+        )
+        .register_uri_scheme_protocol("devyy-extension", |context, request| {
+            extension_host::webview_response(context.app_handle(), &request)
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(ai::AiState::default())
         .manage(workspace::Workspace::default())
         .manage(terminal::Terminals::default())
         .manage(lsp::LanguageServers::default())
         .manage(debug::Debugger::default())
+        .manage(extensions::ExtensionStore::default())
+        .manage(extension_host::ExtensionHost::default())
         .setup(|app| {
             menus::install(app.handle())?;
             if let Some(window) = app.get_webview_window("main") {
@@ -28,7 +56,27 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai::ai_providers,
+            ai::ai_save_provider,
+            ai::ai_chat,
+            ai::ai_cancel,
+            ai::ai_account,
+            ai::ai_models,
+            ai::ai_runtime,
+            ai::ai_delete_provider,
             appearance::set_appearance,
+            setup_import::detect_ide_settings,
+            setup_import::read_ide_settings,
+            extension_host::extension_host_request,
+            extension_host::extension_webview_document,
+            extensions::search_extensions,
+            extensions::extension_details,
+            extensions::list_extensions,
+            extensions::install_extension,
+            extensions::install_vsix,
+            extensions::set_extension_enabled,
+            extensions::uninstall_extension,
+            extensions::extension_asset,
             app_info::build_info,
             app_info::check_updates,
             workspace::read_preview_image,
@@ -44,10 +92,17 @@ pub fn run() {
             workspace::search_workspace,
             git::git_status,
             git::git_diff,
+            git::git_diff_files,
+            git::git_stage_all,
+            git::git_discard,
+            git::git_branches,
+            git::git_switch_branch,
+            git::git_history,
             git::git_stage,
             git::git_commit,
             shells::terminal_profiles,
             terminal::terminal_create,
+            terminal::terminal_pid,
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
@@ -55,13 +110,21 @@ pub fn run() {
             debug::debug_request,
             debug::debug_program,
             debug::debug_stop,
+            language_config::list_language_servers,
+            language_config::save_language_server,
             lsp::lsp_start,
             lsp::lsp_request,
             lsp::lsp_stop,
             lsp::file_uri,
         ])
-        .run(tauri::generate_context!())
-        .expect("Unable to start devyy");
+        .build(tauri::generate_context!())
+        .expect("Unable to start devyy")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                app.state::<ai::AiState>().shutdown();
+                app.state::<extension_host::ExtensionHost>().shutdown();
+            }
+        });
 }
 
 #[cfg(test)]
@@ -89,6 +152,7 @@ mod integration_tests {
                 .success());
         }
         let app = mock_builder()
+            .manage(ai::AiState::default())
             .manage(workspace::Workspace::default())
             .invoke_handler(tauri::generate_handler![
                 workspace::open_workspace,
@@ -98,7 +162,13 @@ mod integration_tests {
                 workspace::search_workspace,
                 git::git_stage,
                 git::git_commit,
-                git::git_status
+                git::git_status,
+                git::git_diff_files,
+                git::git_stage_all,
+                git::git_discard,
+                git::git_branches,
+                git::git_switch_branch,
+                git::git_history
             ])
             .build(mock_context(noop_assets()))
             .unwrap();
@@ -159,6 +229,41 @@ mod integration_tests {
         call("git_commit", json!({"message":"Initial code"}));
         let status = call("git_status", json!({}));
         assert!(status["changes"].as_array().unwrap().is_empty());
+        let original_branch = status["branch"].as_str().unwrap();
+        std::fs::write(base.join("main.rs"), "fn staged() {}\n").unwrap();
+        call("git_stage_all", json!({"staged": false}));
+        std::fs::write(base.join("main.rs"), "fn working() {}\n").unwrap();
+        let staged = call("git_diff_files", json!({"path":"main.rs", "staged":true}));
+        assert_eq!(staged["original"], "fn main() {}\n");
+        assert_eq!(staged["modified"], "fn staged() {}\n");
+        let working = call("git_diff_files", json!({"path":"main.rs", "staged":false}));
+        assert_eq!(working["original"], "fn staged() {}\n");
+        assert_eq!(working["modified"], "fn working() {}\n");
+        call("git_discard", json!({"path":"main.rs"}));
+        assert_eq!(
+            std::fs::read_to_string(base.join("main.rs")).unwrap(),
+            "fn staged() {}\n"
+        );
+        call("git_stage_all", json!({"staged":true}));
+        let unstaged = call("git_status", json!({}));
+        assert_eq!(unstaged["changes"][0]["index"], " ");
+        call("git_stage_all", json!({"staged":false}));
+        call("git_commit", json!({"message":"Review changes"}));
+        assert_eq!(call("git_history", json!({})).as_array().unwrap().len(), 2);
+        call(
+            "git_switch_branch",
+            json!({"branch":"devyy-checkpoint", "create":true}),
+        );
+        assert_eq!(call("git_status", json!({}))["branch"], "devyy-checkpoint");
+        call(
+            "git_switch_branch",
+            json!({"branch":original_branch, "create":false}),
+        );
+        assert!(call("git_branches", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "devyy-checkpoint"));
         std::fs::create_dir(base.join("nested")).unwrap();
         std::fs::write(base.join("nested/child.rs"), "nested file").unwrap();
         call("open_workspace", json!({"path":base.join("nested")}));

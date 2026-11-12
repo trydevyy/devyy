@@ -85,6 +85,7 @@ fn build_metadata_reports_actual_native_os_and_compilation_time() {
     );
 }
 #[test]
+#[cfg(unix)]
 fn terminal_runs_a_real_shell_and_closes_it() {
     let app = app();
     let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -265,6 +266,7 @@ fn debugger_launches_stops_inspects_variables_and_disconnects() {
 }
 
 #[test]
+#[cfg(unix)]
 fn terminal_sessions_keep_independent_shell_state_and_survive_closing_a_neighbor() {
     let app = app();
     let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -338,5 +340,80 @@ fn terminal_sessions_keep_independent_shell_state_and_survive_closing_a_neighbor
         let bytes: Vec<u8> = serde_json::from_value(payload["data"].clone()).unwrap();
         output.push_str(&String::from_utf8_lossy(&bytes));
     }
+    call(&view, "terminal_close", json!({"id":b}));
+}
+
+#[test]
+#[cfg(windows)]
+fn windows_conpty_sessions_run_independently_and_close_cleanly() {
+    let app = app();
+    let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    call(
+        &view,
+        "open_workspace",
+        json!({"path":std::env::temp_dir()}),
+    );
+    let profiles = call(&view, "terminal_profiles", json!({}));
+    let cmd = profiles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Command Prompt")
+        .unwrap();
+    let (tx, rx) = mpsc::channel();
+    app.listen("terminal-output", move |e| {
+        let _ = tx.send(e.payload().to_owned());
+    });
+    let a = call(
+        &view,
+        "terminal_create",
+        json!({"cols":80,"rows":24,"profile":cmd["id"]}),
+    );
+    let b = call(
+        &view,
+        "terminal_create",
+        json!({"cols":80,"rows":24,"profile":cmd["id"]}),
+    );
+    assert_ne!(a, b);
+    call(
+        &view,
+        "terminal_write",
+        json!({"id":a,"data":"set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_A\r"}),
+    );
+    call(
+        &view,
+        "terminal_write",
+        json!({"id":b,"data":"set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_B\r"}),
+    );
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut outputs = std::collections::HashMap::<u64, String>::new();
+    while !outputs
+        .get(&a.as_u64().unwrap())
+        .is_some_and(|s| s.contains("DEVYY_WINDOWS_A"))
+        || !outputs
+            .get(&b.as_u64().unwrap())
+            .is_some_and(|s| s.contains("DEVYY_WINDOWS_B"))
+    {
+        let payload: Value = serde_json::from_str(
+            &rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap(),
+        )
+        .unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(payload["data"].clone()).unwrap();
+        outputs
+            .entry(payload["id"].as_u64().unwrap())
+            .or_default()
+            .push_str(&String::from_utf8_lossy(&bytes));
+    }
+    assert!(!outputs[&a.as_u64().unwrap()].contains("DEVYY_WINDOWS_B"));
+    assert!(!outputs[&b.as_u64().unwrap()].contains("DEVYY_WINDOWS_A"));
+    call(
+        &view,
+        "terminal_resize",
+        json!({"id":b,"cols":100,"rows":30}),
+    );
+    call(&view, "terminal_close", json!({"id":a}));
     call(&view, "terminal_close", json!({"id":b}));
 }

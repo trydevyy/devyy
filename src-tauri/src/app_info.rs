@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{process::Command, time::Duration};
+use std::time::Duration;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildInfo {
@@ -11,7 +11,7 @@ pub struct BuildInfo {
     arch: &'static str,
 }
 fn output(command: &str, args: &[&str]) -> Option<String> {
-    let result = Command::new(command).args(args).output().ok()?;
+    let result = crate::process::command(command).args(args).output().ok()?;
     if !result.status.success() {
         return None;
     }

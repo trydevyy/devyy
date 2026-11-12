@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tauri::{
     menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Manager, Runtime,
 };
 
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -19,6 +19,13 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         app,
         "settings",
         "Preferences…",
+        true,
+        None::<&str>,
+    )?)?;
+    application.append(&MenuItem::with_id(
+        app,
+        "setup",
+        "Set Up devyy…",
         true,
         None::<&str>,
     )?)?;
@@ -69,6 +76,9 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 ("commands", "Command Palette…"),
                 ("files", "Go to File…"),
                 ("global", "Search Workspace…"),
+                ("extensions", "Extensions…"),
+                ("ai", "AI Assistant"),
+                ("ai-settings", "AI Providers…"),
                 ("-", ""),
                 ("sidebar", "Toggle Sidebar"),
                 ("terminal", "Toggle Panel"),
@@ -156,7 +166,9 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             } else if id == "select-all-devyy" {
                 let _ = window.eval("document.execCommand('selectAll')");
             } else {
-                let _ = window.emit("devyy-command", id);
+                if let Ok(id) = serde_json::to_string(id) {
+                    let _ = window.eval(format!("window.dispatchEvent(new CustomEvent('devyy-native-command',{{detail:{id}}}))"));
+                }
             }
         }
     });
@@ -192,6 +204,7 @@ pub fn set_menu_shortcuts(app: AppHandle, bindings: HashMap<String, String>) -> 
                 .map_err(|e| e.to_string())?;
         }
     }
+    let mut errors = Vec::new();
     for (id, binding) in bindings {
         if binding.is_empty() {
             continue;
@@ -216,9 +229,13 @@ pub fn set_menu_shortcuts(app: AppHandle, bindings: HashMap<String, String>) -> 
             .collect::<Vec<_>>()
             .join("+");
         if let Some(item) = items.get(&id) {
-            item.set_accelerator(Some(accelerator))
-                .map_err(|e| e.to_string())?;
+            if let Err(error) = item.set_accelerator(Some(accelerator)) {
+                errors.push(format!("{id}: {error}"));
+            }
         }
+    }
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
     }
     Ok(())
 }

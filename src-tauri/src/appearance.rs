@@ -20,9 +20,29 @@ pub fn set_appearance(
         _ => return Err("Unknown color theme".into()),
     };
     window.set_theme(Some(theme)).map_err(|e| e.to_string())?;
+    let bytes: &[u8] = if theme == Theme::Dark {
+        include_bytes!("../icons/theme-dark.png")
+    } else {
+        include_bytes!("../icons/theme-light.png")
+    };
+    window
+        .set_icon(tauri::image::Image::from_bytes(bytes).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     {
+        use objc2::AnyThread;
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSApplication, NSImage};
+        use objc2_foundation::NSData;
+        if let Some(main) = MainThreadMarker::new() {
+            let data = NSData::with_bytes(bytes);
+            if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+                unsafe {
+                    NSApplication::sharedApplication(main).setApplicationIconImage(Some(&image));
+                }
+            }
+        }
         use window_vibrancy::{
             apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
         };
@@ -45,19 +65,35 @@ pub fn set_appearance(
     #[cfg(target_os = "windows")]
     {
         // Mica avoids the resize/dragging performance problems of Acrylic.
-        if vibrancy {
-            window_vibrancy::apply_mica(&window, Some(theme == Theme::Dark))
-                .map_err(|e| e.to_string())?;
-        } else {
-            window_vibrancy::clear_mica(&window).map_err(|e| e.to_string())?;
+        let mica =
+            vibrancy && window_vibrancy::apply_mica(&window, Some(theme == Theme::Dark)).is_ok();
+        if !mica {
+            let _ = window_vibrancy::clear_mica(&window);
         }
+        // Windows 10 and older Windows 11 builds have no Mica. Keep them opaque.
+        window
+            .set_background_color(Some(if mica {
+                tauri::window::Color(0, 0, 0, 0)
+            } else if theme == Theme::Dark {
+                tauri::window::Color(27, 28, 30, 255)
+            } else {
+                tauri::window::Color(237, 237, 238, 255)
+            }))
+            .map_err(|e| e.to_string())?;
         Ok(Appearance {
-            material: if vibrancy { "mica" } else { "solid" },
+            material: if mica { "mica" } else { "solid" },
         })
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = vibrancy;
+        window
+            .set_background_color(Some(if theme == Theme::Dark {
+                tauri::window::Color(27, 28, 30, 255)
+            } else {
+                tauri::window::Color(237, 237, 238, 255)
+            }))
+            .map_err(|e| e.to_string())?;
         Ok(Appearance { material: "solid" })
     }
 }
