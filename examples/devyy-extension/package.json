@@ -1,0 +1,58 @@
+{
+  "name": "devyy-example",
+  "publisher": "devyy",
+  "displayName": "Devyy extension example",
+  "description": "Native Devyy controls, a VS Code tree, a webview, and a bundled sample LSP server.",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "main": "./extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "devyy.example.open",
+        "title": "Open example panel",
+        "category": "Devyy example"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "devyy-example",
+          "title": "Extension example",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "devyy-example": [
+        {
+          "id": "devyy.example.tree",
+          "name": "Example tree"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "devyy-sample",
+        "extensions": [
+          ".devyy-sample"
+        ]
+      }
+    ],
+    "devyy.languageServers": [
+      {
+        "language": "devyy-sample",
+        "module": "server.cjs",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "icon": "icon.svg"
+}
