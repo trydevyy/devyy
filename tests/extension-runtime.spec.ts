@@ -27,7 +27,20 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
           activitybar: [{ id: "fixture", title: "Fixture tools" }],
         },
         views: { fixture: [{ id: "fixture.tree", name: "Fixture tree" }] },
-        commands: [{ command: "fixture.open", title: "Open fixture panel" }],
+        commands: [
+          { command: "fixture.open", title: "Open fixture panel" },
+          { command: "fixture.context", title: "Inspect fixture" },
+        ],
+        submenus: [{ id: "fixture.more", label: "Fixture actions" }],
+        menus: {
+          "explorer/context": [
+            { command: "fixture.context", when: "resourceExtname == .rs" },
+          ],
+          "webview/context": [
+            { submenu: "fixture.more", when: "webviewSection == chat" },
+          ],
+          "fixture.more": [{ command: "fixture.context" }],
+        },
       },
     };
     Object.assign(window, {
@@ -97,7 +110,7 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
                 title: "Fixture panel",
                 extension: extension.id,
                 enableScripts: true,
-                html: `<body><h2>Fixture panel</h2><input aria-label="Keep state" value="Initial"><button id="ping">Send message</button><button id="burst">Send burst</button><button id="binary">Send binary</button><button id="prompt">Ask for input</button><output id="reply">Ready</output><script>const api=acquireVsCodeApi();document.querySelector('#ping').onclick=()=>api.postMessage({ping:'hello'});document.querySelector('#burst').onclick=()=>{for(let order=0;order<3;order++)api.postMessage({order})};document.querySelector('#binary').onclick=()=>api.postMessage({binary:new Uint8Array([7,9])});document.querySelector('#prompt').onclick=()=>api.postMessage({prompt:true});window.addEventListener('message',event=>{if(event.data?.reply)document.querySelector('#reply').textContent=event.data.reply;if(event.data?.binary)document.body.dataset.binary=String(event.data.binary instanceof Uint8Array&&event.data.binary[1]===9)});try{parent.document.body;document.body.dataset.isolation='unsafe'}catch{document.body.dataset.isolation='sandboxed'}</script></body>`,
+                html: `<body data-vscode-context='{"webviewSection":"chat"}'><h2>Fixture panel</h2><input aria-label="Keep state" value="Initial"><button id="ping">Send message</button><button id="burst">Send burst</button><button id="binary">Send binary</button><button id="prompt">Ask for input</button><output id="reply">Ready</output><script>const api=acquireVsCodeApi();document.querySelector('#ping').onclick=()=>api.postMessage({ping:'hello'});document.querySelector('#burst').onclick=()=>{for(let order=0;order<3;order++)api.postMessage({order})};document.querySelector('#binary').onclick=()=>api.postMessage({binary:new Uint8Array([7,9])});document.querySelector('#prompt').onclick=()=>api.postMessage({prompt:true});window.addEventListener('message',event=>{if(event.data?.reply)document.querySelector('#reply').textContent=event.data.reply;if(event.data?.binary)document.body.dataset.binary=String(event.data.binary instanceof Uint8Array&&event.data.binary[1]===9)});try{parent.document.body;document.body.dataset.isolation='unsafe'}catch{document.body.dataset.isolation='sandboxed'}</script></body>`,
               });
               return null;
             }
@@ -263,8 +276,68 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
   await page
     .getByRole("textbox", { name: "Search", exact: true })
     .fill("Open fixture panel");
+  const commandResult = page.getByRole("option", {
+    name: /Open fixture panel/,
+  });
+  await expect(
+    commandResult.locator("img.extension-activity-icon"),
+  ).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
   await page.keyboard.press("Enter");
   await expect(panel).toBeVisible();
+  await frame
+    .getByRole("heading", { name: "Fixture panel" })
+    .click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Fixture actions", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Inspect fixture", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            runtimeRequests: {
+              method: string;
+              params: { id?: string; args?: { webviewSection?: string }[] };
+            }[];
+          }
+        ).runtimeRequests.some(
+          (r) =>
+            r.method === "command" &&
+            r.params.id === "fixture.context" &&
+            r.params.args?.[0]?.webviewSection === "chat",
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Explorer", exact: true }).click();
+  await page
+    .locator('.tree-file[title="src/main.rs"]')
+    .click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Inspect fixture", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            runtimeRequests: {
+              method: string;
+              params: { id?: string; args?: { scheme?: string }[] };
+            }[];
+          }
+        ).runtimeRequests.some(
+          (r) =>
+            r.method === "command" &&
+            r.params.id === "fixture.context" &&
+            r.params.args?.[0]?.scheme === "file",
+        ),
+      ),
+    )
+    .toBe(true);
   expect(errors).toEqual([]);
 });
 test("chrome suppresses selection and overscroll while documents, output and controls remain usable", async ({

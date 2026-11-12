@@ -4,7 +4,9 @@ async function menuLayout(page: Page, label: string) {
   await page
     .getByRole("button", { name: "Workspace layout", exact: true })
     .click();
-  await page.getByRole("menuitem", { name: label, exact: true }).click();
+  await page
+    .getByRole("menuitemcheckbox", { name: label, exact: true })
+    .click();
 }
 async function drag(page: Page, label: string, dx: number, dy: number) {
   const box = (await page

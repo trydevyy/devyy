@@ -35,10 +35,23 @@ test("edit, save, switch tabs, and restore playground changes", async ({
 });
 test("file palette, workspace search, split, preferences and keyboard flow", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await page.keyboard.press(`${mod}+p`);
+  const palette = page.getByRole("dialog", { name: "Go to file" });
+  await expect(palette).toBeVisible();
+  expect((await palette.boundingBox())!.width).toBeGreaterThanOrEqual(660);
+  const result = palette
+    .getByRole("option")
+    .filter({ hasText: "main.rs" })
+    .first();
+  const icon = (await result.locator(".material-file-icon").boundingBox())!;
+  const text = (await result.locator("strong").boundingBox())!;
+  expect(icon.width).toBe(18);
+  expect(text.x - icon.x - icon.width).toBeGreaterThanOrEqual(8);
+  expect(text.x - icon.x - icon.width).toBeLessThanOrEqual(12);
+  await page.screenshot({ path: testInfo.outputPath("file-search.png") });
   await page
     .getByRole("textbox", { name: "Search", exact: true })
     .fill("lib.rs");

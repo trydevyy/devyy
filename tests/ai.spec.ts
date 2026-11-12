@@ -1,8 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
-async function fixture(page: Page, extension = false) {
+async function fixture(
+  page: Page,
+  extension = false,
+  oauth = false,
+  missingRuntime = false,
+) {
   await page.addInitScript(
-    ({ extension }) => {
+    ({ extension, oauth, missingRuntime }) => {
       const callbacks = new Map<number, (v: unknown) => void>(),
         handlers = new Map<string, Set<number>>();
       let serial = 0,
@@ -19,9 +24,9 @@ async function fixture(page: Page, extension = false) {
           hasKey: false,
         },
         {
-          id: "codex",
-          name: "Codex account",
-          kind: "codex",
+          id: "chatgpt",
+          name: "ChatGPT",
+          kind: "chatgpt",
           endpoint: "",
           model: "",
           executable: "",
@@ -37,6 +42,15 @@ async function fixture(page: Page, extension = false) {
           hasKey: false,
         },
       ];
+      let runtimeInstalled = !missingRuntime;
+      let accountIndex = 0,
+        chatgptConnected = false;
+      const savedAccounts: {
+        id: string;
+        email: string;
+        connected: boolean;
+        active: boolean;
+      }[] = [];
       let resolveChat: (() => void) | undefined,
         requestId = "";
       const emit = (name: string, payload: unknown) => {
@@ -71,6 +85,9 @@ async function fixture(page: Page, extension = false) {
               },
             });
           },
+          reasoning(text: string) {
+            emit("devyy-ai", { requestId, kind: "reasoning", data: text });
+          },
           delta(text: string) {
             emit("devyy-ai", { requestId, kind: "delta", data: text });
           },
@@ -89,7 +106,7 @@ async function fixture(page: Page, extension = false) {
             emit("extension-host", {
               event: "webview",
               payload: {
-                id: "codex-view",
+                id: "chatgpt.sidebarView",
                 extension: "openai.chatgpt",
                 title: "Codex conversation",
                 html: "<h1>Codex extension ready</h1>",
@@ -136,8 +153,24 @@ async function fixture(page: Page, extension = false) {
             if (command === "terminal_pid") return 123;
             if (command === "git_status")
               return { branch: "main", changes: [] };
-            if (command === "ai_runtime")
+            if (command === "ai_runtime") {
+              if (args.providerId === "claude" && !runtimeInstalled)
+                throw new Error("Claude Code is not installed");
               return { version: "fixture-cli 1.0", executable: "/fixture/cli" };
+            }
+            if (command === "ai_install_runtime") {
+              emit("devyy-ai", {
+                requestId: args.requestId,
+                kind: "install",
+                data: { phase: "installing" },
+              });
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              runtimeInstalled = true;
+              return {
+                version: "Claude Code fixture",
+                executable: "/fixture/claude",
+              };
+            }
             if (
               command === "terminal_profiles" ||
               command === "list_language_servers"
@@ -162,7 +195,7 @@ async function fixture(page: Page, extension = false) {
                         views: {
                           codex: [
                             {
-                              id: "codex-view",
+                              id: "chatgpt.sidebarView",
                               name: "Codex",
                               type: "webview",
                             },
@@ -183,19 +216,70 @@ async function fixture(page: Page, extension = false) {
                 };
               return null;
             }
+            if (
+              command === "ai_account" &&
+              args.providerId === "chatgpt" &&
+              oauth
+            ) {
+              if (args.action === "login" || args.action === "add") {
+                chatgptConnected = true;
+                if (args.action === "add" || !savedAccounts.length) {
+                  accountIndex = savedAccounts.length;
+                  savedAccounts.push({
+                    id: `oaiapp_fixture_${accountIndex}`,
+                    email: `person${accountIndex}@example.test`,
+                    connected: true,
+                    active: true,
+                  });
+                }
+                for (const [i, a] of savedAccounts.entries())
+                  a.active = i === accountIndex;
+                emit("devyy-ai", {
+                  requestId: args.requestId,
+                  kind: "login",
+                  data: {
+                    authUrl:
+                      "https://auth.openai.com/api/accounts/authorize?agent_name_hint=Devyy",
+                  },
+                });
+              }
+              if (args.action === "select") {
+                accountIndex = savedAccounts.findIndex(
+                  (a) => a.id === args.accountId,
+                );
+                chatgptConnected = true;
+                for (const [i, a] of savedAccounts.entries())
+                  a.active = i === accountIndex;
+              }
+              if (args.action === "logout") {
+                chatgptConnected = false;
+                savedAccounts[accountIndex].connected = false;
+              }
+              return {
+                account: chatgptConnected
+                  ? {
+                      email: savedAccounts[accountIndex].email,
+                      clientId: savedAccounts[accountIndex].id,
+                    }
+                  : null,
+                planEnabled: chatgptConnected,
+                accounts: structuredClone(savedAccounts),
+                limits: null,
+              };
+            }
             if (command === "ai_models")
-              return args.providerId === "codex"
+              return args.providerId === "chatgpt"
                 ? [
                     {
-                      id: "fixture-codex",
-                      name: "Codex fixture",
+                      id: "fixture-chatgpt",
+                      name: "ChatGPT fixture",
                       reasoningEfforts: ["low", "medium", "high"],
                       defaultEffort: "medium",
                     },
                   ]
                 : ["fixture-model", "another-model"];
             if (command === "ai_account")
-              return args.providerId === "codex"
+              return args.providerId === "chatgpt"
                 ? {
                     account: {
                       email: "fixture@example.test",
@@ -243,13 +327,20 @@ async function fixture(page: Page, extension = false) {
       });
       localStorage.setItem("devyy.ai.provider", "custom-test");
     },
-    { extension },
+    { extension, oauth, missingRuntime },
   );
   await page.goto("/");
 }
 async function control(
   page: Page,
-  action: "delta" | "finish" | "usage" | "extension" | "terminal" | "problems",
+  action:
+    | "delta"
+    | "reasoning"
+    | "finish"
+    | "usage"
+    | "extension"
+    | "terminal"
+    | "problems",
   text = "",
 ) {
   await page.evaluate(
@@ -264,7 +355,7 @@ async function control(
 }
 async function start(page: Page) {
   await page
-    .getByRole("button", { name: "Open AI assistant", exact: true })
+    .getByRole("button", { name: "Toggle AI workspace", exact: true })
     .click();
   await expect(
     page.getByRole("textbox", { name: "Message Devyy AI" }),
@@ -366,10 +457,10 @@ test("provider settings save keys through native IPC, discover models, and show 
     .click();
   const card = page.getByRole("region", { name: "Local test model" });
   const codex = page.getByRole("region", {
-    name: "Codex account",
+    name: "ChatGPT",
     exact: true,
   });
-  await page.getByRole("tab", { name: /^Codex account/ }).click();
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
   await codex.getByLabel("Model", { exact: true }).fill("unsubmitted-model");
   await page.getByRole("tab", { name: /^Local test model/ }).click();
   await card
@@ -384,14 +475,14 @@ test("provider settings save keys through native IPC, discover models, and show 
     .getByRole("button", { name: "Discover models", exact: true })
     .click();
   await expect(card.getByText("2 models available")).toBeVisible();
-  await page.getByRole("tab", { name: /^Codex account/ }).click();
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
   await expect(codex.getByLabel("Model", { exact: true })).toHaveValue(
     "unsubmitted-model",
   );
   await codex.getByRole("button", { name: "Check account & usage" }).click();
   await codex.getByRole("button", { name: "Usage", exact: true }).click();
   await expect(
-    page.getByRole("meter", { name: "Codex account session remaining" }),
+    page.getByRole("meter", { name: "ChatGPT session remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
   const storage = await page.evaluate(() =>
     JSON.stringify({ ...localStorage }),
@@ -403,13 +494,21 @@ test("opens Codex extension views in the same right workspace and keeps the file
 }) => {
   await fixture(page, true);
   await expect(
-    page.getByRole("button", { name: "Codex", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Codex", exact: true }).click();
+    page
+      .locator(".activity-bar")
+      .getByRole("button", { name: "Codex", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Toggle AI workspace", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Codex", exact: true }).click();
   await expect(
     page.getByRole("complementary", { name: "AI assistant" }),
   ).toBeVisible();
   await control(page, "extension");
+  await expect(
+    page.getByRole("combobox", { name: "Active extension view" }),
+  ).toHaveCount(0);
   await expect(
     page.locator(".ai-workspace iframe[title='Codex conversation']"),
   ).toBeVisible();
@@ -434,7 +533,7 @@ test("AI shortcut focuses the composer and sidebar resizing uses its left edge",
 }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Open AI assistant", exact: true }),
+    page.getByRole("button", { name: "Toggle AI workspace", exact: true }),
   ).toBeVisible();
   await page.keyboard.press(`${mod}+Shift+i`);
   await expect(
@@ -445,13 +544,22 @@ test("AI shortcut focuses the composer and sidebar resizing uses its left edge",
   const box = await sidebar.boundingBox(),
     grip = await handle.boundingBox();
   expect(Math.abs(box!.x - grip!.x)).toBeLessThan(2);
+  expect(
+    await sidebar.evaluate((el) => getComputedStyle(el).borderLeftWidth),
+  ).toBe("0px");
+  expect(
+    await handle.evaluate((el) => {
+      const grip = getComputedStyle(el, "::after");
+      return { width: grip.width, height: grip.height };
+    }),
+  ).toEqual({ width: "4px", height: "36px" });
   await page.screenshot({ path: "artifacts/devyy-ai.png" });
   await handle.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(handle).toHaveAttribute("aria-valuenow", "400");
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Open AI assistant", exact: true }),
+    page.getByRole("button", { name: "Toggle AI workspace", exact: true }),
   ).toBeVisible();
   await page.keyboard.press(`${mod}+Shift+i`);
   await expect(
@@ -498,20 +606,26 @@ test("composer discovers models, favorites them, and passes the selected reasoni
   await fixture(page);
   await start(page);
   await page.getByRole("button", { name: "Choose AI model" }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Search models", exact: true }),
+  ).toBeFocused();
   await page
-    .getByRole("button", { name: "Models from Codex account", exact: true })
+    .getByRole("button", { name: "Models from ChatGPT", exact: true })
     .click();
-  await page.getByRole("option", { name: /^Codex fixture/ }).click();
+  await page.getByRole("option", { name: /^ChatGPT fixture/ }).click();
   await page.getByRole("button", { name: "Choose AI model" }).click();
   await page.getByRole("radio", { name: "High", exact: true }).click();
   await expect(
     page.getByRole("radio", { name: "High", exact: true }),
   ).toHaveAttribute("aria-checked", "true");
   await page
-    .getByRole("button", { name: "Favorite Codex fixture", exact: true })
+    .getByRole("button", { name: "Favorite ChatGPT fixture", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Unfavorite Codex fixture", exact: true }),
+    page.getByRole("button", {
+      name: "Unfavorite ChatGPT fixture",
+      exact: true,
+    }),
   ).toBeVisible();
   await page
     .locator(".ai-popover")
@@ -547,8 +661,8 @@ test("composer discovers models, favorites them, and passes the selected reasoni
       ).aiFixture.calls.find((c) => c.command === "ai_chat")!.args.request,
   );
   expect(request).toMatchObject({
-    providerId: "codex",
-    model: "fixture-codex",
+    providerId: "chatgpt",
+    model: "fixture-chatgpt",
     effort: "high",
   });
   await control(page, "delta", "Selected model reply");
@@ -569,7 +683,21 @@ test("context picker combines files, problems, selection, output, and device tex
     name: "Attach context",
     exact: true,
   });
-  await picker.getByRole("checkbox", { name: /^main.rs/ }).click();
+  const file = picker.getByRole("checkbox", { name: /^main.rs/ });
+  await expect(file.locator(".material-file-icon img").first()).toHaveAttribute(
+    "src",
+    /file-icons\/rust/,
+  );
+  const spacing = await file.evaluate((element) => {
+    const icon = element
+      .querySelector(".material-file-icon")!
+      .getBoundingClientRect();
+    const label = element.querySelector("strong")!.getBoundingClientRect();
+    return { width: icon.width, gap: label.x - icon.right };
+  });
+  expect(Math.round(spacing.width)).toBe(18);
+  expect(spacing.gap).toBeLessThanOrEqual(12);
+  await file.click();
   await picker.getByRole("checkbox", { name: /^Problems/ }).click();
   await picker.getByRole("checkbox", { name: /^Output/ }).click();
   await picker.getByRole("checkbox", { name: /^Editor selection/ }).click();
@@ -712,15 +840,13 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
   await page
     .getByRole("button", { name: "AI provider settings", exact: true })
     .click();
-  await page.getByRole("tab", { name: /^Codex account/ }).click();
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
   const detail = page.getByRole("region", {
-    name: "Codex account",
+    name: "ChatGPT",
     exact: true,
   });
   await detail.getByRole("button", { name: "Check account & usage" }).click();
-  await expect(
-    detail.getByText("Authenticated as fixture@example.test"),
-  ).toBeVisible();
+  await expect(detail.getByText("fixture@example.test")).toBeVisible();
   await expect(page.locator(".settings-empty")).toHaveCount(0);
   await page
     .locator(".settings-modal")
@@ -740,7 +866,7 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
   ).toHaveAttribute("aria-checked", "false");
   await detail.getByRole("button", { name: "Usage", exact: true }).click();
   await expect(
-    page.getByRole("meter", { name: "Codex account session remaining" }),
+    page.getByRole("meter", { name: "ChatGPT session remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
   await page
     .locator(".ai-usage-dialog")
@@ -871,4 +997,371 @@ test("conversations can branch, edit a prompt, and rename without changing the o
   await expect(
     page.getByText("Original answer", { exact: true }),
   ).toBeVisible();
+});
+
+test("ChatGPT authorizes Devyy independently and switches saved app registrations", async ({
+  page,
+}) => {
+  await fixture(page, false, true);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
+  const provider = page.getByRole("region", { name: "ChatGPT", exact: true });
+  await provider
+    .getByRole("button", { name: "Continue with ChatGPT", exact: true })
+    .click();
+  await expect(
+    provider.locator(".ai-connection-card").getByText("person0@example.test"),
+  ).toBeVisible();
+  await provider
+    .getByRole("button", { name: "Add ChatGPT account or workspace" })
+    .click();
+  await expect(
+    provider.locator(".ai-connection-card").getByText("person1@example.test"),
+  ).toBeVisible();
+  await provider.getByLabel("Saved accounts").selectOption("oaiapp_fixture_0");
+  await expect(
+    provider.locator(".ai-connection-card").getByText("person0@example.test"),
+  ).toBeVisible();
+  await provider
+    .getByRole("button", { name: "Disconnect", exact: true })
+    .click();
+  await expect(
+    provider.getByRole("button", {
+      name: "Continue with ChatGPT",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          aiFixture: {
+            calls: { command: string; args: Record<string, unknown> }[];
+          };
+        }
+      ).aiFixture.calls,
+  );
+  expect(
+    calls
+      .filter(
+        (c) =>
+          c.command === "ai_account" &&
+          ["login", "add", "select", "logout"].includes(String(c.args.action)),
+      )
+      .every((c) => c.args.providerId === "chatgpt"),
+  ).toBe(true);
+  expect(
+    calls.some(
+      (c) =>
+        c.command === "ai_account" &&
+        c.args.accountId === "oaiapp_fixture_0" &&
+        c.args.action === "select",
+    ),
+  ).toBe(true);
+  expect(
+    calls
+      .filter((c) => c.command === "plugin:opener|open_url")
+      .every((c) => String(c.args.url).startsWith("https://auth.openai.com/")),
+  ).toBe(true);
+});
+
+test("header toggles the AI workspace and provider Usage navigates within Settings", async ({
+  page,
+}) => {
+  await fixture(page);
+  const toggle = page.getByRole("button", {
+    name: "Toggle AI workspace",
+    exact: true,
+  });
+  await expect(
+    page
+      .locator(".titlebar")
+      .getByRole("button", { name: "Toggle AI workspace" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".activity-bottom").getByRole("button", { name: /AI/ }),
+  ).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".ai-workspace-heading")).toHaveCSS(
+    "border-bottom-width",
+    "0px",
+  );
+  await expect(page.locator(".ai-workspace")).toHaveCSS("padding-left", "32px");
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
+  const detail = page.getByRole("region", { name: "ChatGPT", exact: true });
+  await detail
+    .getByLabel("Model", { exact: true })
+    .fill("preserve-unsaved-default");
+  const usage = detail.getByRole("button", { name: "Usage", exact: true });
+  await usage.click();
+  await expect(
+    page.getByRole("region", { name: "AI usage", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.locator(".ai-modal-backdrop")).toHaveCount(0);
+  await expect(detail).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Back to providers" }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Back to providers" }).click();
+  await expect(detail).toBeVisible();
+  await expect(detail.getByLabel("Model", { exact: true })).toHaveValue(
+    "preserve-unsaved-default",
+  );
+  await expect(usage).toBeFocused();
+  await page.getByRole("button", { name: "Close preferences" }).click();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    page.getByRole("complementary", { name: "AI assistant" }),
+  ).toBeHidden();
+});
+
+test("thinking summaries stream separately, collapse, and persist with the reply", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Explain the constraints");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toBeVisible();
+  await control(page, "reasoning", "Checking the attached constraints. ");
+  await control(page, "reasoning", "Comparing the available approaches.");
+  const thinking = page.locator(".ai-reasoning");
+  await expect(thinking).toHaveCount(1);
+  await expect(thinking).not.toHaveAttribute("open");
+  await thinking.locator("summary").click();
+  await expect(thinking).toContainText(
+    "Checking the attached constraints. Comparing the available approaches.",
+  );
+  await expect(
+    page.locator(".ai-message-assistant .ai-markdown"),
+  ).not.toContainText("Comparing the available approaches.");
+  await control(page, "delta", "Here is the answer.");
+  await control(page, "finish");
+  await expect(thinking.locator("summary")).toHaveText("Thinking summary");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(
+            localStorage.getItem("devyy.ai.chats") ?? "[]",
+          )[0]?.messages.at(-1)?.reasoning,
+      ),
+    )
+    .toBe(
+      "Checking the attached constraints. Comparing the available approaches.",
+    );
+  await page.screenshot({ path: "artifacts/devyy-ai-thinking.png" });
+});
+
+test("missing Claude runtime installs through Devyy before sign-in", async ({
+  page,
+}) => {
+  await fixture(page, false, false, true);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^Claude account/ }).click();
+  const detail = page.getByRole("region", {
+    name: "Claude account",
+    exact: true,
+  });
+  await expect(
+    detail.getByRole("button", { name: "Sign in", exact: true }),
+  ).toBeDisabled();
+  await detail.getByRole("button", { name: "Install", exact: true }).click();
+  await expect(
+    detail.getByText("Claude Code installed", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Sign in", exact: true }),
+  ).toBeEnabled();
+  const calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          aiFixture: {
+            calls: { command: string; args: Record<string, unknown> }[];
+          };
+        }
+      ).aiFixture.calls,
+  );
+  expect(
+    calls.some(
+      (call) =>
+        call.command === "ai_install_runtime" &&
+        call.args.providerId === "claude",
+    ),
+  ).toBe(true);
+  expect(
+    calls.some(
+      (call) =>
+        call.command === "ai_save_provider" &&
+        (call.args.provider as { executable?: string })?.executable ===
+          "/fixture/claude",
+    ),
+  ).toBe(true);
+});
+
+test("favorite models span providers and retain their provider identity", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+    const original = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (command, args) =>
+      command === "ai_models"
+        ? Promise.resolve([
+            {
+              id: `private-model-id-${args?.providerId}`,
+              name: "Shared model",
+            },
+          ])
+        : original(command, args);
+  });
+  await start(page);
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await page
+    .getByRole("button", { name: "Favorite Shared model", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Models from ChatGPT", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Favorite Shared model", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Favorite models", exact: true })
+    .click();
+  await expect(page.getByRole("option", { name: /^Shared model/ })).toHaveCount(
+    2,
+  );
+  await expect(
+    page.getByLabel("Provider: Local test model", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Provider: ChatGPT", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".ai-model-options")).not.toContainText(
+    "private-model-id",
+  );
+  await page
+    .getByRole("option", { name: "Shared model / ChatGPT", exact: true })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Use the ChatGPT favorite");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              aiFixture: {
+                calls: {
+                  command: string;
+                  args: { request?: { providerId: string } };
+                }[];
+              };
+            }
+          ).aiFixture.calls.findLast((call) => call.command === "ai_chat")?.args
+            .request?.providerId,
+      ),
+    )
+    .toBe("chatgpt");
+  await control(page, "delta", "Favorite selected");
+  await control(page, "finish");
+});
+
+test("retiring Codex CLI preserves conversations and uses the independent ChatGPT provider", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "devyy.ai.chats",
+      JSON.stringify([
+        {
+          id: "legacy-chat",
+          title: "Existing CLI conversation",
+          providerId: "codex",
+          model: "retired-model",
+          updatedAt: 1,
+          messages: [
+            { id: "one", role: "user", content: "Preserve this question" },
+            { id: "two", role: "assistant", content: "Preserve this answer" },
+          ],
+        },
+      ]),
+    );
+  });
+  await fixture(page);
+  await start(page);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem("devyy.ai.chats") ?? "[]")[0]
+            ?.providerId,
+      ),
+    )
+    .toBe("chatgpt");
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("devyy.ai.chats") ?? "[]")[0],
+  );
+  expect(
+    saved.messages.map((message: { content: string }) => message.content),
+  ).toEqual(["Preserve this question", "Preserve this answer"]);
+  expect(saved.model).toBe("");
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await expect(page.getByRole("tab", { name: /^ChatGPT/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Codex/ })).toHaveCount(0);
+});
+
+test("reduced motion keeps settings navigation immediate and returns keyboard focus", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  const detail = page.getByRole("region", {
+    name: "Local test model",
+    exact: true,
+  });
+  const usage = detail.getByRole("button", { name: "Usage", exact: true });
+  await usage.click();
+  await expect(
+    page.getByRole("button", { name: "Back to providers" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeVisible();
+  await expect(usage).toBeFocused();
+  await expect(page.getByRole("dialog", { name: "Preferences" })).toBeVisible();
 });
