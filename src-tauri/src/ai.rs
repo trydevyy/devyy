@@ -978,6 +978,7 @@ fn cli(p: &Provider) -> Result<tokio::process::Command, String> {
                 )
             })?
     };
+    #[allow(unused_mut)]
     let mut program = crate::process::command(&binary.to_string_lossy());
     #[cfg(unix)]
     {

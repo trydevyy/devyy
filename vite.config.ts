@@ -6,7 +6,7 @@ try {
   revision = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
     encoding: "utf8",
   }).trim();
-} catch {}
+} catch { }
 export default defineConfig({
   define: {
     __DEVYY_BUILD__: JSON.stringify({
@@ -16,7 +16,13 @@ export default defineConfig({
   },
   plugins: [react()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
+  },
   build: {
     target: "es2022",
     rollupOptions: {
