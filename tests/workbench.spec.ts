@@ -157,7 +157,7 @@ test("independent transparency persists and solid mode overrides both surfaces",
         .locator(".editor-surface")
         .evaluate((el) => getComputedStyle(el).backgroundColor),
     )
-    .toBe("rgb(34, 34, 37)");
+    .toBe("rgb(34, 35, 37)");
 });
 test("custom shortcuts record, resolve conflicts, dispatch and survive restart", async ({
   page,
@@ -251,6 +251,53 @@ test("custom context menus handle keyboard navigation, tab actions and viewport 
   const rect = (await page.getByRole("menu").boundingBox())!;
   expect(rect.x + rect.width).toBeLessThanOrEqual(1440);
   expect(rect.y + rect.height).toBeLessThanOrEqual(940);
+});
+
+test("browser context menus are suppressed across chrome and inputs without blocking custom menus", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const isCancelled = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((element) => {
+        const event = new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+        });
+        element.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+  for (const selector of [
+    ".titlebar",
+    ".sidebar-heading",
+    ".activity-bar",
+    ".sidebar-foot",
+    "body",
+  ]) {
+    expect(await isCancelled(selector)).toBe(true);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+  }
+  await page.keyboard.press(`${mod}+,`);
+  expect(await isCancelled(".settings-modal")).toBe(true);
+  expect(await isCancelled(".settings-search input")).toBe(true);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("tab", { name: "main.rs", exact: true })
+    .click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "Close other tabs", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  const editor = page.locator(".editor-document.visible .cm-content").first();
+  await editor.click();
+  await page.keyboard.press("Shift+F10");
+  await expect(
+    page.getByRole("menuitem", { name: "Format document", exact: true }),
+  ).toBeVisible();
 });
 
 test("terminal sessions keep their processes through switching, splits, resizing and panel toggles", async ({
@@ -414,6 +461,24 @@ test("terminal sessions keep their processes through switching, splits, resizing
     "2",
   ]);
   await expect.poll(async () => (await state()).created.length).toBe(3);
+  // Selecting a standalone terminal must preserve the inactive pair and both processes.
+  await page.getByRole("tab", { name: "Terminal 2", exact: true }).click();
+  await expect(page.locator(".terminal-instance.visible")).toHaveCount(1);
+  await expect(
+    page.getByRole("group", { name: "Split terminal group", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Terminal 3", exact: true }).click();
+  await expect(page.locator(".terminal-instance.visible")).toHaveCount(2);
+  expect((await state()).created).toEqual([1, 2, 3]);
+  expect((await state()).closed).toEqual([]);
+  await page
+    .getByRole("tab", { name: "Terminal 2", exact: true })
+    .dragTo(page.getByRole("tab", { name: "Terminal 1", exact: true }));
+  await page
+    .getByRole("tab", { name: "Terminal 3", exact: true })
+    .dragTo(page.getByRole("tab", { name: "Terminal 2", exact: true }));
+  expect((await state()).created).toEqual([1, 2, 3]);
+  expect((await state()).closed).toEqual([]);
   await page
     .locator(".terminal-instance.visible")
     .first()

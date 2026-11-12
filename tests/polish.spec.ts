@@ -21,7 +21,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
   await expect
     .poll(() => glass(".settings-modal"))
     .toMatchObject({
-      background: "rgba(27, 27, 30, 0.25)",
+      background: "rgba(27, 28, 30, 0.25)",
       blur: "blur(40px) saturate(1.15)",
     });
   await page
@@ -37,7 +37,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
   await page.keyboard.press(`${mod}+p`);
   expect(await glass(".palette")).toEqual(
     await page.evaluate(() => ({
-      background: "rgba(27, 27, 30, 0.25)",
+      background: "rgba(27, 28, 30, 0.25)",
       blur: "blur(40px) saturate(1.15)",
     })),
   );
@@ -46,7 +46,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
     .getByRole("tab", { name: "main.rs", exact: true })
     .click({ button: "right" });
   expect((await glass(".context-menu")).background).toBe(
-    "rgba(27, 27, 30, 0.25)",
+    "rgba(27, 28, 30, 0.25)",
   );
   await page.keyboard.press("Escape");
   await page
@@ -54,7 +54,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
     .first()
     .click();
   expect((await glass(".input-modal")).background).toBe(
-    "rgba(27, 27, 30, 0.25)",
+    "rgba(27, 28, 30, 0.25)",
   );
   await page.keyboard.press("Escape");
   await page
@@ -62,7 +62,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
     .click();
   await page.keyboard.press(`${mod}+,`);
   expect(await glass(".settings-modal")).toEqual({
-    background: "rgb(27, 27, 30)",
+    background: "rgb(27, 28, 30)",
     blur: "none",
   });
   await page.keyboard.press("Escape");
@@ -70,7 +70,7 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
     .getByRole("tab", { name: "main.rs", exact: true })
     .click({ button: "right" });
   expect(await glass(".context-menu")).toEqual({
-    background: "rgb(27, 27, 30)",
+    background: "rgb(27, 28, 30)",
     blur: "none",
   });
   await page.keyboard.press("Escape");

@@ -66,7 +66,7 @@ test("Markdown previews render GFM and code, update live, and preserve source un
   await preview
     .getByRole("link", { name: "Jump to details", exact: true })
     .click();
-  await expect(preview.locator("#details")).toBeInViewport();
+  await expect(preview.locator("#user-content-details")).toBeInViewport();
   await page
     .getByRole("button", { name: "Markdown preview", exact: true })
     .click();
@@ -177,7 +177,7 @@ test("native About reports metadata and handles available, failed and current up
   await page.getByRole("tab", { name: "About devyy", exact: true }).click();
   const about = page.getByRole("region", { name: "About devyy", exact: true });
   await expect(about).toContainText("26.1 (25B78)");
-  await expect(about).toContainText("test-build · aarch64");
+  await expect(about).toContainText("test-build — aarch64");
   await expect(about.getByRole("status")).toContainText("0.2.0 is available");
   await expect(
     about.getByRole("button", { name: "View release", exact: true }),
@@ -195,4 +195,72 @@ test("native About reports metadata and handles available, failed and current up
   await expect(
     about.getByRole("button", { name: "View release", exact: true }),
   ).toHaveCount(0);
+});
+
+test("Markdown renders embedded HTML with working details and safe links and images", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "devyy.playground",
+      JSON.stringify({
+        "README.md": `# HTML preview
+
+<p align="center"><strong>Embedded HTML</strong><br><kbd>npm run build</kbd></p>
+
+<details><summary>Build instructions</summary><p>Build the <em>desktop app</em>.</p><table><tbody><tr><td>Target</td><td>Desktop</td></tr></tbody></table></details>
+
+<a href="#example">Jump to HTML</a>
+<h2 id="example">HTML section</h2>
+<img src="https://example.test/badge.svg" alt="Build badge" width="64" height="24" onload="window.markdownInjected = true">
+<a href="docs/guide.md">HTML guide</a>
+<script>window.markdownInjected = true</script>
+<style>body { display: none; }</style>
+<iframe srcdoc="<script>parent.markdownInjected = true</script>"></iframe>
+<a href="javascript:window.markdownInjected=true">Unsafe HTML link</a>`,
+        "docs/guide.md": "# Guide",
+      }),
+    ),
+  );
+  await page.route("https://example.test/badge.svg", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="24"><rect width="64" height="24" fill="gray"/></svg>',
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("tab", { name: "README.md", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Markdown preview", exact: true })
+    .click();
+  const preview = page.getByRole("article", {
+    name: "Markdown preview: README.md",
+    exact: true,
+  });
+  await expect(preview.locator('p[align="center"] > strong')).toHaveText(
+    "Embedded HTML",
+  );
+  await expect(preview.locator("kbd")).toHaveText("npm run build");
+  await expect(preview.locator("details > p")).not.toBeVisible();
+  await preview.locator("summary").click();
+  await expect(preview.locator("details > p")).toHaveText(
+    "Build the desktop app.",
+  );
+  await expect(preview.getByRole("table")).toContainText("Desktop");
+  const image = preview.getByRole("img", { name: "Build badge", exact: true });
+  await expect(image).toHaveAttribute("width", "64");
+  await expect(image).not.toHaveAttribute("onload");
+  await expect(preview.locator("script, style, iframe")).toHaveCount(0);
+  await expect(
+    preview.getByRole("link", { name: "Unsafe HTML link" }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => "markdownInjected" in window)).toBe(false);
+  await preview
+    .getByRole("link", { name: "Jump to HTML", exact: true })
+    .click();
+  await expect(preview.locator("#user-content-example")).toBeInViewport();
+  await preview.getByRole("link", { name: "HTML guide", exact: true }).click();
+  await expect(
+    page.getByRole("tab", { name: "guide.md", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
 });
