@@ -9,7 +9,45 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Check } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Scissors,
+  Clipboard,
+  Trash2,
+  Pencil,
+  Plus,
+  FolderOpen,
+  Search,
+  Settings2,
+  ArrowUpRight,
+  PanelLeft,
+  Terminal,
+  Columns2,
+  Undo2,
+  Redo2,
+  Save,
+  File,
+} from "lucide-react";
+function actionIcon(label: string) {
+  if (/copy/i.test(label)) return Copy;
+  if (/cut/i.test(label)) return Scissors;
+  if (/paste/i.test(label)) return Clipboard;
+  if (/delete|remove|discard/i.test(label)) return Trash2;
+  if (/rename/i.test(label)) return Pencil;
+  if (/new|create|add/i.test(label)) return Plus;
+  if (/folder|reveal|finder|explorer/i.test(label)) return FolderOpen;
+  if (/find|search/i.test(label)) return Search;
+  if (/setting|preference/i.test(label)) return Settings2;
+  if (/terminal/i.test(label)) return Terminal;
+  if (/split/i.test(label)) return Columns2;
+  if (/sidebar|panel|layout/i.test(label)) return PanelLeft;
+  if (/undo/i.test(label)) return Undo2;
+  if (/redo/i.test(label)) return Redo2;
+  if (/save/i.test(label)) return Save;
+  if (/open|go to/i.test(label)) return ArrowUpRight;
+  return File;
+}
 export interface MenuItem {
   label: string;
   action?: () => void;
@@ -69,6 +107,10 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     const el = ref.current,
       rect = el.getBoundingClientRect();
     el.style.left = `${Math.max(8, Math.min(menu.x, innerWidth - rect.width - 8))}px`;
+    el.style.setProperty(
+      "--menu-origin",
+      `${menu.x > innerWidth - rect.width - 8 ? "right" : "left"} ${menu.y > innerHeight - rect.height - 8 ? "bottom" : "top"}`,
+    );
     el.style.top = `${Math.max(8, Math.min(menu.y, innerHeight - rect.height - 8))}px`;
     el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const dismiss = () => setMenu(null);
@@ -143,27 +185,36 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
                 }
               }}
             >
-              {menu.items.map((item, i) => (
-                <div key={i}>
-                  {item.separator && i > 0 && (
-                    <div role="separator" className="context-separator" />
-                  )}
-                  <button
-                    role="menuitem"
-                    aria-label={item.label}
-                    disabled={item.disabled}
-                    className={item.danger ? "danger" : ""}
-                    onClick={() => {
-                      close();
-                      item.action?.();
-                    }}
-                  >
-                    {item.checked && <Check className="menu-check" size={12} />}
-                    <span>{item.label}</span>
-                    {item.shortcut && <kbd>{item.shortcut}</kbd>}
-                  </button>
-                </div>
-              ))}
+              {menu.items.map((item, i) => {
+                const Icon = actionIcon(item.label);
+                return (
+                  <div key={i}>
+                    {item.separator && i > 0 && (
+                      <div role="separator" className="context-separator" />
+                    )}
+                    <button
+                      role="menuitem"
+                      aria-label={item.label}
+                      disabled={item.disabled}
+                      className={item.danger ? "danger" : ""}
+                      onClick={() => {
+                        close();
+                        item.action?.();
+                      }}
+                    >
+                      <span className="menu-leading" aria-hidden="true">
+                        {item.checked ? (
+                          <Check className="menu-check" size={13} />
+                        ) : (
+                          <Icon size={13} strokeWidth={1.6} />
+                        )}
+                      </span>
+                      <span>{item.label}</span>
+                      {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>,
           document.body,

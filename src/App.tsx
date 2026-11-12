@@ -1,4 +1,10 @@
 import {
+  registerAIContext,
+  writeAIContextDrag,
+  boundedContext,
+  type AIContextSource,
+} from "./lib/aiContext";
+import {
   lazy,
   Suspense,
   useCallback,
@@ -9,6 +15,7 @@ import {
   useState,
 } from "react";
 import { EditorView } from "@codemirror/view";
+import { EditorSelection } from "@codemirror/state";
 import { openSearchPanel } from "@codemirror/search";
 import { undo, redo } from "@codemirror/commands";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
@@ -32,7 +39,6 @@ import {
   Focus,
   FolderOpen,
   GitBranch,
-  Minus,
   MoreHorizontal,
   PanelBottom,
   PanelLeft,
@@ -52,9 +58,33 @@ import {
   X,
 } from "lucide-react";
 import { useAppearance } from "./lib/appearance";
+import SourceControl from "./components/SourceControl";
+import type { Comparison } from "./components/DiffEditor";
+const DiffEditor = lazy(() => import("./components/DiffEditor"));
 import Editor, { offset, toPosition } from "./components/Editor";
 import FileTree, { FileIcon } from "./components/FileTree";
+import Setup from "./components/Setup";
+import ExtensionViews from "./components/ExtensionViews";
+import ExtensionWebviews from "./components/ExtensionWebviews";
+import ExtensionStatusItems from "./components/ExtensionStatusItems";
+import ExtensionServices, {
+  type WorkbenchRequest,
+} from "./components/ExtensionServices";
+import { matchesContext } from "./lib/extensionContext";
+import { fileUri, sendExtensionEditorState } from "./lib/extensionWorkbench";
+import {
+  hostRequest,
+  extensionLanguageFeature,
+  extensionCommand,
+  syncExtensionHost,
+  useExtensionHost,
+  type HostEvent,
+} from "./lib/extensionHost";
+import { initializeExtensions, useExtensions } from "./lib/extensions";
 import Preferences from "./components/Preferences";
+import AIWorkspace from "./components/AIWorkspace";
+import AIProviderIcon from "./components/AIProviderIcon";
+import { isAIExtension } from "./lib/aiExtensions";
 import type { SettingsCategory } from "./lib/settingsCatalog";
 import SearchResults from "./components/SearchResults";
 import ProjectBadge from "./components/ProjectBadge";
@@ -64,12 +94,22 @@ const MarkdownPreview = lazy(() => import("./components/MarkdownPreview"));
 const TerminalGroup = lazy(() => import("./components/TerminalGroup"));
 import type { TerminalsHandle } from "./components/TerminalGroup";
 import ResizeHandle from "./components/ResizeHandle";
+import SplitTabGroup from "./components/SplitTabGroup";
+import {
+  groupedTabs,
+  moveTabGroup,
+  pairTabs,
+  separateTab,
+  type SplitGroup,
+} from "./lib/splitGroups";
 import { useContextMenu, type MenuItem } from "./components/ContextMenu";
 import {
   bindingsWith,
   commandInfo,
   displayBinding,
   eventBinding,
+  contributedBinding,
+  isMac,
   type CommandId,
 } from "./lib/shortcuts";
 import Debugger, { type DebugSession } from "./components/Debugger";
@@ -92,7 +132,7 @@ import {
   invoke,
   listen,
   connectDocument,
-  changeDocument,
+  queueDocumentChange,
   closeDocument,
   savedDocument,
   clearLanguageServers,
@@ -101,7 +141,8 @@ import {
   type DiagnosticEvent,
 } from "./lib/native";
 
-type Section = "files" | "search" | "git" | "run" | "tools";
+type Section =
+  "files" | "search" | "git" | "run" | "tools" | `extension:${string}`;
 type Dialog = {
   title: string;
   description: string;
@@ -120,6 +161,45 @@ const initialTab: Tab = {
   modified: "",
 };
 export default function App() {
+  const installedExtensions = useExtensions();
+  const extensionHost = useExtensionHost();
+  const extensionContainers = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; title: string; extension?: string }
+    >();
+    for (const ext of installedExtensions.filter((e) => e.enabled)) {
+      for (const container of Object.values(
+        ext.contributes.viewsContainers ?? {},
+      ).flat())
+        map.set(container.id, { ...container, extension: ext.id });
+      for (const id of Object.keys(ext.contributes.views ?? {}))
+        if (!["explorer", "scm", "debug", "test"].includes(id) && !map.has(id))
+          map.set(id, { id, title: id, extension: ext.id });
+    }
+    return [...map.values()].filter((container) =>
+      installedExtensions.some(
+        (ext) =>
+          ext.enabled &&
+          ext.contributes.views?.[container.id]?.some((view) =>
+            matchesContext(view.when, extensionHost.contexts),
+          ),
+      ),
+    );
+  }, [installedExtensions, extensionHost.contexts]);
+  const [setupOpen, setSetupOpen] = useState(
+    () =>
+      !readLocal("devyy.setupCompleted", false) &&
+      !localStorage.getItem("devyy.settings") &&
+      !localStorage.getItem("devvy.settings"),
+  );
+  function finishSetup() {
+    localStorage.setItem("devyy.setupCompleted", "true");
+    setSetupOpen(false);
+  }
+  useEffect(() => {
+    void initializeExtensions().catch(notify);
+  }, []);
   const [breakpoints, setBreakpoints] = useState<Record<string, number[]>>({}),
     [debugSession, setDebugSession] = useState<DebugSession>({
       running: false,
@@ -143,7 +223,13 @@ export default function App() {
           modified: "",
         })),
     ]),
-    [active, setActive] = useState(initialTab.path);
+    [active, setActivePath] = useState(initialTab.path);
+  const [diffActive, setDiffActive] = useState(false);
+  function setActive(path: string) {
+    ++diffRequest.current;
+    setDiffActive(false);
+    setActivePath(path);
+  }
   const [markdownModes, setMarkdownModes] = useState<
     Record<string, "source" | "preview" | "split">
   >({});
@@ -153,7 +239,7 @@ export default function App() {
     path = active,
   ) {
     setMarkdownModes((old) => ({ ...old, [path]: mode }));
-    setSplit(mode === "split");
+    if (mode === "split") setFileSplits((groups) => separateTab(groups, path));
   }
   const [section, setSection] = useState<Section>("files"),
     [sidebar, setSidebar] = useState(true),
@@ -161,8 +247,17 @@ export default function App() {
     [panelTab, setPanelTab] = useState<"terminal" | "problems" | "output">(
       "terminal",
     );
-  const [split, setSplit] = useState(false),
-    [focus, setFocus] = useState(false),
+  const [fileSplits, setFileSplits] = useState<SplitGroup<string>[]>([]);
+  const fileSplit = fileSplits.find(
+    (group) =>
+      group.includes(active) &&
+      group.every((path) => tabs.some((tab) => tab.path === path)),
+  );
+  const markdownSplit =
+    !fileSplit && language(active) === "markdown" && markdownMode === "split";
+  const split = Boolean(fileSplit || markdownSplit);
+  const fileTabGroups = groupedTabs(tabs, (tab) => tab.path, fileSplits);
+  const [focus, setFocus] = useState(false),
     [palette, setPalette] = useState<"files" | "commands" | null>(null);
   const [settings, setSettings] = useState<Settings>(() =>
       normalizeSettings(readLocal("devyy.settings", {})),
@@ -182,6 +277,8 @@ export default function App() {
     [output, setOutput] = useState<string[]>([
       "devyy is ready. Open a folder to connect your tools.",
     ]);
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const diffRequest = useRef(0);
   const [cursor, setCursor] = useState({ line: 1, col: 1 }),
     [dialog, setDialog] = useState<Dialog | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null),
@@ -214,6 +311,7 @@ export default function App() {
   useEffect(() => {
     const track = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
+      if (document.querySelector(".setup-dialog")) return;
       if (!target.closest('[role="dialog"],[role="menu"]'))
         modalReturnFocus.current = target;
     };
@@ -235,6 +333,17 @@ export default function App() {
         : 50,
     };
   });
+  const defaultEditorSplitRatio = useRef(sizes.split);
+  const [editorSplitRatios, setEditorSplitRatios] = useState<
+    Record<string, number>
+  >({});
+  const editorSplitKey = JSON.stringify(fileSplit ?? [active]);
+  const editorSplitRatio =
+    editorSplitRatios[editorSplitKey] ?? defaultEditorSplitRatio.current;
+  function resizeEditorSplit(value: number) {
+    setEditorSplitRatios((ratios) => ({ ...ratios, [editorSplitKey]: value }));
+    setSizes((sizes) => ({ ...sizes, split: value }));
+  }
   const [viewport, setViewport] = useState({
     width: innerWidth,
     height: innerHeight,
@@ -251,6 +360,8 @@ export default function App() {
   bindingsRef.current = bindings;
   function resetLayout() {
     setSizes({ sidebar: 236, panel: 250, split: 50 });
+    defaultEditorSplitRatio.current = 50;
+    setEditorSplitRatios({});
     setMaximizedPanel(false);
   }
   function toggleFocus() {
@@ -341,7 +452,7 @@ export default function App() {
     localStorage.setItem("devyy.playground", JSON.stringify(demo));
   }, [demo]);
   useEffect(() => {
-    if (!palette && !settingsOpen && !help && !dialog) return;
+    if (!palette && !settingsOpen && !help && !dialog && !setupOpen) return;
     const previous =
       modalReturnFocus.current ??
       (document.activeElement as HTMLElement | null);
@@ -371,8 +482,20 @@ export default function App() {
       document.removeEventListener("keydown", trap);
       previous?.focus();
     };
-  }, [palette, settingsOpen, help, dialog]);
+  }, [palette, settingsOpen, help, dialog, setupOpen]);
   useAppearance(settings, notify);
+  useEffect(() => {
+    if (!settings.followSystemTheme) return;
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const update = () =>
+      setSettings((s) => ({
+        ...s,
+        theme: media.matches ? "midnight" : "paper",
+      }));
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [settings.followSystemTheme]);
   async function ask(text: string) {
     return native
       ? confirm(text, { title: "devyy", kind: "warning" })
@@ -447,6 +570,11 @@ export default function App() {
       setDebugSession({ running: false, path: null, line: null });
       setWorkspace(next);
       setMarkdownModes({});
+      setFileSplits([]);
+      setComparison(null);
+      setDiffActive(false);
+      ++diffRequest.current;
+      setEditorSplitRatios({});
       wsRef.current = next;
       setTabs([]);
       tabsRef.current = [];
@@ -469,6 +597,7 @@ export default function App() {
             ? "npm run dev"
             : "",
       );
+      await syncExtensionHost();
       log(`Opened ${next.root}`);
       void refreshGit();
       const first =
@@ -510,14 +639,12 @@ export default function App() {
       }
       setActive(path);
       activeRef.current = path;
-      if (
-        root !== "demo" &&
-        ["rust", "typescript", "javascript", "python"].includes(language(path))
-      )
+      if (root !== "demo" && !existing.extensionUri)
         void connectDocument(path, language(path), existing.content)
-          .then(() =>
-            setLspStatus((s) => ({ ...s, [language(path)]: "Connected" })),
-          )
+          .then((connected) => {
+            if (connected)
+              setLspStatus((s) => ({ ...s, [language(path)]: "Connected" }));
+          })
           .catch((e) => {
             setLspStatus((s) => ({ ...s, [language(path)]: String(e) }));
             log(String(e));
@@ -525,6 +652,441 @@ export default function App() {
       if (line) setTimeout(() => jumpTo(path, line), 40);
     } catch (e) {
       notify(e);
+    }
+  }
+  async function openInSplit(path: string, source = activeRef.current) {
+    const root = wsRef.current.root;
+    await openFile(path);
+    if (
+      root !== wsRef.current.root ||
+      !tabsRef.current.some((tab) => tab.path === path)
+    )
+      return;
+    const partner =
+      source !== path && tabsRef.current.some((tab) => tab.path === source)
+        ? source
+        : tabsRef.current.find((tab) => tab.path !== path)?.path;
+    if (!partner) {
+      notify("Open another file to create a split group.", false);
+      return;
+    }
+    setFileSplits((groups) => pairTabs(groups, partner, path));
+  }
+  function separateEditor(path = active) {
+    setFileSplits((groups) => separateTab(groups, path));
+    if (markdownModes[path] === "split") setMarkdownMode("source", path);
+  }
+  useEffect(() => {
+    const reconnect = () => {
+      setLspStatus({});
+      for (const tab of tabsRef.current)
+        if (native && wsRef.current.root !== "demo" && !tab.extensionUri) {
+          void connectDocument(tab.path, language(tab.path), tab.content)
+            .then((connected) => {
+              if (connected)
+                setLspStatus((s) => ({
+                  ...s,
+                  [language(tab.path)]: "Connected",
+                }));
+            })
+            .catch((e) =>
+              setLspStatus((s) => ({ ...s, [language(tab.path)]: String(e) })),
+            );
+        }
+    };
+    window.addEventListener("devyy-language-servers-changed", reconnect);
+    window.addEventListener("devyy-extensions-changed", reconnect);
+    return () => {
+      window.removeEventListener("devyy-language-servers-changed", reconnect);
+      window.removeEventListener("devyy-extensions-changed", reconnect);
+    };
+  }, []);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const message = (event as CustomEvent<HostEvent>).detail;
+      const payload = message.payload;
+      if (message.event === "output") log(String(payload.text ?? ""));
+      if (message.event === "notification") {
+        if (payload.kind === "error") showToast.error(String(payload.message));
+        else if (payload.kind === "warning")
+          showToast.warning(String(payload.message));
+        else showToast.info(String(payload.message));
+      }
+      if (
+        message.event === "documentContent" &&
+        typeof payload.uri === "string" &&
+        typeof payload.text === "string"
+      ) {
+        const next = tabsRef.current.map((tab) =>
+          tab.extensionUri === payload.uri && tab.readOnly
+            ? {
+                ...tab,
+                content: String(payload.text),
+                saved: String(payload.text),
+              }
+            : tab,
+        );
+        tabsRef.current = next;
+        setTabs(next);
+      }
+      if (message.event === "diagnostics") {
+        const path =
+          pathFromUri(String(payload.uri), wsRef.current.root) ??
+          tabsRef.current.find((tab) => tab.extensionUri === payload.uri)?.path;
+        if (path)
+          setProblems((old) => [
+            ...old.filter(
+              (problem) =>
+                !(
+                  problem.path === path &&
+                  problem.collection === payload.collection
+                ),
+            ),
+            ...(payload.diagnostics as LspDiagnostic[]).map((diagnostic) => ({
+              ...diagnostic,
+              severity:
+                diagnostic.severity === undefined ? 1 : diagnostic.severity + 1,
+              path,
+              collection: String(payload.collection),
+            })),
+          ]);
+      }
+      if (message.event === "hostError")
+        log(`Extension host: ${payload.error}`);
+      if (message.event === "openFile" && typeof payload.uri === "string") {
+        const path = pathFromUri(payload.uri, wsRef.current.root);
+        if (path) void openFile(path);
+      }
+    };
+    const reset = () => {
+      setProblems((old) => old.filter((problem) => !problem.collection));
+      setComparison((document) =>
+        document?.source === "extension" ? null : document,
+      );
+    };
+    window.addEventListener("devyy-extension-event", listener);
+    window.addEventListener("devyy-extension-host-reset", reset);
+    return () => {
+      window.removeEventListener("devyy-extension-event", listener);
+      window.removeEventListener("devyy-extension-host-reset", reset);
+    };
+  }, []);
+  const publishExtensionState = useRef(() => {});
+  publishExtensionState.current = () => {
+    const managedTabs =
+      wsRef.current.root === "demo"
+        ? tabsRef.current.filter((tab) => tab.extensionUri)
+        : tabsRef.current;
+    const toUri = (tab: Tab) =>
+      tab.extensionUri ??
+      fileUri(wsRef.current.root.replace(/[\\/]$/, "") + "/" + tab.path);
+    const current = managedTabs.find((tab) => tab.path === activeRef.current);
+    const view = views.current.get(activeRef.current);
+    const position = (value: number) => {
+      const line = view!.state.doc.lineAt(value);
+      return { line: line.number - 1, character: value - line.from };
+    };
+    sendExtensionEditorState({
+      documents: managedTabs.map((tab) => {
+        const editor = views.current.get(tab.path);
+        const visible =
+          !diffActive &&
+          (fileSplit
+            ? fileSplit.includes(tab.path)
+            : tab.path === activeRef.current) &&
+          markdownModes[tab.path] !== "preview";
+        return {
+          uri: toUri(tab),
+          text: tab.content,
+          languageId: tab.languageId ?? language(tab.path),
+          isDirty: tab.saved !== tab.content,
+          visible,
+          viewColumn: fileSplit?.[1] === tab.path ? 2 : 1,
+          selections: editor?.state.selection.ranges.map((range) => ({
+            anchor: toPosition(editor, range.anchor),
+            active: toPosition(editor, range.head),
+          })),
+          visibleRanges: editor?.visibleRanges.map((range) => ({
+            start: toPosition(editor, range.from),
+            end: toPosition(editor, range.to),
+          })),
+        };
+      }),
+      activeUri:
+        current && !diffActive && markdownModes[current.path] !== "preview"
+          ? toUri(current)
+          : undefined,
+      selections: view?.state.selection.ranges.map((range) => ({
+        anchor: position(range.anchor),
+        active: position(range.head),
+      })),
+      themeKind: settings.theme === "paper" ? 1 : 2,
+      focused: document.hasFocus(),
+    });
+  };
+  useEffect(() => {
+    publishExtensionState.current();
+  }, [
+    tabs,
+    active,
+    cursor,
+    settings.theme,
+    fileSplit,
+    diffActive,
+    markdownModes,
+  ]);
+  useEffect(() => {
+    const update = () => publishExtensionState.current();
+    window.addEventListener("focus", update);
+    window.addEventListener("blur", update);
+    window.addEventListener("devyy-editor-selection", update);
+    return () => {
+      window.removeEventListener("focus", update);
+      window.removeEventListener("blur", update);
+      window.removeEventListener("devyy-editor-selection", update);
+    };
+  }, []);
+  async function extensionWorkbenchRequest(request: WorkbenchRequest) {
+    const p = request.params;
+    const pathFor = (uri: string) =>
+      tabsRef.current.find((tab) => tab.extensionUri === uri)?.path ??
+      pathFromUri(uri, wsRef.current.root);
+    switch (request.method) {
+      case "executeBuiltin": {
+        const id = String(p.command);
+        if (!commandInfo.some(([command]) => command === id))
+          throw Error(`Unsupported workbench command: ${id}`);
+        await commandRef.current.find((command) => command.id === id)?.run();
+        return null;
+      }
+      case "openSettings":
+        setSettingsOpen(true);
+        return null;
+      case "saveAll":
+        return saveAll();
+      case "showDocument": {
+        const uri = String(p.uri),
+          previous = activeRef.current;
+        let path = pathFor(uri);
+        if (path) await openFile(path);
+        else {
+          path = uri;
+          const data =
+            typeof p.text === "string"
+              ? {
+                  text: p.text,
+                  readOnly: !!p.readOnly,
+                  languageId: p.languageId as string | undefined,
+                }
+              : await hostRequest<{
+                  text: string;
+                  readOnly: boolean;
+                  languageId: string;
+                }>("readDocument", { uri });
+          const tab: Tab = {
+            path,
+            extensionUri: uri,
+            languageId: data.languageId,
+            readOnly: data.readOnly,
+            content: data.text,
+            saved: data.text,
+            modified: "",
+          };
+          if (!tabsRef.current.some((item) => item.path === path)) {
+            tabsRef.current = [...tabsRef.current, tab];
+            setTabs(tabsRef.current);
+          }
+          setActive(path);
+          activeRef.current = path;
+        }
+        if (!tabsRef.current.some((tab) => tab.path === path)) return false;
+        const options = p.options as
+          | {
+              preserveFocus?: boolean;
+              viewColumn?: number;
+              selection?: {
+                start: { line: number; character: number };
+                end: { line: number; character: number };
+              };
+            }
+          | undefined;
+        if (
+          (options?.viewColumn === -2 || options?.viewColumn === 2) &&
+          previous &&
+          previous !== path &&
+          tabsRef.current.some((tab) => tab.path === previous)
+        )
+          setFileSplits((groups) => pairTabs(groups, previous, path!));
+        if (options?.preserveFocus && previous && previous !== path) {
+          setActive(previous);
+          activeRef.current = previous;
+        }
+        if (options?.selection) {
+          const selection = options.selection;
+          setTimeout(() => {
+            const view = views.current.get(path!);
+            if (view)
+              view.dispatch({
+                selection: {
+                  anchor: offset(view, selection.start),
+                  head: offset(view, selection.end),
+                },
+                effects: EditorView.scrollIntoView(
+                  offset(view, selection.start),
+                  { y: "center" },
+                ),
+              });
+          }, 40);
+        }
+        return true;
+      }
+      case "saveDocument": {
+        const path = p.uri ? pathFor(String(p.uri)) : activeRef.current;
+        return path ? save(path) : false;
+      }
+      case "closeDocument": {
+        const path = p.uri ? pathFor(String(p.uri)) : activeRef.current;
+        return path ? closeTab(path) : false;
+      }
+      case "closeTabs": {
+        for (const uri of p.tabs as string[]) {
+          const path = pathFor(uri);
+          if (path && !(await closeTab(path))) return false;
+        }
+        return true;
+      }
+      case "setSelections": {
+        const path = pathFor(String(p.uri)),
+          view = path ? views.current.get(path) : undefined;
+        if (!view) return false;
+        const selections = p.selections as {
+          anchor: { line: number; character: number };
+          active: { line: number; character: number };
+        }[];
+        if (!selections.length) return false;
+        view.dispatch({
+          selection: EditorSelection.create(
+            selections.map((selection) =>
+              EditorSelection.range(
+                offset(view, selection.anchor),
+                offset(view, selection.active),
+              ),
+            ),
+          ),
+        });
+        return true;
+      }
+      case "revealRange": {
+        const path = pathFor(String(p.uri));
+        const range = p.range as { start: { line: number; character: number } };
+        if (path) jumpTo(path, range.start.line + 1, range.start.character);
+        return null;
+      }
+      case "diff": {
+        setComparison({
+          source: "extension",
+          title: String(p.title ?? "Extension diff"),
+          original: (p.original as { text: string }).text,
+          modified: (p.modified as { text: string }).text,
+        });
+        setDiffActive(true);
+        return null;
+      }
+      case "applyEdit": {
+        const changes = p.documents as {
+          uri: string;
+          textBefore?: string;
+          edits: {
+            range: {
+              start: { line: number; character: number };
+              end: { line: number; character: number };
+            };
+            newText: string;
+            newEol?: number;
+          }[];
+        }[];
+        const prepared: { tab: Tab; text: string }[] = [];
+        for (const change of changes) {
+          let path = pathFor(change.uri);
+          if (!path) {
+            await extensionWorkbenchRequest({
+              ...request,
+              method: "showDocument",
+              params: { uri: change.uri },
+            });
+            path = change.uri;
+          }
+          let tab = tabsRef.current.find((tab) => tab.path === path);
+          if (!tab && path) {
+            await openFile(path);
+            tab = tabsRef.current.find((tab) => tab.path === path);
+          }
+          if (
+            !tab ||
+            tab.readOnly ||
+            (change.textBefore !== undefined &&
+              tab.content !== change.textBefore)
+          )
+            return false;
+          const text = tab.content;
+          const offsetAt = (position: { line: number; character: number }) => {
+            const lines = text.split("\n");
+            if (
+              position.line < 0 ||
+              position.line >= lines.length ||
+              position.character < 0 ||
+              position.character >
+                lines[position.line].replace(/\r$/, "").length
+            )
+              throw Error("Extension edit is outside document bounds");
+            return (
+              lines
+                .slice(0, position.line)
+                .reduce((n, line) => n + line.length + 1, 0) +
+              position.character
+            );
+          };
+          const edits = change.edits
+            .filter((e) => e.range)
+            .map((e) => ({
+              from: offsetAt(e.range.start),
+              to: offsetAt(e.range.end),
+              text: e.newText,
+            }))
+            .sort((a, b) => b.from - a.from || b.to - a.to);
+          let result = text,
+            previous = text.length + 1;
+          for (const edit of edits) {
+            if (edit.to > previous || edit.to < edit.from)
+              throw Error("Extension edits overlap");
+            result =
+              result.slice(0, edit.from) + edit.text + result.slice(edit.to);
+            previous = edit.from;
+          }
+          const eol = change.edits.find((e) => e.newEol)?.newEol;
+          if (eol) result = result.replace(/\r?\n/g, eol === 2 ? "\r\n" : "\n");
+          prepared.push({ tab, text: result });
+        }
+        for (const { tab, text } of prepared) {
+          const view = views.current.get(tab.path);
+          if (view)
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert: text },
+            });
+          edit(tab.path, text);
+        }
+        tabsRef.current = tabsRef.current.map((tab) => {
+          const change = prepared.find((p) => p.tab.path === tab.path);
+          return change ? { ...tab, content: change.text } : tab;
+        });
+        if (p.files) await hostRequest("fileOperations", { files: p.files });
+        publishExtensionState.current();
+        return true;
+      }
+      default:
+        throw new Error(
+          `Devyy does not yet implement the workbench action ${request.method}`,
+        );
     }
   }
   function jumpTo(path: string, line: number, character = 0) {
@@ -537,12 +1099,42 @@ export default function App() {
     });
     view.focus();
   }
+  const reviewAISuggestion = useCallback(
+    (path: string, original: string, modified: string) => {
+      const target = tabsRef.current.find((item) => item.path === path);
+      if (!target || target.readOnly) {
+        showToast.error(
+          "Open the attached file in an editable tab before reviewing a replacement.",
+        );
+        return;
+      }
+      setComparison({
+        source: "ai",
+        title: `AI suggestion: ${filename(path)}`,
+        path,
+        original,
+        modified,
+      });
+      setDiffActive(true);
+    },
+    [],
+  );
   const edit = useCallback((path: string, content: string) => {
+    if (
+      wsRef.current.root !== "demo" &&
+      !tabsRef.current.find((tab) => tab.path === path)?.extensionUri
+    )
+      queueDocumentChange(path, content);
     setTabs((old) => old.map((t) => (t.path === path ? { ...t, content } : t)));
   }, []);
   const handleCursor = useCallback(
     (path: string, line: number, col: number) => {
-      if (activeRef.current === path) setCursor({ line, col });
+      if (activeRef.current === path)
+        setCursor((previous) =>
+          previous.line === line && previous.col === col
+            ? previous
+            : { line, col },
+        );
     },
     [],
   );
@@ -551,12 +1143,6 @@ export default function App() {
     else views.current.delete(path);
     if (view && path === activeRef.current) currentView.current = view;
   }, []);
-  const handleSplitView = useCallback(
-    (path: string, view: EditorView | null) => {
-      if (view && path === activeRef.current) currentView.current = view;
-    },
-    [],
-  );
   const handleDefinition = useCallback(
     () => commandRef.current.find((c) => c.id === "definition")?.run(),
     [],
@@ -579,6 +1165,166 @@ export default function App() {
     for (const p of problems) (map[p.path] ??= []).push(p);
     return map;
   }, [problems]);
+  useEffect(() => {
+    const root = workspace.root;
+    const readFile = async (path: string) => {
+      if (wsRef.current.root !== root)
+        throw new Error("The workspace changed. Attach the file again.");
+      const opened = tabsRef.current.find((tab) => tab.path === path);
+      const content =
+        opened?.content ??
+        (root === "demo"
+          ? (demo[path] ?? "")
+          : (await invoke<{ content: string }>("read_file", { path })).content);
+      if (wsRef.current.root !== root)
+        throw new Error("The workspace changed. Attach the file again.");
+      return {
+        kind: "file" as const,
+        id: path,
+        path,
+        title: filename(path),
+        content,
+      };
+    };
+    const files = new Map(
+      workspace.files
+        .filter((f) => !f.directory)
+        .map((file) => [file.path, file]),
+    );
+    for (const tab of tabsRef.current)
+      if (!files.has(tab.path))
+        files.set(tab.path, {
+          path: tab.path,
+          name: filename(tab.path),
+          directory: false,
+        });
+    const sources: AIContextSource[] = [...files.values()].map((file) => ({
+      kind: "file",
+      id: file.path,
+      title: file.name,
+      description: file.path,
+      read: () => readFile(file.path),
+    }));
+    for (const folder of workspace.files.filter((f) => f.directory))
+      sources.push({
+        kind: "folder",
+        id: folder.path,
+        title: folder.name,
+        description: folder.path,
+        read: async () => {
+          const children = workspace.files.filter(
+            (file) =>
+              !file.directory && file.path.startsWith(folder.path + "/"),
+          );
+          const snapshots: string[] = [];
+          let size = 0;
+          for (const child of children.slice(0, 24)) {
+            const item = await readFile(child.path);
+            const snapshot = boundedContext(item.content, 20 * 1024).content;
+            snapshots.push(`File: ${child.path}\n${snapshot}`);
+            size += snapshot.length;
+            if (size > 140 * 1024) break;
+          }
+          if (snapshots.length < children.length)
+            snapshots.push(
+              `[Included ${snapshots.length} of ${children.length} files]`,
+            );
+          return {
+            kind: "folder",
+            id: folder.path,
+            path: folder.path,
+            title: folder.name,
+            content: snapshots.join("\n\n"),
+          };
+        },
+      });
+    sources.push({
+      kind: "selection",
+      id: "editor-selection",
+      title: "Editor selection",
+      description: active,
+      read: () => {
+        const path = activeRef.current,
+          view = views.current.get(path),
+          selected =
+            view?.state.selection.ranges
+              .filter((range) => !range.empty)
+              .map((range) => view.state.sliceDoc(range.from, range.to))
+              .join("\n\n") ?? "";
+        if (!selected) throw new Error("Select text in an editor first.");
+        return {
+          kind: "selection",
+          id: `${path}:${view!.state.selection.main.from}:${view!.state.selection.main.to}`,
+          title: `Selection: ${filename(path)}`,
+          path,
+          content: selected,
+        };
+      },
+    });
+    const problemText = (p: Problem) =>
+      `${p.path}:${p.range.start.line + 1}:${p.range.start.character + 1} ${["", "error", "warning", "information", "hint"][p.severity ?? 2] ?? "diagnostic"}: ${p.message}`;
+    sources.push({
+      kind: "problems",
+      id: "workspace-problems",
+      title: "Problems",
+      description: `${problems.length} diagnostics`,
+      read: () => ({
+        kind: "problems",
+        id: "workspace-problems",
+        title: "Problems",
+        content: problems.length
+          ? problems.map(problemText).join("\n")
+          : "No diagnostics reported by connected language servers.",
+      }),
+    });
+    for (const [index, problem] of problems.entries())
+      sources.push({
+        kind: "problem",
+        id: `${problem.path}:${index}`,
+        title: problem.message,
+        description: problem.path,
+        read: () => ({
+          kind: "problem",
+          id: `${problem.path}:${index}`,
+          title: `Problem: ${filename(problem.path)}`,
+          path: problem.path,
+          content: problemText(problem),
+        }),
+      });
+    sources.push({
+      kind: "output",
+      id: "workbench-output",
+      title: "Output",
+      read: () => ({
+        kind: "output",
+        id: "workbench-output",
+        title: "Output",
+        content: output.join("\n"),
+      }),
+    });
+    if (comparison)
+      sources.push({
+        kind: "diff",
+        id: "current-diff",
+        title: comparison.title,
+        read: () => ({
+          kind: "diff",
+          id: "current-diff",
+          title: comparison.title,
+          path: comparison.path,
+          content: `Original:\n${comparison.original}\n\nModified:\n${comparison.modified}`,
+        }),
+      });
+    return registerAIContext("workbench", sources);
+  }, [
+    workspace.root,
+    workspace.files,
+    tabs.length,
+    active,
+    problems,
+    output,
+    comparison,
+  ]);
   async function save(path = activeRef.current): Promise<boolean> {
     const previous = saveQueue.current.get(path);
     const operation = (async () => {
@@ -588,7 +1334,12 @@ export default function App() {
       const root = wsRef.current.root;
       try {
         let modified = target.modified;
-        if (root === "demo") {
+        if (target.extensionUri) {
+          await hostRequest("saveVirtualDocument", {
+            uri: target.extensionUri,
+            text: target.content,
+          });
+        } else if (root === "demo") {
           setDemo((old) => ({ ...old, [path]: target.content }));
         } else {
           modified = await invoke<string>("write_file", {
@@ -599,6 +1350,10 @@ export default function App() {
           await savedDocument(path, target.content).catch((e) =>
             log(String(e)),
           );
+          void hostRequest("documentSaved", {
+            uri: fileUri(root.replace(/[\\/]$/, "") + "/" + path),
+            text: target.content,
+          }).catch(() => {});
         }
         if (root === wsRef.current.root) {
           setTabs((old) =>
@@ -640,7 +1395,23 @@ export default function App() {
     const remaining = tabsRef.current.filter((t) => t.path !== path);
     setTabs(remaining);
     tabsRef.current = remaining;
-    if (activeRef.current === path) setActive(remaining.at(-1)?.path ?? "");
+    const partner = fileSplits
+      .find((group) => group.includes(path))
+      ?.find((member) => member !== path);
+    setFileSplits((groups) => separateTab(groups, path));
+    setMarkdownModes((modes) => {
+      const next = { ...modes };
+      delete next[path];
+      return next;
+    });
+    if (activeRef.current === path) {
+      const next =
+        partner && remaining.some((tab) => tab.path === partner)
+          ? partner
+          : (remaining.at(-1)?.path ?? "");
+      setActive(next);
+      activeRef.current = next;
+    }
     void closeDocument(path).catch(() => {});
     setProblems((old) => old.filter((p) => p.path !== path));
     return true;
@@ -746,6 +1517,22 @@ export default function App() {
           await closeDocument(t.path).catch(() => {});
         setTabs((ts) => ts.map((t) => ({ ...t, path: replace(t.path) })));
         setActive(replace(active));
+        setFileSplits((groups) =>
+          groups.map(([a, b]) => [replace(a), replace(b)]),
+        );
+        setEditorSplitRatios((ratios) =>
+          Object.fromEntries(
+            Object.entries(ratios).map(([key, ratio]) => [
+              JSON.stringify((JSON.parse(key) as string[]).map(replace)),
+              ratio,
+            ]),
+          ),
+        );
+        setMarkdownModes((modes) =>
+          Object.fromEntries(
+            Object.entries(modes).map(([path, mode]) => [replace(path), mode]),
+          ),
+        );
         setProblems([]);
         if (workspace.root === "demo") {
           setDemo((d) =>
@@ -791,20 +1578,14 @@ export default function App() {
       }
       const left = tabsRef.current.filter((t) => t.path !== path);
       setTabs(left);
+      tabsRef.current = left;
+      setFileSplits((groups) => separateTab(groups, path));
       if (active === path) setActive(left.at(-1)?.path ?? "");
       void closeDocument(path).catch(() => {});
     } catch (e) {
       notify(e);
     }
   }
-  useEffect(() => {
-    if (!tab || workspace.root === "demo") return;
-    const id = setTimeout(
-      () => void changeDocument(tab.path, tab.content).catch(() => {}),
-      180,
-    );
-    return () => clearTimeout(id);
-  }, [tab?.content, tab?.path, workspace.root]);
   useEffect(() => {
     if (!settings.autoSave) return;
     const id = setTimeout(() => {
@@ -821,7 +1602,7 @@ export default function App() {
       const path = pathFromUri(payload.params.uri, wsRef.current.root);
       if (path)
         setProblems((old) => [
-          ...old.filter((d) => d.path !== path),
+          ...old.filter((d) => d.path !== path || d.collection),
           ...payload.params.diagnostics.map((d) => ({ ...d, path })),
         ]);
     }).then((fn) => {
@@ -939,11 +1720,28 @@ export default function App() {
         uri: string;
         range: { start: { line: number; character: number } };
       };
-      const result = await languageRequest<Location | Location[]>(
+      let result = await languageRequest<Location | Location[]>(
         tab.path,
         "textDocument/definition",
         toPosition(view, view.state.selection.main.head),
       );
+      if (!result) {
+        type ProviderLocation = {
+          uri: string | { external: string };
+          range: Location["range"];
+        };
+        const values = await extensionLanguageFeature<
+          ProviderLocation | ProviderLocation[]
+        >(
+          "provideDefinition",
+          tab.path,
+          toPosition(view, view.state.selection.main.head),
+        );
+        result = values.flat().map((value) => ({
+          ...value,
+          uri: typeof value.uri === "string" ? value.uri : value.uri.external,
+        }));
+      }
       const target = Array.isArray(result) ? result[0] : result;
       if (!target) {
         notify(
@@ -976,7 +1774,7 @@ export default function App() {
     const view = views.current.get(tab.path);
     if (!view) return;
     try {
-      const result = await languageRequest<
+      let result = await languageRequest<
         Array<{
           range: {
             start: { line: number; character: number };
@@ -986,7 +1784,19 @@ export default function App() {
         }>
       >(tab.path, "textDocument/formatting");
       if (!result) {
-        notify("Formatting requires a connected language server.", false);
+        const provided = await extensionLanguageFeature<
+          NonNullable<typeof result>
+        >("provideDocumentFormattingEdits", tab.path, undefined, undefined, {
+          tabSize: settings.tabSize,
+          insertSpaces: true,
+        });
+        if (provided.length) result = provided.flat();
+      }
+      if (!result) {
+        notify(
+          "Formatting requires a connected language server or an extension formatting provider.",
+          false,
+        );
         return;
       }
       view.dispatch({
@@ -1027,26 +1837,119 @@ export default function App() {
       .catch((e) => notify(e));
   }, [terminalId, pendingRun]);
   async function gitAction(action: () => Promise<unknown>) {
-    if (gitBusy) return;
+    if (gitBusy) return false;
     setGitBusy(true);
     try {
       await action();
       await refreshGit();
+      return true;
     } catch (e) {
       notify(e);
+      return false;
     } finally {
       setGitBusy(false);
     }
   }
   async function showDiff(path: string, staged: boolean) {
+    const request = ++diffRequest.current,
+      root = wsRef.current.root;
     try {
-      const text = await invoke<string>("git_diff", { path, staged });
-      setDialog(null);
-      setOutput(text.split("\n"));
-      setPanelTab("output");
-      showPanel(true);
+      const document = await invoke<{
+        original: string;
+        modified: string;
+        binary: boolean;
+      }>("git_diff_files", { path, staged });
+      if (request !== diffRequest.current || root !== wsRef.current.root)
+        return;
+      setComparison({
+        ...document,
+        path,
+        staged,
+        source: "git",
+        title: `${filename(path)} (${staged ? "Staged" : "Working tree"})`,
+      });
+      setDiffActive(true);
     } catch (e) {
-      notify(e);
+      if (request === diffRequest.current) notify(e);
+    }
+  }
+  async function reloadBuffers() {
+    const root = wsRef.current.root;
+    for (const tab of [...tabsRef.current]) {
+      if (tab.extensionUri || tab.content !== tab.saved) continue;
+      try {
+        const file = await invoke<{ content: string; modified: string }>(
+          "read_file",
+          { path: tab.path },
+        );
+        if (root !== wsRef.current.root) return;
+        setTabs((tabs) =>
+          tabs.map((item) =>
+            item.path === tab.path && item.content === item.saved
+              ? {
+                  ...item,
+                  content: file.content,
+                  saved: file.content,
+                  modified: file.modified,
+                }
+              : item,
+          ),
+        );
+        queueDocumentChange(tab.path, file.content);
+      } catch {
+        /* A file deleted by a branch switch remains available in its open buffer. */
+      }
+    }
+    await refresh();
+  }
+  async function discardGitFile(path: string) {
+    if (
+      !(await ask(
+        `Discard working changes to ${path}? This also discards unsaved edits to this file. Staged changes are kept.`,
+      ))
+    )
+      return;
+    if (await gitAction(() => invoke("git_discard", { path }))) {
+      const file = await invoke<{ content: string; modified: string }>(
+        "read_file",
+        { path },
+      ).catch(() => null);
+      if (file) {
+        setTabs((tabs) =>
+          tabs.map((tab) =>
+            tab.path === path
+              ? {
+                  ...tab,
+                  content: file.content,
+                  saved: file.content,
+                  modified: file.modified,
+                }
+              : tab,
+          ),
+        );
+        queueDocumentChange(path, file.content);
+      }
+      await refresh();
+      if (comparison?.path === path) await showDiff(path, !!comparison.staged);
+    }
+  }
+  async function switchGitBranch(branch: string, create = false) {
+    if (tabsRef.current.some((tab) => tab.content !== tab.saved)) {
+      notify("Save or close your unsaved files before switching branches.");
+      return;
+    }
+    if (
+      await gitAction(() => invoke("git_switch_branch", { branch, create }))
+    ) {
+      setComparison(null);
+      setDiffActive(false);
+      await reloadBuffers();
+    }
+  }
+  async function stageGitFile(path: string, staged: boolean) {
+    if (await gitAction(() => invoke("git_stage", { path, staged }))) {
+      if (comparison?.source === "git" && comparison.path === path)
+        await showDiff(path, !staged);
     }
   }
   function activateSection(next: Section) {
@@ -1061,8 +1964,18 @@ export default function App() {
     for (const path of paths) if (!(await closeTab(path))) break;
   }
   function cycleTab(delta: number) {
-    const i = tabs.findIndex((t) => t.path === active);
-    setActive(tabs[(i + delta + tabs.length) % tabs.length]?.path ?? "");
+    const order = fileTabGroups.flat();
+    if (!order.length) return;
+    const i = order.findIndex((tab) => tab.path === activeRef.current);
+    const next =
+      (diffActive
+        ? delta > 0
+          ? order[0]
+          : order.at(-1)
+        : order[(i + delta + order.length) % order.length]
+      )?.path ?? "";
+    activeRef.current = next;
+    setActive(next);
   }
   function terminalAction(action: keyof TerminalsHandle, delta?: number) {
     showPanel(true);
@@ -1074,24 +1987,49 @@ export default function App() {
       else group[action]();
     });
   }
+  function activeEditorView() {
+    if (!diffActive) return currentView.current;
+    const element =
+      document.querySelector<HTMLElement>(
+        ".comparison-workspace .cm-merge-b",
+      ) ??
+      document.querySelector<HTMLElement>(".comparison-workspace .cm-editor");
+    return element ? EditorView.findFromDOM(element) : null;
+  }
   const commandActions: Record<CommandId, () => void> = {
     files: () => setPalette("files"),
     "quick-open": () => setPalette("files"),
     commands: () => setPalette("commands"),
     open: () => void openFolder(),
     new: () => void newItem(false),
-    save: () => void save(),
+    save: () => {
+      if (!diffActive) void save();
+    },
     "save-all": () => void saveAll(),
-    close: () => void closeTab(activeRef.current),
-    "close-all": () => void closeMany(tabsRef.current.map((t) => t.path)),
+    close: () => {
+      if (diffActive && comparison) {
+        setComparison(null);
+        setDiffActive(false);
+      } else void closeTab(activeRef.current);
+    },
+    "close-all": () => {
+      setComparison(null);
+      setDiffActive(false);
+      void closeMany(tabsRef.current.map((t) => t.path));
+    },
     "next-tab": () => cycleTab(1),
     "previous-tab": () => cycleTab(-1),
-    format: () => void format(),
-    definition: () => void definition(),
+    format: () => {
+      if (!diffActive) void format();
+    },
+    definition: () => {
+      if (!diffActive) void definition();
+    },
     find: () => {
-      if (currentView.current) {
-        currentView.current.focus();
-        openSearchPanel(currentView.current);
+      const view = activeEditorView();
+      if (view) {
+        view.focus();
+        openSearchPanel(view);
       }
     },
     global: () => {
@@ -1103,8 +2041,9 @@ export default function App() {
       );
     },
     split: () => {
-      if (language(active) === "markdown" && !split) setMarkdownMode("split");
-      else setSplit((v) => !v);
+      if (split) separateEditor();
+      else if (language(active) === "markdown") setMarkdownMode("split");
+      else void openInSplit(active);
     },
     "markdown-preview": () => {
       if (language(active) === "markdown")
@@ -1118,7 +2057,7 @@ export default function App() {
     sidebar: toggleSidebar,
     terminal: togglePanel,
     focus: toggleFocus,
-    "focus-editor": () => currentView.current?.focus(),
+    "focus-editor": () => activeEditorView()?.focus(),
     "focus-terminal": () => terminalAction("focus"),
     "new-terminal": () => terminalAction("create"),
     "split-terminal": () => terminalAction("split"),
@@ -1136,12 +2075,18 @@ export default function App() {
     undo: () => {
       if (document.activeElement?.matches("input,textarea"))
         document.execCommand("undo");
-      else if (currentView.current) undo(currentView.current);
+      else {
+        const view = activeEditorView();
+        if (view) undo(view);
+      }
     },
     redo: () => {
       if (document.activeElement?.matches("input,textarea"))
         document.execCommand("redo");
-      else if (currentView.current) redo(currentView.current);
+      else {
+        const view = activeEditorView();
+        if (view) redo(view);
+      }
     },
     goto: () =>
       setDialog({
@@ -1153,10 +2098,31 @@ export default function App() {
           const n = Number(value);
           if (!Number.isInteger(n) || n < 1)
             throw new Error("Enter a positive line number.");
-          jumpTo(active, n);
+          const view = activeEditorView();
+          if (view) {
+            const line = view.state.doc.line(Math.min(n, view.state.doc.lines));
+            view.dispatch({
+              selection: { anchor: line.from },
+              effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+            });
+            view.focus();
+          }
         },
       }),
+    ai: () => window.dispatchEvent(new CustomEvent("devyy-ai-open")),
+    "ai-settings": () => {
+      setSettingsPage("ai");
+      setSettingsOpen(true);
+    },
     settings: () => setSettingsOpen(true),
+    setup: () => {
+      setSettingsOpen(false);
+      setSetupOpen(true);
+    },
+    extensions: () => {
+      setSettingsPage("extensions");
+      setSettingsOpen(true);
+    },
     about: () => {
       setSettingsPage("about");
       setSettingsOpen(true);
@@ -1165,6 +2131,7 @@ export default function App() {
       setSettings((s) => ({
         ...s,
         theme: s.theme === "paper" ? "midnight" : "paper",
+        followSystemTheme: false,
       })),
     wrap: () => setSettings((s) => ({ ...s, wordWrap: !s.wordWrap })),
     help: () => setHelp(true),
@@ -1176,18 +2143,174 @@ export default function App() {
     shortcut: displayBinding(bindings[id]),
     run: commandActions[id],
   }));
+  for (const extension of installedExtensions.filter((e) => e.enabled))
+    for (const item of extension.contributes.commands ?? [])
+      commands.push({
+        id: item.command,
+        label: item.category ? `${item.category}: ${item.title}` : item.title,
+        detail: extension.name,
+        run: () => {
+          void extensionCommand(item.command).catch(notify);
+        },
+      });
   commandRef.current = commands;
+  const shortcutData = useRef({
+    installedExtensions,
+    contexts: extensionHost.contexts,
+    active,
+    root: workspace.root,
+    overrides: settings.bindings,
+  });
+  shortcutData.current = {
+    installedExtensions,
+    contexts: extensionHost.contexts,
+    active,
+    root: workspace.root,
+    overrides: settings.bindings,
+  };
+  const [keyChord, setKeyChord] = useState("");
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
+    let chord = "",
+      timer: ReturnType<typeof setTimeout> | undefined;
+    const cancelChord = () => {
+      chord = "";
+      setKeyChord("");
+      clearTimeout(timer);
+    };
+    const targetElement = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target
+        : (document.activeElement ?? document.body);
+    const runApp = (id: string, target: Element, fromMenu = false) => {
+      const ui = uiRef.current;
       if (
         target.closest("[data-shortcut-recorder], .terminal-session input") ||
-        e.isComposing
+        document.querySelector(".setup-dialog,.extension-prompt")
+      )
+        return false;
+      if (ui.dialog || ui.help) return false;
+      if (ui.palette && !["files", "quick-open", "commands"].includes(id))
+        return false;
+      if (
+        !fromMenu &&
+        ["undo", "redo"].includes(id) &&
+        !target.closest(".code-editor,.diff-editor")
+      )
+        return false;
+      if (
+        target.closest(".terminal-content") &&
+        ["find", "undo", "redo", "save", "new", "close"].includes(id)
+      )
+        return false;
+      const command = commandRef.current.find((command) => command.id === id);
+      if (!command) return false;
+      if (ui.settingsOpen && id !== "settings") setSettingsOpen(false);
+      if (ui.settingsOpen && id === "settings") setSettingsOpen(false);
+      else command.run();
+      return true;
+    };
+    const dispatchBinding = (binding: string, target: Element) => {
+      const ui = uiRef.current;
+      if (
+        !binding ||
+        ui.dialog ||
+        ui.help ||
+        target.closest(
+          "[data-shortcut-recorder], .terminal-session input, .extension-prompt",
+        )
+      )
+        return false;
+      const appId = (Object.keys(bindingsRef.current) as CommandId[]).find(
+        (id) => bindingsRef.current[id] === binding,
+      );
+      const data = shortcutData.current;
+      if (
+        !chord &&
+        appId &&
+        (data.overrides[appId] || ui.settingsOpen || ui.palette) &&
+        runApp(appId, target)
+      )
+        return true;
+      if (ui.settingsOpen || ui.palette) {
+        cancelChord();
+        return false;
+      }
+      const context = {
+        ...data.contexts,
+        isMac,
+        isWindows: /Win/.test(navigator.platform),
+        isLinux: /Linux/.test(navigator.platform),
+        editorTextFocus: !!target.closest(".code-editor"),
+        editorFocus: !!target.closest(".editors"),
+        textInputFocus: !!target.closest(
+          'input,textarea,[contenteditable="true"]',
+        ),
+        terminalFocus: !!target.closest(".terminal-content"),
+        resourceLangId: language(data.active),
+        editorLangId: language(data.active),
+        resourceFilename: filename(data.active),
+        workspaceFolderCount: data.root === "demo" ? 0 : 1,
+      };
+      const candidates = data.installedExtensions
+        .filter((extension) => extension.enabled)
+        .flatMap((extension) =>
+          (extension.contributes.keybindings ?? []).map((item) => ({
+            ...item,
+            enablement: extension.contributes.commands?.find(
+              (command) => command.command === item.command,
+            )?.enablement,
+            key: contributedBinding(
+              (isMac
+                ? item.mac
+                : /Win/.test(navigator.platform)
+                  ? item.win
+                  : item.linux) ?? item.key,
+            ),
+          })),
+        )
+        .filter(
+          (item) =>
+            item.key &&
+            matchesContext(item.when, context) &&
+            matchesContext(item.enablement, context),
+        )
+        .reverse();
+      const sequence = chord ? `${chord} ${binding}` : binding;
+      const match = candidates.find((item) => item.key === sequence);
+      if (match) {
+        cancelChord();
+        void extensionCommand(
+          match.command,
+          match.args === undefined ? [] : [match.args],
+        ).catch(notify);
+        return true;
+      }
+      if (candidates.some((item) => item.key?.startsWith(sequence + " "))) {
+        chord = sequence;
+        setKeyChord(sequence);
+        clearTimeout(timer);
+        timer = setTimeout(cancelChord, 4000);
+        return true;
+      }
+      const pending = !!chord;
+      cancelChord();
+      if (!pending && appId) return runApp(appId, target);
+      return pending;
+    };
+    const handler = (e: KeyboardEvent) => {
+      const target = targetElement(e.target);
+      if (
+        e.isComposing ||
+        target.closest("[data-shortcut-recorder], .terminal-session input")
       )
         return;
       const ui = uiRef.current;
       if (e.key === "Escape") {
-        // Let nested context menus and CodeMirror search/completion consume Escape first.
+        if (chord) {
+          cancelChord();
+          e.preventDefault();
+          return;
+        }
         if (document.querySelector('[role="menu"]')) return;
         if (ui.palette || ui.settingsOpen || ui.help || ui.dialog) {
           setPalette(null);
@@ -1200,49 +2323,70 @@ export default function App() {
         if (ui.focus) commandRef.current.find((c) => c.id === "focus")?.run();
         return;
       }
-      if (ui.dialog || ui.settingsOpen || ui.help) return;
-      const binding = eventBinding(e);
-      const id = (Object.keys(bindingsRef.current) as CommandId[]).find(
-        (id) => bindingsRef.current[id] && bindingsRef.current[id] === binding,
-      );
-      const command = commandRef.current.find((c) => c.id === id);
-      if (!command) return;
-      if (
-        ui.palette &&
-        !["files", "quick-open", "commands"].includes(command.id)
-      )
-        return;
-      if (
-        ["undo", "redo"].includes(command.id) &&
-        !target.closest(".code-editor")
-      )
-        return;
-      if (
-        target.closest(".terminal-content") &&
-        ["find", "undo", "redo", "save", "new", "close"].includes(command.id)
-      )
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      command.run();
+      if (dispatchBinding(eventBinding(e), target)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     };
+    const nativeCommand = (event: Event) =>
+      runApp(
+        String((event as CustomEvent).detail),
+        targetElement(document.activeElement),
+        true,
+      );
+    const webviewShortcut = (event: Event) =>
+      dispatchBinding(
+        String((event as CustomEvent).detail),
+        targetElement(document.activeElement),
+      );
     window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    window.addEventListener("devyy-native-command", nativeCommand);
+    window.addEventListener("devyy-webview-shortcut", webviewShortcut);
+    return () => {
+      cancelChord();
+      window.removeEventListener("keydown", handler, true);
+      window.removeEventListener("devyy-native-command", nativeCommand);
+      window.removeEventListener("devyy-webview-shortcut", webviewShortcut);
+    };
   }, []);
   useEffect(() => {
-    if (native)
-      void invoke("set_menu_shortcuts", {
-        bindings: settingsOpen
-          ? Object.fromEntries(Object.keys(bindings).map((id) => [id, ""]))
-          : bindings,
-      }).catch((e) => log(`Menu shortcuts: ${String(e)}`));
-  }, [settings.bindings, settingsOpen]);
+    if (!native) return;
+    const prefixes = new Set(
+      installedExtensions
+        .filter((extension) => extension.enabled)
+        .flatMap((extension) =>
+          (extension.contributes.keybindings ?? []).map(
+            (item) =>
+              contributedBinding(
+                (isMac
+                  ? item.mac
+                  : /Win/.test(navigator.platform)
+                    ? item.win
+                    : item.linux) ?? item.key,
+              )?.split(" ")[0],
+          ),
+        ),
+    );
+    const menuBindings = Object.fromEntries(
+      Object.entries(bindings).map(([id, binding]) => [
+        id,
+        settingsOpen || (prefixes.has(binding) && !settings.bindings[id])
+          ? ""
+          : binding,
+      ]),
+    );
+    void invoke("set_menu_shortcuts", { bindings: menuBindings }).catch((e) =>
+      log(`Menu shortcuts: ${String(e)}`),
+    );
+  }, [settings.bindings, settingsOpen, installedExtensions]);
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
     if (native)
       void listen<string>("devyy-command", ({ payload }) =>
-        commandRef.current.find((c) => c.id === payload)?.run(),
+        window.dispatchEvent(
+          new CustomEvent("devyy-native-command", { detail: payload }),
+        ),
       ).then((fn) => {
         if (disposed) fn();
         else stop = fn;
@@ -1279,12 +2423,7 @@ export default function App() {
             { label: "Open file", action: () => void openFile(path) },
             {
               label: "Open in split editor",
-              action: () => {
-                void openFile(path);
-                if (language(path) === "markdown")
-                  setMarkdownMode("split", path);
-                else setSplit(true);
-              },
+              action: () => void openInSplit(path),
             },
           ]),
       {
@@ -1319,7 +2458,8 @@ export default function App() {
     ]);
   }
   function tabMenu(e: React.MouseEvent, path: string) {
-    const i = tabs.findIndex((t) => t.path === path);
+    const order = fileTabGroups.flat();
+    const i = order.findIndex((t) => t.path === path);
     openMenu(e, [
       {
         label: "Save file",
@@ -1327,12 +2467,29 @@ export default function App() {
         action: () => void save(path),
       },
       {
-        label: "Split editor",
+        label: active !== path ? "Open in split editor" : "Split editor",
         action: () => {
-          setActive(path);
-          if (language(path) === "markdown") setMarkdownMode("split", path);
-          else setSplit(true);
+          if (active !== path) void openInSplit(path);
+          else if (language(path) === "markdown")
+            setMarkdownMode("split", path);
+          else void openInSplit(path);
         },
+      },
+      ...(fileSplits.some((group) => group.includes(path))
+        ? [
+            {
+              label: "Separate split group",
+              action: () => separateEditor(path),
+            },
+          ]
+        : []),
+      {
+        label: "Close split group",
+        disabled: !fileSplits.some((group) => group.includes(path)),
+        action: () =>
+          void closeMany([
+            ...(fileSplits.find((group) => group.includes(path)) ?? []),
+          ]),
       },
       ...(language(path) === "markdown"
         ? [
@@ -1369,8 +2526,8 @@ export default function App() {
       },
       {
         label: "Close tabs to the right",
-        disabled: i === tabs.length - 1,
-        action: () => void closeMany(tabs.slice(i + 1).map((t) => t.path)),
+        disabled: i === order.length - 1,
+        action: () => void closeMany(order.slice(i + 1).map((t) => t.path)),
       },
       menuCommand("close-all"),
     ]);
@@ -1458,7 +2615,11 @@ export default function App() {
     { id: "search" as const, icon: Search, label: "Search" },
     { id: "git" as const, icon: GitBranch, label: "Source control" },
     { id: "run" as const, icon: Play, label: "Run & build" },
-    { id: "tools" as const, icon: PanelsTopLeft, label: "Language tools" },
+    {
+      id: "tools" as const,
+      icon: PanelsTopLeft,
+      label: "Extensions & languages",
+    },
   ];
   const openPreviewLink = useCallback(
     (path: string, line?: number) => {
@@ -1466,78 +2627,190 @@ export default function App() {
     },
     [workspace.root, demo],
   );
-  function renderEditor(isSplit = false) {
+  function renderFileTab(t: Tab, pane?: number) {
     return (
-      <div className="editor-stack" onContextMenu={editorMenu}>
-        {split && (
-          <div className="editor-pane-heading">
-            <span className="pane-number">{isSplit ? 2 : 1}</span>
-            <FileIcon path={active} size={12} />
-            <span>{filename(active)}</span>
-            <small>
-              {language(active) === "markdown" &&
-              (markdownMode === "preview" ||
-                (markdownMode === "split" && isSplit))
-                ? "Preview"
-                : "Editor"}
-            </small>
-            {isSplit && (
-              <button
-                className="icon-button"
-                aria-label="Close split"
-                onClick={() => setSplit(false)}
+      <div
+        className={`tab ${!diffActive && active === t.path ? "active" : ""} ${pane || (markdownModes[t.path] === "split" && language(t.path) === "markdown") ? "is-split" : ""}`}
+        key={t.path}
+        draggable
+        onDragStart={(e) => {
+          draggedTab.current = t.path;
+          writeAIContextDrag(e.dataTransfer, [{ kind: "file", id: t.path }]);
+          e.dataTransfer.setData("text/plain", t.path);
+        }}
+        onDragEnd={() => {
+          draggedTab.current = null;
+        }}
+        onDragOver={(e) => {
+          if (draggedTab.current) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const path = draggedTab.current;
+          if (!path || path === t.path) return;
+          e.preventDefault();
+          setTabs((old) =>
+            moveTabGroup(old, (tab) => tab.path, fileSplits, path, t.path),
+          );
+          draggedTab.current = null;
+        }}
+        onContextMenu={(e) => tabMenu(e, t.path)}
+        onAuxClick={(e) => {
+          if (e.button === 1) {
+            e.preventDefault();
+            void closeTab(t.path);
+          }
+        }}
+      >
+        <button
+          role="tab"
+          aria-selected={!diffActive && active === t.path}
+          aria-label={filename(t.path)}
+          aria-description={
+            pane ? `Pane ${pane} of split file group` : undefined
+          }
+          tabIndex={active === t.path ? 0 : -1}
+          onKeyDown={(event) => {
+            const order = fileTabGroups.flat();
+            const index = order.findIndex((tab) => tab.path === t.path);
+            const nextIndex =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? order.length - 1
+                  : event.key === "ArrowRight"
+                    ? (index + 1) % order.length
+                    : event.key === "ArrowLeft"
+                      ? (index - 1 + order.length) % order.length
+                      : -1;
+            if (nextIndex < 0) return;
+            event.preventDefault();
+            const next = order[nextIndex];
+            setActive(next.path);
+            activeRef.current = next.path;
+            const buttons = event.currentTarget
+              .closest(".tabs")
+              ?.querySelectorAll<HTMLButtonElement>("[role=tab]");
+            buttons?.[order.indexOf(next)]?.focus();
+          }}
+          onClick={() => {
+            setActive(t.path);
+            activeRef.current = t.path;
+          }}
+          title={t.path}
+        >
+          {pane && (
+            <span className="pane-number" aria-hidden="true">
+              {pane}
+            </span>
+          )}
+          <FileIcon path={t.path} size={14} />
+          <span className="tab-label">{filename(t.path)}</span>
+          {!pane &&
+            markdownModes[t.path] === "split" &&
+            language(t.path) === "markdown" && (
+              <span
+                className="split-tab-indicator"
+                title="Source and Markdown preview"
+                aria-hidden="true"
               >
-                <X size={12} />
-              </button>
+                <Columns2 size={12} />
+                <span>1 / 2</span>
+              </span>
             )}
+          {t.content !== t.saved && <span className="dirty-dot" />}
+        </button>
+        <button
+          className="tab-close"
+          title={`Close ${filename(t.path)}`}
+          aria-label={`Close ${filename(t.path)}`}
+          onClick={() => void closeTab(t.path)}
+        >
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
+  function renderEditor(t: Tab) {
+    const index = fileSplit
+      ? fileSplit.indexOf(t.path)
+      : t.path === active
+        ? 0
+        : -1;
+    const visible = index >= 0;
+    const preview =
+      language(t.path) === "markdown" && markdownModes[t.path] === "preview";
+    return (
+      <div
+        key={t.path}
+        data-path={t.path}
+        className={`editor-stack editor-document ${visible ? "visible" : ""}`}
+        style={{
+          order: index === 1 ? 2 : 0,
+          ...(split && visible
+            ? {
+                width:
+                  index === 1
+                    ? "calc(100% - var(--split-ratio))"
+                    : "var(--split-ratio)",
+                flex: "none",
+              }
+            : {}),
+        }}
+        onFocusCapture={() => {
+          if (!visible) return;
+          setActive(t.path);
+          activeRef.current = t.path;
+          currentView.current = views.current.get(t.path) ?? null;
+        }}
+        onContextMenu={editorMenu}
+      >
+        {split && visible && (
+          <div className="editor-pane-heading">
+            <span className="pane-number">{index + 1}</span>
+            <FileIcon path={t.path} size={12} />
+            <span>{filename(t.path)}</span>
+            <small>{preview ? "Preview" : "Editor"}</small>
           </div>
         )}
-        {tabs.map((t) => {
-          const preview =
-            language(t.path) === "markdown" &&
-            (markdownModes[t.path] === "preview" ||
-              (markdownModes[t.path] === "split" && split && isSplit));
-          return (
-            <div
-              key={t.path}
-              className={`editor-document ${active === t.path ? "visible" : ""}`}
-            >
-              <div className="editor-source" hidden={preview}>
-                <Editor
-                  path={t.path}
-                  value={t.content}
-                  settings={settings}
-                  diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
-                  onChange={edit}
-                  onCursor={handleCursor}
-                  onView={isSplit ? handleSplitView : handleView}
-                  onDefinition={handleDefinition}
-                  breakpoints={breakpoints[t.path] ?? emptyLines}
-                  onBreakpoint={handleBreakpoint}
-                />
-              </div>
-              {preview && (
-                <Suspense
-                  fallback={
-                    <div className="preview-loading">Loading preview…</div>
-                  }
-                >
-                  <MarkdownPreview
-                    path={t.path}
-                    root={workspace.root}
-                    content={t.content}
-                    onOpen={openPreviewLink}
-                  />
-                </Suspense>
-              )}
-            </div>
-          );
-        })}
+        <div className="editor-source" hidden={preview}>
+          <Editor
+            path={t.path}
+            value={t.content}
+            readOnly={t.readOnly}
+            languageId={t.languageId}
+            settings={settings}
+            diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
+            onChange={edit}
+            onCursor={handleCursor}
+            onView={handleView}
+            onDefinition={handleDefinition}
+            breakpoints={breakpoints[t.path] ?? emptyLines}
+            onBreakpoint={handleBreakpoint}
+          />
+        </div>
+        {preview && renderMarkdownPreview(t)}
       </div>
+    );
+  }
+  function renderMarkdownPreview(t: Tab) {
+    return (
+      <Suspense
+        fallback={<div className="preview-loading">Loading preview…</div>}
+      >
+        <MarkdownPreview
+          path={t.path}
+          root={workspace.root}
+          content={t.content}
+          onOpen={openPreviewLink}
+        />
+      </Suspense>
     );
   }
   useEffect(() => {
     currentView.current = views.current.get(active) ?? null;
+    document
+      .querySelector<HTMLElement>('.tabs [role="tab"][aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
   const errors = problems.filter((p) => p.severity === 1).length,
     warnings = problems.filter((p) => p.severity === 2).length;
@@ -1683,8 +2956,54 @@ export default function App() {
                 )}
               </button>
             ))}
+            {extensionContainers.map((container) => (
+              <button
+                key={container.id}
+                title={container.title}
+                aria-label={container.title}
+                className={
+                  section === `extension:${container.id}` && sidebar
+                    ? "active"
+                    : ""
+                }
+                aria-pressed={
+                  section === `extension:${container.id}` && sidebar
+                }
+                onClick={() => {
+                  if (container.extension && isAIExtension(container.extension))
+                    window.dispatchEvent(
+                      new CustomEvent("devyy-ai-open", {
+                        detail: { container: container.id },
+                      }),
+                    );
+                  else activateSection(`extension:${container.id}`);
+                }}
+              >
+                {container.extension && isAIExtension(container.extension) ? (
+                  <AIProviderIcon
+                    kind={
+                      container.extension === "openai.chatgpt"
+                        ? "codex"
+                        : "claude"
+                    }
+                    size={20}
+                  />
+                ) : (
+                  <PanelsTopLeft size={20} />
+                )}
+              </button>
+            ))}
           </div>
           <div className="activity-bottom">
+            <button
+              title="AI assistant"
+              aria-label="Open AI assistant"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("devyy-ai-open"))
+              }
+            >
+              <Sparkles size={20} />
+            </button>
             <button
               title="Keyboard shortcuts & help"
               aria-label="Help"
@@ -1724,15 +3043,18 @@ export default function App() {
           )}
           <div className="sidebar-heading">
             <h1>
-              {
+              {(
                 {
                   files: "Project",
                   search: "Search",
                   git: "Source control",
                   run: "Run & build",
-                  tools: "Language tools",
-                }[section]
-              }
+                  tools: "Extensions & languages",
+                } as Record<string, string>
+              )[section] ??
+                extensionContainers.find((c) => `extension:${c.id}` === section)
+                  ?.title ??
+                "Extensions"}
             </h1>
             <button
               className="icon-button"
@@ -1766,6 +3088,12 @@ export default function App() {
                 }
               />
             </>
+          )}
+          {section === "files" && <ExtensionViews container="explorer" />}
+          {section.startsWith("extension:") && (
+            <div className="sidebar-content">
+              <ExtensionViews container={section.slice(10)} />
+            </div>
           )}
           {section === "search" && (
             <div className="sidebar-content">
@@ -1830,98 +3158,43 @@ export default function App() {
                   action={() => void openFolder()}
                 />
               ) : git ? (
-                <>
-                  <div className="branch-card">
-                    <GitBranch size={16} />
-                    <strong>{git.branch}</strong>
-                    <button
-                      className="icon-button"
-                      title="Refresh Git status"
-                      onClick={() => void refreshGit()}
-                    >
-                      <RefreshCw size={13} />
-                    </button>
-                  </div>
-                  <textarea
-                    className="commit-message"
-                    value={commit}
-                    onChange={(e) => setCommit(e.target.value)}
-                    placeholder="Commit message"
-                    aria-label="Commit message"
-                  />
-                  <button
-                    className="primary full"
-                    disabled={
-                      gitBusy ||
-                      !commit.trim() ||
-                      !git.changes.some(
-                        (c) => c.index.trim() && c.index !== "?",
-                      )
-                    }
-                    onClick={() =>
-                      void gitAction(async () => {
-                        const message = await invoke<string>("git_commit", {
-                          message: commit,
-                        });
-                        setCommit("");
-                        log(message);
-                        notify("Changes committed.", false);
-                      })
-                    }
-                  >
-                    <Check size={15} /> Commit staged changes
-                  </button>
-                  <div className="section-label">
-                    <span>CHANGES</span>
-                    <span>{git.changes.length}</span>
-                  </div>
-                  {!git.changes.length && (
-                    <p className="muted">Your working tree is clean.</p>
-                  )}
-                  {git.changes.map((c) => (
-                    <div className="change-row" key={c.path}>
-                      <button
-                        onClick={() =>
-                          void showDiff(
-                            c.path,
-                            !!c.index.trim() && c.index !== "?",
-                          )
-                        }
-                        title={`View diff: ${c.path}`}
-                      >
-                        <FileIcon path={c.path} />
-                        <span>
-                          {filename(c.path)}
-                          <small>{c.path}</small>
-                        </span>
-                        <em>{c.worktree.trim() || c.index}</em>
-                      </button>
-                      <button
-                        className="icon-button"
-                        disabled={gitBusy}
-                        title={
-                          c.index.trim() && c.index !== "?"
-                            ? "Unstage file"
-                            : "Stage file"
-                        }
-                        onClick={() =>
-                          void gitAction(() =>
-                            invoke("git_stage", {
-                              path: c.path,
-                              staged: !!c.index.trim() && c.index !== "?",
-                            }),
-                          )
-                        }
-                      >
-                        {c.index.trim() && c.index !== "?" ? (
-                          <Minus size={15} />
-                        ) : (
-                          <Plus size={15} />
-                        )}
-                      </button>
-                    </div>
-                  ))}
-                </>
+                <SourceControl
+                  state={git}
+                  root={workspace.root}
+                  busy={gitBusy}
+                  commit={commit}
+                  onCommitChange={setCommit}
+                  onRefresh={() => void refreshGit()}
+                  onCommit={() =>
+                    void gitAction(async () => {
+                      const message = await invoke<string>("git_commit", {
+                        message: commit,
+                      });
+                      setCommit("");
+                      log(message);
+                      notify("Changes committed.", false);
+                    })
+                  }
+                  onStage={(path, staged) => void stageGitFile(path, staged)}
+                  onStageAll={(staged) =>
+                    void gitAction(() => invoke("git_stage_all", { staged }))
+                  }
+                  onDiff={(path, staged) => void showDiff(path, staged)}
+                  onOpen={(path) => void openFile(path)}
+                  onDiscard={(path) => void discardGitFile(path)}
+                  onSwitch={(branch) => void switchGitBranch(branch)}
+                  onCreateBranch={() =>
+                    setDialog({
+                      title: "Create branch",
+                      description: "Create and switch to a new branch.",
+                      initial: "",
+                      label: "Branch name",
+                      submit: async (branch) => {
+                        await switchGitBranch(branch, true);
+                      },
+                    })
+                  }
+                />
               ) : (
                 <Empty
                   icon={<GitBranch size={28} />}
@@ -1940,7 +3213,7 @@ export default function App() {
                 <span>Run configurations</span>
               </div>
               <label className="field-label" htmlFor="run-command">
-                PROJECT COMMAND
+                Project command
               </label>
               <input
                 className="text-input mono"
@@ -1960,7 +3233,7 @@ export default function App() {
                 <Play size={14} /> Run command
               </button>
               <div className="section-label">
-                <span>QUICK ACTIONS</span>
+                <span>Quick actions</span>
               </div>
               {["cargo check", "cargo test", "cargo build --release"].map(
                 (command) => (
@@ -2005,64 +3278,60 @@ export default function App() {
               onSave={saveAll}
             />
           </div>
+          {section === "git" && <ExtensionViews container="scm" />}
+          {section === "run" && <ExtensionViews container="debug" />}
+          {section === "tools" && <ExtensionViews container="test" />}
           {section === "tools" && (
-            <div className="sidebar-content">
-              <p className="tools-intro">
-                Language intelligence.
-                <br />
-                <strong>Connected to your code.</strong>
-              </p>
+            <div className="sidebar-content tools-content">
+              <h3>Extensions</h3>
               <p className="muted tiny">
-                Syntax highlighting works out of the box. Connect a language
-                server for completion, diagnostics, hover, definitions, and
-                formatting.
+                Languages, themes, commands, and views from Open VSX.
               </p>
-              {[
-                {
-                  name: "Rust",
-                  id: "rust",
-                  cmd: "rustup component add rust-analyzer",
-                },
-                {
-                  name: "TypeScript / JavaScript",
-                  id: "typescript",
-                  cmd: "npm i -g typescript typescript-language-server",
-                },
-                {
-                  name: "Python",
-                  id: "python",
-                  cmd: "pip install python-lsp-server",
-                },
-              ].map((tool) => (
-                <div className="language-tool" key={tool.id}>
+              <button
+                className="primary full"
+                onClick={() => commandActions.extensions()}
+              >
+                Browse extensions <ArrowUpRight size={13} />
+              </button>
+              <p className="muted tiny">
+                {installedExtensions.length} installed /{" "}
+                {installedExtensions.filter((e) => e.enabled).length} enabled
+              </p>
+              {extensionHost.statuses.some((s) => s.status === "error") && (
+                <p className="muted tiny">
+                  Some extension features need attention. Open Installed
+                  extensions for details.
+                </p>
+              )}
+              <ExtensionViews container="devyy" />
+              <h3>Language servers</h3>
+              {Object.entries(lspStatus).map(([id, status]) => (
+                <div className="language-tool" key={id}>
                   <div>
-                    <Code2 size={17} />
-                    <strong>{tool.name}</strong>
+                    <Code2 size={15} />
+                    <strong>{id}</strong>
                     <span
                       className={
-                        lspStatus[tool.id] === "Connected"
-                          ? "connected-dot"
-                          : "neutral-dot"
+                        status === "Connected" ? "connected-dot" : "neutral-dot"
                       }
                     />
                   </div>
-                  <small>
-                    {lspStatus[tool.id] === "Connected"
-                      ? "Connected"
-                      : lspStatus[tool.id]
-                        ? "Not available — install and reopen the project"
-                        : "Connects when you open a file"}
-                  </small>
-                  <code>{tool.cmd}</code>
+                  <small>{status}</small>
                 </div>
               ))}
-              <div className="notice">
-                <CircleAlert size={16} />
-                <p>
-                  Servers must be on your PATH. Language tools are managed
-                  locally. devyy v0.1 has no extension marketplace.
-                </p>
-              </div>
+              <p className="muted tiny">
+                Servers connect when you open a matching file. Add or configure
+                any server that uses LSP over stdio.
+              </p>
+              <button
+                className="setting-action"
+                onClick={() => {
+                  setSettingsPage("languages");
+                  setSettingsOpen(true);
+                }}
+              >
+                Manage language servers
+              </button>
             </div>
           )}
           <div className="sidebar-foot">
@@ -2073,7 +3342,7 @@ export default function App() {
           </div>
         </aside>
         <main className="main-workspace">
-          {tabs.length > 0 && active && (
+          {((tabs.length > 0 && active) || comparison) && (
             <div
               className="tabbar"
               onContextMenu={(e) =>
@@ -2086,86 +3355,58 @@ export default function App() {
               }
             >
               <div className="tabs" role="tablist" aria-label="Open files">
-                {tabs.map((t) => (
-                  <div
-                    className={`tab ${active === t.path ? "active" : ""} ${split && active === t.path ? "is-split" : ""}`}
-                    key={t.path}
-                    draggable
-                    onDragStart={(e) => {
-                      draggedTab.current = t.path;
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", t.path);
-                    }}
-                    onDragEnd={() => {
-                      draggedTab.current = null;
-                    }}
-                    onDragOver={(e) => {
-                      if (draggedTab.current) e.preventDefault();
-                    }}
-                    onDrop={(e) => {
-                      const path = draggedTab.current;
-                      if (!path || path === t.path) return;
-                      e.preventDefault();
-                      setTabs((old) => {
-                        const moved = old.find((x) => x.path === path);
-                        if (!moved) return old;
-                        const next = old.filter((x) => x.path !== path);
-                        next.splice(
-                          next.findIndex((x) => x.path === t.path),
-                          0,
-                          moved,
-                        );
-                        return next;
-                      });
-                      draggedTab.current = null;
-                    }}
-                    onContextMenu={(e) => tabMenu(e, t.path)}
-                    onAuxClick={(e) => {
-                      if (e.button === 1) {
-                        e.preventDefault();
-                        void closeTab(t.path);
-                      }
-                    }}
-                  >
+                {comparison && (
+                  <div className={`tab diff-tab ${diffActive ? "active" : ""}`}>
                     <button
                       role="tab"
-                      aria-selected={active === t.path}
-                      aria-label={filename(t.path)}
-                      aria-description={
-                        split && active === t.path
-                          ? "Split across two editor panes"
-                          : undefined
-                      }
-                      onClick={() => {
-                        setActive(t.path);
-                        activeRef.current = t.path;
-                      }}
-                      title={t.path}
+                      aria-label={comparison.title}
+                      aria-selected={diffActive}
+                      onClick={() => setDiffActive(true)}
                     >
-                      <FileIcon path={t.path} size={14} />
-                      {filename(t.path)}
-                      {split && active === t.path && (
-                        <span
-                          className="split-tab-indicator"
-                          title="Open in two panes"
-                          aria-hidden="true"
-                        >
-                          <Columns2 size={12} />
-                          <span>1 · 2</span>
-                        </span>
-                      )}
-                      {t.content !== t.saved && <span className="dirty-dot" />}
+                      <Columns2 size={14} />
+                      <span className="tab-label">{comparison.title}</span>
                     </button>
                     <button
                       className="tab-close"
-                      title={`Close ${filename(t.path)}`}
-                      aria-label={`Close ${filename(t.path)}`}
-                      onClick={() => void closeTab(t.path)}
+                      aria-label="Close comparison tab"
+                      onClick={() => {
+                        setComparison(null);
+                        setDiffActive(false);
+                      }}
                     >
                       <X size={12} />
                     </button>
                   </div>
-                ))}
+                )}
+
+                {fileTabGroups.map((group) =>
+                  group.length === 2 ? (
+                    <SplitTabGroup
+                      key={`group:${group[0].path}`}
+                      kind="file"
+                      onDragStart={(event) => {
+                        draggedTab.current = group[0].path;
+                        event.dataTransfer.setData("text/plain", group[0].path);
+                        writeAIContextDrag(
+                          event.dataTransfer,
+                          group.map((tab) => ({ kind: "file", id: tab.path })),
+                        );
+                      }}
+                      onDragEnd={() => {
+                        draggedTab.current = null;
+                      }}
+                      active={
+                        !diffActive && group.some((tab) => tab.path === active)
+                      }
+                      onSeparate={() => separateEditor(group[0].path)}
+                    >
+                      {renderFileTab(group[0], 1)}
+                      {renderFileTab(group[1], 2)}
+                    </SplitTabGroup>
+                  ) : (
+                    renderFileTab(group[0])
+                  ),
+                )}
               </div>
               <button
                 className="icon-button new-tab"
@@ -2175,8 +3416,8 @@ export default function App() {
               >
                 <Plus size={15} />
               </button>
-              <div className="tabbar-actions">
-                {language(active) === "markdown" && (
+              <div className="tabbar-actions" hidden={diffActive}>
+                {!diffActive && language(active) === "markdown" && (
                   <div
                     className="markdown-view-switch"
                     role="group"
@@ -2187,7 +3428,7 @@ export default function App() {
                       aria-label="Markdown source"
                       aria-pressed={
                         markdownMode === "source" ||
-                        (markdownMode === "split" && !split)
+                        (markdownMode === "split" && !markdownSplit)
                       }
                       onClick={() => setMarkdownMode("source")}
                     >
@@ -2204,7 +3445,7 @@ export default function App() {
                     <button
                       title="Markdown preview to the side"
                       aria-label="Markdown preview to the side"
-                      aria-pressed={markdownMode === "split" && split}
+                      aria-pressed={markdownSplit}
                       onClick={() => setMarkdownMode("split")}
                     >
                       <Columns2 size={14} />
@@ -2231,112 +3472,191 @@ export default function App() {
             </div>
           )}
           <div className="editor-surface">
-            {tab ? (
-              <>
-                {settings.showBreadcrumbs && (
-                  <div className="editor-breadcrumb">
-                    <span>{workspace.name}</span>
-                    {tab.path.split("/").map((part, i) => (
-                      <span key={i}>
-                        <ChevronRight size={11} />
-                        {i === tab.path.split("/").length - 1 && (
-                          <FileIcon path={tab.path} size={12} />
-                        )}
-                        <span>{part}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div
-                  ref={editorsRef}
-                  className={`editors ${split ? "split" : ""}`}
-                  style={
-                    {
-                      "--split-ratio": `${sizes.split}%`,
-                    } as React.CSSProperties
+            {comparison && (
+              <div className="comparison-workspace" hidden={!diffActive}>
+                <Suspense
+                  fallback={
+                    <div className="preview-loading">Opening diff…</div>
                   }
                 >
-                  {renderEditor()}
-                  {split && (
-                    <div className="split-pane">
-                      <ResizeHandle
-                        label="Resize editor split"
-                        value={sizes.split}
-                        min={20}
-                        max={80}
-                        onChange={(value) =>
-                          setSizes((s) => ({ ...s, split: value }))
-                        }
-                        onReset={() => setSizes((s) => ({ ...s, split: 50 }))}
-                        percentOf={() => editorsRef.current?.clientWidth ?? 1}
-                      />
-
-                      {renderEditor(true)}
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="welcome">
-                <div className="welcome-eyebrow">
-                  {/* Trim the icon's horizontal inset to align the visible mark with the text. */}
-                  <Asterisk
-                    size={64}
-                    width={34}
-                    viewBox="5.8 0 12.4 24"
-                    aria-hidden="true"
+                  <DiffEditor
+                    onApply={() => {
+                      if (comparison.source !== "ai" || !comparison.path)
+                        return;
+                      const target = tabsRef.current.find(
+                        (item) => item.path === comparison.path,
+                      );
+                      if (
+                        !target ||
+                        target.readOnly ||
+                        target.content !== comparison.original
+                      ) {
+                        showToast.error(
+                          "The file changed since this suggestion. Attach its latest contents and ask again.",
+                        );
+                        return;
+                      }
+                      edit(comparison.path, comparison.modified);
+                      setActive(comparison.path);
+                      setComparison(null);
+                      setDiffActive(false);
+                    }}
+                    document={comparison}
+                    active={diffActive}
+                    settings={settings}
+                    busy={gitBusy}
+                    onClose={() => {
+                      setComparison(null);
+                      setDiffActive(false);
+                    }}
+                    onOpen={() => {
+                      if (comparison.path) void openFile(comparison.path);
+                    }}
+                    onRefresh={() => {
+                      if (comparison.path)
+                        void showDiff(comparison.path, !!comparison.staged);
+                    }}
+                    onStage={() => {
+                      if (comparison.path)
+                        void stageGitFile(comparison.path, !!comparison.staged);
+                    }}
                   />
-                </div>
-                <div className="welcome-layout">
-                  <div className="welcome-intro">
-                    <h2>
-                      Your next project.
-                      <br />
-                      <span>Everything in place.</span>
-                    </h2>
-                    <p>
-                      Open a project to connect your files, terminal, and
-                      developer tools.
-                    </p>
-                    <div className="welcome-actions">
-                      <button
-                        className="primary"
-                        onClick={() => void openFolder()}
-                      >
-                        <FolderOpen size={16} /> Open a project{" "}
-                        <kbd>{mod} O</kbd>
-                      </button>
-                      <button onClick={() => setPalette("files")}>
-                        Find a file <ArrowUpRight size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  {!!recent.length && (
-                    <section className="recent" aria-label="Recent projects">
-                      <div className="section-label">
-                        PICK UP WHERE YOU LEFT OFF
-                      </div>
-                      {recent.map((path) => (
-                        <button
-                          key={path}
-                          title={path}
-                          onClick={() => void openFolder(path)}
-                        >
-                          <FolderOpen size={14} />
-                          <span>
-                            <span className="recent-name">
-                              {filename(path)}
-                            </span>
-                            <small>{path}</small>
-                          </span>
-                          <ArrowUpRight size={14} />
-                        </button>
-                      ))}
-                    </section>
-                  )}
-                </div>
+                </Suspense>
               </div>
             )}
+            <div
+              className="document-workspace"
+              hidden={diffActive && !!comparison}
+            >
+              {tab ? (
+                <>
+                  {settings.showBreadcrumbs && (
+                    <div className="editor-breadcrumb">
+                      <span>{workspace.name}</span>
+                      {tab.path.split("/").map((part, i) => (
+                        <span key={i}>
+                          <ChevronRight size={11} />
+                          {i === tab.path.split("/").length - 1 && (
+                            <FileIcon path={tab.path} size={12} />
+                          )}
+                          <span>{part}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    ref={editorsRef}
+                    className={`editors ${split ? "split" : ""}`}
+                    style={
+                      {
+                        "--split-ratio": `${editorSplitRatio}%`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {tabs.map(renderEditor)}
+                    {markdownSplit && (
+                      <div
+                        className="editor-stack editor-preview-pane"
+                        style={{
+                          width: "calc(100% - var(--split-ratio))",
+                          flex: "none",
+                          order: 2,
+                        }}
+                      >
+                        <div className="editor-pane-heading">
+                          <span className="pane-number">2</span>
+                          <FileIcon path={active} size={12} />
+                          <span>{filename(active)}</span>
+                          <small>Preview</small>
+                          <button
+                            className="icon-button"
+                            aria-label="Close split"
+                            onClick={() => setMarkdownMode("source")}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                        {renderMarkdownPreview(tab)}
+                      </div>
+                    )}
+                    {split && (
+                      <div
+                        className="editor-split-divider"
+                        style={{ left: `${editorSplitRatio}%` }}
+                      >
+                        <ResizeHandle
+                          label="Resize editor split"
+                          value={editorSplitRatio}
+                          min={20}
+                          max={80}
+                          onChange={resizeEditorSplit}
+                          onReset={() => resizeEditorSplit(50)}
+                          percentOf={() => editorsRef.current?.clientWidth ?? 1}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="welcome">
+                  <div className="welcome-eyebrow">
+                    {/* Trim the icon's horizontal inset to align the visible mark with the text. */}
+                    <Asterisk
+                      size={64}
+                      width={34}
+                      viewBox="5.8 0 12.4 24"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <div className="welcome-layout">
+                    <div className="welcome-intro">
+                      <h2>
+                        Your next project.
+                        <br />
+                        <span>Everything in place.</span>
+                      </h2>
+                      <p>
+                        Open a project to connect your files, terminal, and
+                        developer tools.
+                      </p>
+                      <div className="welcome-actions">
+                        <button
+                          className="primary"
+                          onClick={() => void openFolder()}
+                        >
+                          <FolderOpen size={16} /> Open a project{" "}
+                          <kbd>{mod} O</kbd>
+                        </button>
+                        <button onClick={() => setPalette("files")}>
+                          Find a file <ArrowUpRight size={15} />
+                        </button>
+                      </div>
+                    </div>
+                    {!!recent.length && (
+                      <section className="recent" aria-label="Recent projects">
+                        <div className="section-label">Recent projects</div>
+                        {recent.map((path) => (
+                          <button
+                            key={path}
+                            title={path}
+                            onClick={() => void openFolder(path)}
+                          >
+                            <FolderOpen size={14} />
+                            <span>
+                              <span className="recent-name">
+                                {filename(path)}
+                              </span>
+                              <small>{path}</small>
+                            </span>
+                            <ArrowUpRight size={14} />
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <section
               className={`bottom-panel ${!panel ? "panel-hidden" : ""}`}
               style={{
@@ -2413,6 +3733,19 @@ export default function App() {
                         document
                           .getElementById(`panel-tab-${names[next]}`)
                           ?.focus();
+                      }}
+                      draggable={name !== "terminal"}
+                      onDragStart={(event) => {
+                        if (name !== "terminal")
+                          writeAIContextDrag(event.dataTransfer, [
+                            {
+                              kind: name === "problems" ? "problems" : "output",
+                              id:
+                                name === "problems"
+                                  ? "workspace-problems"
+                                  : "workbench-output",
+                            },
+                          ]);
                       }}
                       onClick={() => setPanelTab(name)}
                     >
@@ -2507,6 +3840,12 @@ export default function App() {
                     {problems.map((p, i) => (
                       <button
                         key={`${p.path}:${i}`}
+                        draggable
+                        onDragStart={(event) =>
+                          writeAIContextDrag(event.dataTransfer, [
+                            { kind: "problem", id: `${p.path}:${i}` },
+                          ])
+                        }
                         onClick={() =>
                           void openFile(p.path, p.range.start.line + 1)
                         }
@@ -2576,6 +3915,7 @@ export default function App() {
                     {warnings}
                   </button>
                   <span className="status-divider" />
+                  <ExtensionStatusItems />
                   <span className="saved-status">
                     {dirty.size ? `${dirty.size} unsaved` : "All changes saved"}
                   </span>
@@ -2618,8 +3958,49 @@ export default function App() {
               </footer>
             )}
           </div>
+          <ExtensionWebviews
+            shortcuts={Object.entries(bindings)
+              .filter(
+                ([id, key]) =>
+                  key &&
+                  ![
+                    "undo",
+                    "redo",
+                    "find",
+                    "save",
+                    "save-all",
+                    "new",
+                    "close",
+                    "close-all",
+                    "format",
+                    "definition",
+                    "goto",
+                    "run",
+                  ].includes(id),
+              )
+              .map(([, key]) => key)}
+          />
         </main>
+        <AIWorkspace
+          file={
+            tab
+              ? { path: tab.path, content: tab.content, readOnly: tab.readOnly }
+              : undefined
+          }
+          cwd={workspace.root === "demo" ? undefined : workspace.root}
+          onSettings={() => {
+            setSettingsPage("ai");
+            setSettingsOpen(true);
+          }}
+          onReview={reviewAISuggestion}
+          shortcuts={Object.values(bindings).filter(Boolean)}
+        />
       </div>
+      {keyChord && (
+        <div className="shortcut-hint" role="status">
+          {displayBinding(keyChord)} — waiting for the next key
+        </div>
+      )}
       {palette && (
         <Palette
           mode={palette}
@@ -2644,6 +4025,10 @@ export default function App() {
           settings={settings}
           category={settingsPage}
           onCategoryChange={setSettingsPage}
+          onSetup={() => {
+            setSettingsOpen(false);
+            setSetupOpen(true);
+          }}
           onChange={setSettings}
           onResetLayout={resetLayout}
           onClose={() => setSettingsOpen(false)}
@@ -2669,7 +4054,7 @@ export default function App() {
               </button>
             </div>
             <h2>Keyboard shortcuts</h2>
-            <p className="muted">devyy 0.1 · Local development environment</p>
+            <p className="muted">devyy 0.1 — Local development environment</p>
             <div className="shortcut-list">
               {commandInfo
                 .filter(([id]) => bindings[id])
@@ -2684,8 +4069,9 @@ export default function App() {
             <div className="notice">
               <Sparkles size={18} />
               <p>
-                Rust-powered desktop core. CodeMirror editor. No accounts or
-                telemetry. An independent editor, built from a clean slate.
+                Rust-powered desktop core. CodeMirror editor. Optional AI
+                providers. No telemetry. An independent editor, built from a
+                clean slate.
               </p>
             </div>
           </section>
@@ -2694,6 +4080,14 @@ export default function App() {
       {dialog && (
         <InputDialog dialog={dialog} onClose={() => setDialog(null)} />
       )}
+      {setupOpen && (
+        <Setup
+          settings={settings}
+          onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+          onFinish={finishSetup}
+        />
+      )}
+      <ExtensionServices onRequest={extensionWorkbenchRequest} />
       <Toaster
         theme={settings.theme === "paper" ? "light" : "dark"}
         position="bottom-right"

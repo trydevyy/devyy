@@ -10,6 +10,21 @@ describe("workspace URI mapping", () => {
       pathFromUri("file:///work/app-secret/main.rs", "/work/app"),
     ).toBeNull();
     expect(pathFromUri("file:///other/main.rs", "/work/app")).toBeNull();
+    expect(
+      pathFromUri("file:///C:/Work/My%20App/src/main.rs", "c:\\work\\my app"),
+    ).toBe("src/main.rs");
+    expect(
+      pathFromUri("file:///C:/Work/app/main.rs", "\\\\?\\C:\\Work\\app"),
+    ).toBe("main.rs");
+    expect(
+      pathFromUri("file://server/share/app/main.rs", "\\\\server\\share\\app"),
+    ).toBe("main.rs");
+    expect(
+      pathFromUri("file:///C:/work/app-secret/main.rs", "C:/work/app"),
+    ).toBeNull();
+    expect(
+      pathFromUri("https://example.com/work/app/main.rs", "/work/app"),
+    ).toBeNull();
   });
 });
 describe("playground file tree", () => {

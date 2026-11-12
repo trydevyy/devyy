@@ -1,7 +1,7 @@
 import Editor from "./Editor";
 import type { Settings } from "../lib/types";
 const source =
-  'function greet(name: string) {\n    // A little less interface.\n    const message = `Hello, ${name}`;\n    return { message, ready: true };\n}\n\ngreet("devyy");';
+  'function greet(name: string) {\n    // Format a greeting for the workspace.\n    const message = `Hello, ${name}`;\n    return { message, ready: true };\n}\n\ngreet("devyy");';
 const noop = () => {},
   empty: number[] = [],
   diagnostics: [] = [];
@@ -10,7 +10,7 @@ export default function EditorPreview({ settings }: { settings: Settings }) {
     <section className="editor-preview" aria-label="Editor preview">
       <header>
         <span>
-          <i /> Your editor, live
+          <i /> Editor preview
         </span>
         <small>preview.ts</small>
       </header>

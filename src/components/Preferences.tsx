@@ -23,6 +23,12 @@ import { version } from "../../package.json";
 import { native } from "../lib/native";
 import EditorPreview from "./EditorPreview";
 import About from "./About";
+import ExtensionManager from "./ExtensionManager";
+import LanguageServers from "./LanguageServers";
+import SettingsImport from "./SettingsImport";
+import AIProviders from "./AIProviders";
+import { extensionThemes, useExtensions } from "../lib/extensions";
+import AccentPicker from "./AccentPicker";
 import { defaults, type Settings } from "../lib/types";
 import {
   bindingsWith,
@@ -40,14 +46,17 @@ export default function Preferences({
   onResetLayout,
   category,
   onCategoryChange,
+  onSetup,
 }: {
   settings: Settings;
   onChange: Dispatch<SetStateAction<Settings>>;
   onClose: () => void;
+  onSetup: () => void;
   onResetLayout: () => void;
   category: SettingsCategory;
   onCategoryChange: (category: SettingsCategory) => void;
 }) {
+  useExtensions();
   const [query, setQuery] = useState("");
   const shells = useTerminalProfiles();
   const [recording, setRecording] = useState<CommandId | null>(null),
@@ -121,6 +130,13 @@ export default function Preferences({
   function control(item: SettingControl) {
     const key = item.key,
       value = settings[key];
+    if (item.type === "accent")
+      return (
+        <AccentPicker
+          settings={settings}
+          onChange={(patch) => onChange((s) => ({ ...s, ...patch }))}
+        />
+      );
     if (item.type === "theme")
       return (
         <div className="theme-options">
@@ -129,7 +145,9 @@ export default function Preferences({
               key={theme}
               className={settings.theme === theme ? "selected" : ""}
               aria-pressed={settings.theme === theme}
-              onClick={() => update("theme", theme)}
+              onClick={() =>
+                onChange((s) => ({ ...s, theme, followSystemTheme: false }))
+              }
             >
               <span className={`theme-preview ${theme}`}>
                 <i />
@@ -261,7 +279,7 @@ export default function Preferences({
   return (
     <div className="modal-backdrop preferences-backdrop" onMouseDown={onClose}>
       <section
-        className="settings-modal"
+        className={`settings-modal ${category === "ai" && !searching ? "settings-ai" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Preferences"
@@ -376,7 +394,7 @@ export default function Preferences({
                 key={searching ? "search" : category}
               >
                 {!searching && category === "about" ? <About /> : null}
-                {category !== "about" || searching ? (
+                {(category !== "about" && category !== "ai") || searching ? (
                   <div className="settings-section-heading">
                     <p aria-live="polite">
                       {searching
@@ -385,6 +403,74 @@ export default function Preferences({
                     </p>
                   </div>
                 ) : null}
+                {!searching && category === "extensions" && (
+                  <ExtensionManager />
+                )}
+                {!searching && category === "languages" && <LanguageServers />}
+                {!searching && category === "ai" && <AIProviders />}
+                {!searching && category === "setup" && (
+                  <>
+                    <div className="setting-row">
+                      <span>
+                        <strong>Set up devyy</strong>
+                        <small>
+                          Revisit appearance, editing, import, and extensions.
+                        </small>
+                      </span>
+                      <button className="setting-action" onClick={onSetup}>
+                        Open setup
+                      </button>
+                    </div>
+                    <SettingsImport
+                      settings={settings}
+                      onChange={(patch) =>
+                        onChange((s) => ({ ...s, ...patch }))
+                      }
+                    />
+                  </>
+                )}
+                {!searching &&
+                  category === "appearance" &&
+                  extensionThemes().length > 0 && (
+                    <div className="setting-row">
+                      <span>
+                        <strong>Extension color theme</strong>
+                        <small>
+                          Syntax colors from installed Open VSX themes.
+                        </small>
+                      </span>
+                      <select
+                        aria-label="Extension color theme"
+                        value={settings.extensionTheme}
+                        onChange={(e) => {
+                          const theme = extensionThemes().find(
+                            (t) => t.key === e.target.value,
+                          );
+                          onChange((s) => ({
+                            ...s,
+                            extensionTheme: e.target.value,
+                            followSystemTheme: false,
+                            ...(theme
+                              ? {
+                                  theme:
+                                    theme.uiTheme.includes("dark") ||
+                                    theme.uiTheme === "hc-black"
+                                      ? "midnight"
+                                      : "paper",
+                                }
+                              : {}),
+                          }));
+                        }}
+                      >
+                        <option value="">devyy default</option>
+                        {extensionThemes().map((theme) => (
+                          <option key={theme.key} value={theme.key}>
+                            {theme.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 {!searching && category === "editor" && (
                   <EditorPreview settings={settings} />
                 )}
@@ -555,7 +641,14 @@ export default function Preferences({
                 )}
                 {!matches.length &&
                   !keys.length &&
-                  (searching || category !== "about") && (
+                  (searching ||
+                    ![
+                      "about",
+                      "extensions",
+                      "languages",
+                      "setup",
+                      "ai",
+                    ].includes(category)) && (
                     <div className="settings-empty">
                       <Search size={25} />
                       <strong>No matching settings</strong>

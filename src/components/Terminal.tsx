@@ -13,16 +13,27 @@ import { invoke, listen, native } from "../lib/native";
 import "@xterm/xterm/css/xterm.css";
 
 const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-const subscribeMotion = (callback: () => void) => {
+export const subscribeMotion = (callback: () => void) => {
   motionQuery.addEventListener("change", callback);
   return () => motionQuery.removeEventListener("change", callback);
 };
-const motionSnapshot = () => motionQuery.matches;
+export const motionSnapshot = () => motionQuery.matches;
+export function terminalSnapshot(term: XTerminal | null): string {
+  if (!term) return "";
+  const buffer = term.buffer.active,
+    lines: string[] = [];
+  for (let i = Math.max(0, buffer.length - 400); i < buffer.length; i++) {
+    const line = buffer.getLine(i);
+    if (line) lines.push(line.translateToString(true));
+  }
+  return `${buffer.length > 400 ? "[Showing the last 400 terminal lines]\n" : ""}${lines.join("\n").trimEnd()}`;
+}
 export interface TerminalHandle {
   focus: () => void;
   clear: () => void;
   restart: () => void;
   selection: () => string;
+  snapshot: () => string;
   paste: (text: string) => void;
   ensure: () => void;
 }
@@ -30,11 +41,13 @@ export default forwardRef<
   TerminalHandle,
   {
     root: string;
+    extensionOptions?: Record<string, unknown>;
     profile: string;
     lineHeight: number;
     cursorStyle: "block" | "bar" | "underline";
     copyOnSelect: boolean;
     onReady: (id: number | null) => void;
+    onExit?: () => void;
     onError: (error: unknown) => void;
     onOpen: () => void;
     theme: "paper" | "midnight";
@@ -45,11 +58,13 @@ export default forwardRef<
 >(function Terminal(
   {
     root,
+    extensionOptions,
     profile,
     lineHeight,
     cursorStyle,
     copyOnSelect,
     onReady,
+    onExit,
     onError,
     onOpen,
     theme,
@@ -67,8 +82,8 @@ export default forwardRef<
   const currentTheme = useRef(theme);
   currentTheme.current = theme;
   const host = useRef<HTMLDivElement>(null),
-    callback = useRef({ onReady, onError });
-  callback.current = { onReady, onError };
+    callback = useRef({ onReady, onExit, onError });
+  callback.current = { onReady, onExit, onError };
   const [generation, setGeneration] = useState(0),
     [exited, setExited] = useState(false);
   const exitedRef = useRef(exited);
@@ -80,6 +95,7 @@ export default forwardRef<
       clear: () => terminal.current?.clear(),
       restart: () => setGeneration((x) => x + 1),
       selection: () => terminal.current?.getSelection() ?? "",
+      snapshot: () => terminalSnapshot(terminal.current),
       paste: (text) => terminal.current?.paste(text),
       ensure: () => {
         if (exitedRef.current) setGeneration((x) => x + 1);
@@ -146,6 +162,7 @@ export default forwardRef<
           if (!disposed && payload === id) {
             setExited(true);
             callback.current.onReady(null);
+            callback.current.onExit?.();
             term.write(
               "\r\n\x1b[90mSession ended. Use restart for a new shell.\x1b[0m\r\n",
             );
@@ -160,6 +177,7 @@ export default forwardRef<
         cols: term.cols,
         rows: term.rows,
         profile,
+        options: extensionOptions,
       });
       if (disposed) {
         await invoke("terminal_close", { id });
@@ -174,6 +192,7 @@ export default forwardRef<
       if (disposed) return;
       term.writeln(`Unable to start terminal: ${String(e)}`);
       callback.current.onError(e);
+      callback.current.onExit?.();
     });
     const input = term.onData((data) => {
       if (id !== null && !exitedRef.current)
@@ -266,7 +285,7 @@ export default forwardRef<
   );
 });
 
-function terminalTheme(theme: "paper" | "midnight") {
+export function terminalTheme(theme: "paper" | "midnight") {
   const light = theme === "paper";
   return {
     background: light ? "#f5f4f7" : "#1e1e21",

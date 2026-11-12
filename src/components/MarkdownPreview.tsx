@@ -10,6 +10,9 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import type { PluggableList } from "unified";
 import { classHighlighter, highlightTree } from "@lezer/highlight";
 import { Copy, ImageOff } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +48,30 @@ function remarkHeadingIds() {
   };
 }
 const markdownPlugins = [remarkGfm, remarkHeadingIds];
+const htmlPlugins: PluggableList = [
+  rehypeRaw,
+  [
+    rehypeSanitize,
+    {
+      ...defaultSchema,
+      tagNames: [
+        ...(defaultSchema.tagNames ?? []),
+        "figure",
+        "figcaption",
+        "mark",
+        "abbr",
+      ],
+      strip: [
+        ...(defaultSchema.strip ?? []),
+        "style",
+        "iframe",
+        "object",
+        "embed",
+        "form",
+      ],
+    },
+  ],
+];
 function textOf(children: ReactNode): string {
   return Children.toArray(children)
     .map((child) =>
@@ -114,7 +141,13 @@ function MarkdownImage({
   alt,
   path,
   root,
+  width,
+  height,
+  title,
 }: {
+  width?: string | number;
+  height?: string | number;
+  title?: string;
   src: string;
   alt?: string;
   path: string;
@@ -141,6 +174,9 @@ function MarkdownImage({
     <img
       src={url}
       alt={alt ?? ""}
+      width={width}
+      height={height}
+      title={title}
       loading="lazy"
       onError={(e) => {
         e.currentTarget.alt = alt
@@ -184,8 +220,28 @@ function MarkdownPreview({
           />
         );
       },
-      img: ({ src, alt }: { src?: string; alt?: string }) => (
-        <MarkdownImage src={src ?? ""} alt={alt} path={path} root={root} />
+      img: ({
+        src,
+        alt,
+        width,
+        height,
+        title,
+      }: {
+        src?: string;
+        alt?: string;
+        width?: string | number;
+        height?: string | number;
+        title?: string;
+      }) => (
+        <MarkdownImage
+          src={src ?? ""}
+          alt={alt}
+          width={width}
+          height={height}
+          title={title}
+          path={path}
+          root={root}
+        />
       ),
       a: ({ href, children }: { href?: string; children?: ReactNode }) => (
         <a
@@ -198,7 +254,7 @@ function MarkdownPreview({
                 const id = decodeURIComponent(href.slice(1));
                 const preview = e.currentTarget.closest(".markdown-preview");
                 Array.from(preview?.querySelectorAll("[id]") ?? [])
-                  .find((el) => el.id === id)
+                  .find((el) => el.id === `user-content-${id}` || el.id === id)
                   ?.scrollIntoView({ block: "start" });
               } catch {}
               return;
@@ -232,7 +288,11 @@ function MarkdownPreview({
       aria-label={`Markdown preview: ${path}`}
     >
       <div className="markdown-prose">
-        <ReactMarkdown remarkPlugins={markdownPlugins} components={components}>
+        <ReactMarkdown
+          remarkPlugins={markdownPlugins}
+          rehypePlugins={htmlPlugins}
+          components={components}
+        >
           {source}
         </ReactMarkdown>
       </div>

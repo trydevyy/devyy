@@ -44,6 +44,10 @@ export const commandInfo = [
   ["theme", "Switch color theme", "Appearance", ""],
   ["settings", "Preferences", "Settings", "Mod+,"],
   ["help", "Keyboard shortcuts & help", "Settings", "F1"],
+  ["extensions", "Browse extensions", "Extensions", "Mod+Shift+X"],
+  ["ai", "Open AI assistant", "AI", "Mod+Shift+I"],
+  ["ai-settings", "AI provider settings", "AI", ""],
+  ["setup", "Set up devyy", "Settings", ""],
   ["about", "About devyy", "Settings", ""],
 ] as const;
 export type CommandId = (typeof commandInfo)[number][0];
@@ -71,8 +75,12 @@ export function eventBinding(
         shiftKey: boolean;
       },
 ): string {
+  if (["Meta", "Control", "Alt", "Shift"].includes(e.key)) return "";
   if (
-    ["Meta", "Control", "Alt", "Shift", "Dead", "Unidentified"].includes(e.key)
+    (e.key === "Dead" || e.key === "Unidentified") &&
+    !e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey
   )
     return "";
   let key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -89,7 +97,14 @@ export function eventBinding(
     Minus: "-",
   };
   if (e.code in punctuation) key = punctuation[e.code];
-  if (e.altKey && /^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  if (
+    (e.altKey || !/^[a-z]$/i.test(e.key)) &&
+    (e.metaKey || e.ctrlKey || e.altKey) &&
+    /^Key[A-Z]$/.test(e.code)
+  )
+    key = e.code.slice(3);
+  if (/^Digit[0-9]$/.test(e.code) && (e.altKey || e.key === "Unidentified"))
+    key = e.code.slice(5);
   if (key === " ") key = "Space";
   return [
     isMac ? (e.metaKey ? "Mod" : "") : e.ctrlKey ? "Mod" : "",
@@ -123,14 +138,77 @@ export function bindingsWith(overrides: Record<string, string>) {
   const result = { ...defaultBindings };
   for (const [id, key] of Object.entries(overrides)) {
     if (!(id in result)) continue;
-    result[id as CommandId] = key;
-    if (key)
+    const normalized = normalizeBinding(key);
+    if (normalized === null) continue;
+    result[id as CommandId] = normalized;
+    if (normalized)
       for (const other of Object.keys(result) as CommandId[])
-        if (other !== id && result[other] === key) result[other] = "";
+        if (other !== id && result[other] === normalized) result[other] = "";
   }
   return result;
 }
+export function normalizeBinding(value: string, mac = isMac): string | null {
+  if (!value.trim()) return "";
+  const parts = value.trim().split("+");
+  const raw = parts.pop() ?? "";
+  const modifiers = new Set<string>(
+    parts.map((part) => {
+      const lower = part.toLowerCase();
+      if (["cmd", "command", "meta", "super"].includes(lower))
+        return mac ? "Mod" : "Meta";
+      if (["ctrl", "control"].includes(lower)) return mac ? "Ctrl" : "Mod";
+      if (lower === "mod") return "Mod";
+      if (["alt", "option"].includes(lower)) return "Alt";
+      if (lower === "shift") return "Shift";
+      return "?";
+    }),
+  );
+  if (modifiers.has("?")) return null;
+  const aliases: Record<string, string> = {
+    enter: "Enter",
+    return: "Enter",
+    tab: "Tab",
+    space: "Space",
+    left: "ArrowLeft",
+    right: "ArrowRight",
+    up: "ArrowUp",
+    down: "ArrowDown",
+    escape: "Escape",
+    esc: "Escape",
+    backspace: "Backspace",
+    delete: "Delete",
+    home: "Home",
+    end: "End",
+    pageup: "PageUp",
+    pagedown: "PageDown",
+  };
+  const key =
+    raw.length === 1
+      ? raw.toUpperCase()
+      : (aliases[raw.toLowerCase()] ??
+        (/^f\d{1,2}$/i.test(raw) ? raw.toUpperCase() : raw));
+  if (!key) return null;
+  return [
+    ...["Mod", "Ctrl", "Meta", "Alt", "Shift"].filter((part) =>
+      modifiers.has(part),
+    ),
+    key,
+  ].join("+");
+}
+export function contributedBinding(value: string): string | null {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .map((stroke) => normalizeBinding(stroke));
+  return parts.length > 0 && parts.length <= 3 && parts.every(Boolean)
+    ? parts.join(" ")
+    : null;
+}
 export function validBinding(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = normalizeBinding(value);
+  if (normalized === null) return false;
+  value = normalized;
   return (
     typeof value === "string" &&
     (value === "" ||

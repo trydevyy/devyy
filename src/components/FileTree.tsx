@@ -1,3 +1,4 @@
+import { writeAIContextDrag } from "../lib/aiContext";
 import { useMemo, useState } from "react";
 import {
   ChevronRight,
@@ -78,6 +79,13 @@ export default function FileTree(p: Props) {
           >
             <button
               className="tree-file"
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData("text/plain", file.path);
+                writeAIContextDrag(event.dataTransfer, [
+                  { kind: file.directory ? "folder" : "file", id: file.path },
+                ]);
+              }}
               onClick={() => {
                 if (file.directory)
                   setExpanded((s) => {

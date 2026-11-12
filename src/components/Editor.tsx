@@ -26,11 +26,14 @@ import {
   closeBracketsKeymap,
   completionKeymap,
   completeFromList,
+  snippetCompletion,
 } from "@codemirror/autocomplete";
-import { loadLanguage } from "../lib/languages";
+import { extensionSnippets } from "../lib/extensions";
+import { loadLanguage, languageId } from "../lib/languages";
 import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
+import { extensionLanguageFeature } from "../lib/extensionHost";
 import { languageRequest } from "../lib/native";
 import { type LspDiagnostic, type Position, type Settings } from "../lib/types";
 
@@ -58,7 +61,7 @@ const breakpointField = StateField.define<RangeSet<GutterMarker>>({
     return markers;
   },
 });
-const highlighting = HighlightStyle.define([
+export const highlighting = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--syntax-keyword)" },
   {
     tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
@@ -144,6 +147,7 @@ export interface EditorProps {
   onView: (path: string, view: EditorView | null) => void;
   onDefinition: () => void;
   readOnly?: boolean;
+  languageId?: string;
   breakpoints: number[];
   onBreakpoint: (path: string, line: number) => void;
 }
@@ -166,13 +170,47 @@ function Editor(props: EditorProps) {
                 const word = ctx.matchBefore(/[\w!]+/);
                 if (!word && !ctx.explicit) return null;
                 try {
-                  const result = await languageRequest<
+                  let result = await languageRequest<
                     CompletionItem[] | { items: CompletionItem[] }
                   >(
                     current.current.path,
                     "textDocument/completion",
                     toPosition(ctx.view!, ctx.pos),
                   );
+                  if (!result) {
+                    type Item = {
+                      label: string | { label: string };
+                      detail?: string;
+                      insertText?: string | { value: string };
+                      kind?: number;
+                      textEdit?: { newText: string };
+                    };
+                    const provided = await extensionLanguageFeature<
+                      Item[] | { items: Item[] }
+                    >(
+                      "provideCompletionItems",
+                      current.current.path,
+                      toPosition(ctx.view!, ctx.pos),
+                    );
+                    result = provided
+                      .flatMap((value) =>
+                        Array.isArray(value) ? value : value.items,
+                      )
+                      .map((item) => ({
+                        label:
+                          typeof item.label === "string"
+                            ? item.label
+                            : item.label.label,
+                        detail: item.detail,
+                        insertText:
+                          typeof item.insertText === "string"
+                            ? item.insertText
+                            : item.insertText?.value,
+                        kind:
+                          item.kind === undefined ? undefined : item.kind + 1,
+                        textEdit: item.textEdit,
+                      }));
+                  }
                   if (result) {
                     const items = Array.isArray(result) ? result : result.items;
                     if (items.length)
@@ -197,13 +235,22 @@ function Editor(props: EditorProps) {
                 } catch {
                   /* Local completion remains available when a server is busy. */
                 }
-                return localComplete(ctx);
+                const local = await localComplete(ctx);
+                const snippets = snippetOptions.current;
+                return snippets.length
+                  ? {
+                      from: word?.from ?? ctx.pos,
+                      options: [...snippets, ...(local?.options ?? [])],
+                    }
+                  : local;
               },
             ],
           })
         : [],
     ];
   }
+  const extensionConfig = useRef(new Compartment());
+  const snippetOptions = useRef<ReturnType<typeof snippetCompletion>[]>([]);
   const configuration =
     editorSettingKeys.map((key) => props.settings[key]).join("|") +
     "|" +
@@ -232,25 +279,27 @@ function Editor(props: EditorProps) {
             },
           }),
           history(),
+          EditorState.allowMultipleSelections.of(true),
           rectangularSelection(),
           crosshairCursor(),
           lintGutter(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           syntaxHighlighting(highlighting),
           langConfig.current.of([]),
+          extensionConfig.current.of([]),
           EditorState.readOnly.of(!!current.current.readOnly),
           EditorState.lineSeparator.of(
             current.current.value.includes("\r\n") ? "\r\n" : "\n",
           ),
           keymap.of([
             ...closeBracketsKeymap,
-            ...defaultKeymap,
             ...completionKeymap,
+            ...defaultKeymap,
             indentWithTab,
           ]),
           hoverTooltip(async (view, pos) => {
             try {
-              const result = await languageRequest<{
+              let result = await languageRequest<{
                 contents:
                   | string
                   | { value: string }
@@ -260,6 +309,15 @@ function Editor(props: EditorProps) {
                 "textDocument/hover",
                 toPosition(view, pos),
               );
+              if (!result)
+                result =
+                  (
+                    await extensionLanguageFeature<NonNullable<typeof result>>(
+                      "provideHover",
+                      current.current.path,
+                      toPosition(view, pos),
+                    )
+                  )[0] ?? null;
               if (!result?.contents) return null;
               const c = result.contents;
               const text = Array.isArray(c)
@@ -289,7 +347,14 @@ function Editor(props: EditorProps) {
                 current.current.path,
                 update.state.sliceDoc(),
               );
+            if (
+              update.viewportChanged &&
+              !update.selectionSet &&
+              !update.docChanged
+            )
+              window.dispatchEvent(new Event("devyy-editor-selection"));
             if (update.selectionSet || update.docChanged) {
+              window.dispatchEvent(new Event("devyy-editor-selection"));
               const line = update.state.doc.lineAt(
                 update.state.selection.main.head,
               );
@@ -336,14 +401,47 @@ function Editor(props: EditorProps) {
       }),
     });
     editor.current = view;
-    void loadLanguage(current.current.path)
+    void loadLanguage(
+      current.current.languageId ?? current.current.path,
+      !!current.current.languageId,
+    )
       .then((ext) => {
         if (editor.current === view)
           view.dispatch({ effects: langConfig.current.reconfigure(ext ?? []) });
       })
       .catch(() => {});
+    let extensionRevision = 0;
+    const loadExtensions = async () => {
+      const revision = ++extensionRevision;
+      const language =
+        current.current.languageId ?? languageId(current.current.path);
+      const snippets = language ? await extensionSnippets(language) : [];
+      if (revision !== extensionRevision || editor.current !== view) return;
+      snippetOptions.current = snippets.map((s) =>
+        snippetCompletion(s.template.replace(/\$([A-Z_][A-Z_0-9]*)/g, ""), {
+          label: s.label,
+          detail: s.detail,
+          type: "snippet",
+        }),
+      );
+      const { textmateGrammar, textmateHighlighting } =
+        await import("../lib/textmate");
+      const grammar = await textmateGrammar(current.current.path);
+      if (editor.current === view && revision === extensionRevision)
+        view.dispatch({
+          effects: extensionConfig.current.reconfigure(
+            grammar ? textmateHighlighting(grammar) : [],
+          ),
+        });
+    };
+    const refresh = () => {
+      void loadExtensions().catch(() => {});
+    };
+    refresh();
+    window.addEventListener("devyy-extensions-changed", refresh);
     current.current.onView(current.current.path, view);
     return () => {
+      window.removeEventListener("devyy-extensions-changed", refresh);
       current.current.onView(current.current.path, null);
       view.destroy();
       editor.current = null;

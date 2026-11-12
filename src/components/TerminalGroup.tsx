@@ -7,14 +7,36 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Plus, SplitSquareHorizontal, X } from "lucide-react";
+import PseudoTerminal from "./PseudoTerminal";
+import { registerAIContext, writeAIContextDrag } from "../lib/aiContext";
 import Terminal, { type TerminalHandle } from "./Terminal";
 import { useContextMenu } from "./ContextMenu";
 import ResizeHandle from "./ResizeHandle";
+import SplitTabGroup from "./SplitTabGroup";
+import {
+  groupedTabs,
+  moveTabGroup,
+  pairTabs,
+  separateTab,
+  type SplitGroup,
+} from "../lib/splitGroups";
 import {
   useTerminalProfiles,
   refreshTerminalProfiles,
 } from "../lib/terminalProfiles";
-import { native } from "../lib/native";
+import { native, invoke } from "../lib/native";
+import {
+  hostRequest,
+  subscribeExtensionTerminals,
+  type HostEvent,
+} from "../lib/extensionHost";
+interface Session {
+  key: number;
+  name: string;
+  profile: string;
+  extensionId?: string;
+  options?: Record<string, unknown>;
+}
 import type { Settings } from "../lib/types";
 export interface TerminalsHandle {
   create: () => void;
@@ -40,62 +62,215 @@ export default forwardRef<
   { root, settings, onReady, onError, onOpen, toolbarHost },
   ref,
 ) {
-  const [sessions, setSessions] = useState([
+  const [sessions, setSessions] = useState<Session[]>([
     { key: 1, name: "Terminal 1", profile: settings.terminalProfile },
   ]);
   const [active, setActive] = useState(1),
-    [split, setSplit] = useState<[number, number] | null>(null),
+    [splits, setSplits] = useState<SplitGroup<number>[]>([]),
     [renaming, setRenaming] = useState<number | null>(null),
-    [ratio, setRatio] = useState(50);
+    [ratios, setRatios] = useState<Record<string, number>>({});
+  const split = splits.find(
+    (group) =>
+      group.includes(active) &&
+      group.every((key) => sessions.some((session) => session.key === key)),
+  );
+  const ratioKey = split?.join(":") ?? "";
+  const ratio = ratios[ratioKey] ?? 50;
+  const setRatio = (value: number) =>
+    setRatios((old) => ({ ...old, [ratioKey]: value }));
+  const closeSession = useRef<
+    (key: number, exitCode?: number, reason?: number) => void
+  >(() => {});
   const sequence = useRef(1),
     handles = useRef(new Map<number, TerminalHandle>()),
     ids = useRef(new Map<number, number | null>()),
     host = useRef<HTMLDivElement>(null);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const activeSession = useRef(active);
+  activeSession.current = active;
+  const draggedSession = useRef<number | null>(null);
+  useEffect(
+    () =>
+      registerAIContext(
+        "terminals",
+        sessions.map((session) => ({
+          kind: "terminal" as const,
+          id: `${root}:${session.key}`,
+          title: session.name,
+          description: splits.some((group) => group.includes(session.key))
+            ? "Split terminal"
+            : "Terminal",
+          read: () => {
+            const content = handles.current.get(session.key)?.snapshot() ?? "";
+            if (!content.trim())
+              throw new Error(`${session.name} has no output yet.`);
+            return {
+              kind: "terminal" as const,
+              id: `${root}:${session.key}`,
+              title: session.name,
+              content,
+            };
+          },
+        })),
+      ),
+    [sessions, splits, root],
+  );
+  function selectSession(key: number) {
+    activeSession.current = key;
+    setActive(key);
+  }
+  function updateSessions(next: Session[]) {
+    sessionsRef.current = next;
+    setSessions(next);
+  }
+  const extensionInput = useRef(new Map<string, string[]>());
+  const extensionCallbacks = useRef({ onOpen, onError });
+  extensionCallbacks.current = { onOpen, onError };
+  useEffect(() => {
+    const event = (message: HostEvent) => {
+      const p = message.payload;
+      const id = String(p.id);
+      if (message.event === "terminalCreate") {
+        const options = p.options as Record<string, unknown>;
+        const session: Session = {
+          key: ++sequence.current,
+          name: String(options.name ?? "Extension terminal"),
+          profile: "",
+          extensionId: id,
+          options,
+        };
+        updateSessions([...sessionsRef.current, session]);
+      } else {
+        const session = sessionsRef.current.find((s) => s.extensionId === id);
+        if (!session) return;
+        if (message.event === "terminalInput") {
+          const terminal = ids.current.get(session.key);
+          if (terminal)
+            void invoke("terminal_write", {
+              id: terminal,
+              data: String(p.text),
+            }).catch(extensionCallbacks.current.onError);
+          else
+            extensionInput.current.set(id, [
+              ...(extensionInput.current.get(id) ?? []),
+              String(p.text),
+            ]);
+        } else if (message.event === "terminalName") {
+          updateSessions(
+            sessionsRef.current.map((item) =>
+              item.key === session.key
+                ? { ...item, name: String(p.name) }
+                : item,
+            ),
+          );
+        } else if (message.event === "terminalShow") {
+          selectSession(session.key);
+          extensionCallbacks.current.onOpen();
+        } else if (message.event === "terminalClose") {
+          closeSession.current(
+            session.key,
+            typeof p.exitCode === "number" ? p.exitCode : undefined,
+            2,
+          );
+        }
+      }
+    };
+    const reset = () =>
+      updateSessions(
+        sessionsRef.current.filter((session) => !session.extensionId),
+      );
+    const stop = subscribeExtensionTerminals(event);
+    window.addEventListener("devyy-extension-host-reset", reset);
+    return () => {
+      stop();
+      window.removeEventListener("devyy-extension-host-reset", reset);
+    };
+  }, []);
   const shells = useTerminalProfiles();
   const openMenu = useContextMenu(),
     cb = useRef(onReady);
   cb.current = onReady;
   useEffect(() => {
     cb.current(ids.current.get(active) ?? null);
+    if (native && sessionsRef.current.some((session) => session.extensionId))
+      void hostRequest("terminalState", {
+        id: sessionsRef.current.find((session) => session.key === active)
+          ?.extensionId,
+        active: true,
+      }).catch(() => {});
+    document
+      .getElementById(`terminal-session-${active}`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
+  useEffect(() => {
+    if (!sessions.some((session) => session.key === active))
+      selectSession(sessions.at(-1)?.key ?? 0);
+    setSplits((groups) =>
+      groups.every((group) =>
+        group.every((key) => sessions.some((session) => session.key === key)),
+      )
+        ? groups
+        : groups.filter((group) =>
+            group.every((key) =>
+              sessions.some((session) => session.key === key),
+            ),
+          ),
+    );
+  }, [sessions, active]);
   function create(
     inSplit = false,
-    source = active,
+    source = activeSession.current,
     profile = settings.terminalProfile,
   ) {
     const key = ++sequence.current;
-    setSessions((s) => [...s, { key, name: `Terminal ${key}`, profile }]);
+    updateSessions([
+      ...sessionsRef.current,
+      { key, name: `Terminal ${key}`, profile },
+    ]);
     if (inSplit && source) {
-      setSplit([source, key]);
-    } else setSplit(null);
-    setActive(key);
+      setSplits((groups) => pairTabs(groups, source, key));
+    }
+    selectSession(key);
   }
-  function close(key = active) {
-    const rest = sessions.filter((s) => s.key !== key);
-    setSessions(rest);
+  function close(key = activeSession.current, exitCode?: number, reason = 3) {
+    const all = sessionsRef.current;
+    const session = all.find((s) => s.key === key);
+    if (!session) return;
+    if (session.extensionId)
+      void hostRequest("terminalState", {
+        id: session.extensionId,
+        closed: true,
+        exitCode,
+        reason,
+      }).catch(() => {});
+    const rest = all.filter((s) => s.key !== key);
+    updateSessions(rest);
     ids.current.delete(key);
     handles.current.delete(key);
-    if (split?.includes(key)) setSplit(null);
-    if (active === key) setActive(rest.at(-1)?.key ?? 0);
+    const partner = splits
+      .find((group) => group.includes(key))
+      ?.find((member) => member !== key);
+    setSplits((groups) => separateTab(groups, key));
+    if (session?.extensionId)
+      extensionInput.current.delete(session.extensionId);
+    if (activeSession.current === key)
+      selectSession(
+        partner && rest.some((session) => session.key === partner)
+          ? partner
+          : (rest.at(-1)?.key ?? 0),
+      );
     if (!rest.length) cb.current(null);
   }
-  const sessionGroups = sessions
-    .filter((s) => s.key !== split?.[1])
-    .map((s) =>
-      s.key === split?.[0]
-        ? split
-            .map((key) => sessions.find((x) => x.key === key)!)
-            .filter(Boolean)
-        : [s],
-    );
+  closeSession.current = close;
+  const sessionGroups = groupedTabs(sessions, (session) => session.key, splits);
   const sessionOrder = sessionGroups.flat();
   function cycle(delta: number) {
-    const i = sessionOrder.findIndex((s) => s.key === active);
+    const i = sessionOrder.findIndex((s) => s.key === activeSession.current);
     const key =
       sessionOrder[(i + delta + sessionOrder.length) % sessionOrder.length]
         ?.key ?? 0;
-    setActive(key);
-    if (split && !split.includes(key)) setSplit(null);
+    selectSession(key);
   }
   useImperativeHandle(ref, () => ({
     create: () => create(),
@@ -106,19 +281,79 @@ export default forwardRef<
     focus: () => handles.current.get(active)?.focus(),
     rename: () => setRenaming(active),
     ensure: () => {
-      if (!sessions.length) create();
+      if (
+        !sessions.length ||
+        sessions.find((session) => session.key === active)?.options
+          ?.pseudoterminal
+      )
+        create();
       else handles.current.get(active)?.ensure();
     },
   }));
-  function renderSession(s: (typeof sessions)[number]) {
+  function renderSession(s: Session, pane?: number) {
     return (
       <div
         key={s.key}
         className={`terminal-session ${active === s.key ? "active" : ""}`}
+        draggable={renaming !== s.key}
+        onDragStart={(event) => {
+          draggedSession.current = s.key;
+          writeAIContextDrag(event.dataTransfer, [
+            { kind: "terminal", id: `${root}:${s.key}` },
+          ]);
+          event.dataTransfer.setData("text/plain", String(s.key));
+        }}
+        onDragEnd={() => {
+          draggedSession.current = null;
+        }}
+        onDragOver={(event) => {
+          if (draggedSession.current !== null) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const from = draggedSession.current;
+          if (from === null) return;
+          event.preventDefault();
+          updateSessions(
+            moveTabGroup(
+              sessionsRef.current,
+              (session) => session.key,
+              splits,
+              from,
+              s.key,
+            ),
+          );
+          draggedSession.current = null;
+        }}
+        onAuxClick={(event) => {
+          if (event.button === 1) {
+            event.preventDefault();
+            close(s.key);
+          }
+        }}
         onContextMenu={(e) =>
           openMenu(e, [
             { label: "New terminal", action: () => create() },
             { label: "Split terminal", action: () => create(true, s.key) },
+            ...(active !== s.key
+              ? [
+                  {
+                    label: "Open in split terminal",
+                    action: () => {
+                      setSplits((groups) => pairTabs(groups, active, s.key));
+                      selectSession(s.key);
+                    },
+                  },
+                ]
+              : []),
+            ...(splits.some((group) => group.includes(s.key))
+              ? [
+                  {
+                    label: "Separate split group",
+                    action: () =>
+                      setSplits((groups) => separateTab(groups, s.key)),
+                  },
+                ]
+              : []),
             {
               label: "Rename terminal",
               separator: true,
@@ -128,10 +363,14 @@ export default forwardRef<
               label: "Clear terminal",
               action: () => handles.current.get(s.key)?.clear(),
             },
-            {
-              label: "Restart shell",
-              action: () => handles.current.get(s.key)?.restart(),
-            },
+            ...(!s.options?.pseudoterminal
+              ? [
+                  {
+                    label: "Restart shell",
+                    action: () => handles.current.get(s.key)?.restart(),
+                  },
+                ]
+              : []),
             {
               label: "Close terminal",
               separator: true,
@@ -165,9 +404,7 @@ export default forwardRef<
             role="tab"
             aria-label={s.name}
             aria-description={
-              split?.includes(s.key)
-                ? `Pane ${split.indexOf(s.key) + 1} of split terminal group`
-                : undefined
+              pane ? `Pane ${pane} of split terminal group` : undefined
             }
             id={`terminal-session-${s.key}`}
             aria-controls={`terminal-pane-${s.key}`}
@@ -178,30 +415,38 @@ export default forwardRef<
               "System default shell"
             }
             onKeyDown={(e) => {
-              const delta =
-                e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-              if (!delta) return;
+              const index = sessionOrder.findIndex(
+                (session) => session.key === s.key,
+              );
+              const nextIndex =
+                e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? sessionOrder.length - 1
+                    : e.key === "ArrowRight"
+                      ? (index + 1) % sessionOrder.length
+                      : e.key === "ArrowLeft"
+                        ? (index - 1 + sessionOrder.length) %
+                          sessionOrder.length
+                        : -1;
+              if (nextIndex < 0) return;
               e.preventDefault();
-              cycle(delta);
+              selectSession(sessionOrder[nextIndex].key);
               const buttons = e.currentTarget
                 .closest(".terminal-sessionbar")
                 ?.querySelectorAll<HTMLButtonElement>("[role=tab]");
-              const index = sessionOrder.findIndex((x) => x.key === s.key);
-              buttons?.[
-                (index + delta + sessionOrder.length) % sessionOrder.length
-              ]?.focus();
+              buttons?.[nextIndex]?.focus();
             }}
             onClick={() => {
-              setActive(s.key);
-              if (split && !split.includes(s.key)) setSplit(null);
+              selectSession(s.key);
             }}
           >
-            {split?.includes(s.key) && (
+            {pane && (
               <span className="pane-number" aria-hidden="true">
-                {split.indexOf(s.key) + 1}
+                {pane}
               </span>
             )}
-            {s.name}
+            <span className="tab-label">{s.name}</span>
           </button>
         )}
         <button
@@ -223,14 +468,31 @@ export default forwardRef<
       >
         {sessionGroups.map((group) =>
           group.length === 2 ? (
-            <div
-              className="terminal-split-island"
+            <SplitTabGroup
               key={`split-${group[0].key}`}
-              role="group"
-              aria-label="Split terminal group"
+              kind="terminal"
+              onDragStart={(event) => {
+                draggedSession.current = group[0].key;
+                event.dataTransfer.setData("text/plain", String(group[0].key));
+                writeAIContextDrag(
+                  event.dataTransfer,
+                  group.map((session) => ({
+                    kind: "terminal",
+                    id: `${root}:${session.key}`,
+                  })),
+                );
+              }}
+              onDragEnd={() => {
+                draggedSession.current = null;
+              }}
+              active={group.some((session) => session.key === active)}
+              onSeparate={() =>
+                setSplits((groups) => separateTab(groups, group[0].key))
+              }
             >
-              {group.map(renderSession)}
-            </div>
+              {renderSession(group[0], 1)}
+              {renderSession(group[1], 2)}
+            </SplitTabGroup>
           ) : (
             renderSession(group[0])
           ),
@@ -268,7 +530,7 @@ export default forwardRef<
                   action: () => create(false, active, ""),
                 },
                 ...shells.profiles.map((p) => ({
-                  label: p.name + (p.isDefault ? " · default" : ""),
+                  label: p.name + (p.isDefault ? " — default" : ""),
                   action: () => create(false, active, p.id),
                 })),
                 ...(shells.error
@@ -316,7 +578,7 @@ export default forwardRef<
                   }
                 : undefined
             }
-            onFocusCapture={() => setActive(s.key)}
+            onFocusCapture={() => selectSession(s.key)}
             onContextMenu={(e) =>
               openMenu(e, [
                 {
@@ -343,10 +605,14 @@ export default forwardRef<
                 },
                 { label: "New terminal", action: () => create() },
                 { label: "Split terminal", action: () => create(true, s.key) },
-                {
-                  label: "Restart shell",
-                  action: () => handles.current.get(s.key)?.restart(),
-                },
+                ...(!s.options?.pseudoterminal
+                  ? [
+                      {
+                        label: "Restart shell",
+                        action: () => handles.current.get(s.key)?.restart(),
+                      },
+                    ]
+                  : []),
                 {
                   label: "Close terminal",
                   separator: true,
@@ -357,32 +623,81 @@ export default forwardRef<
             }
           >
             {split?.includes(s.key) && (
-              <div className="terminal-pane-heading">
+              <div
+                className="terminal-pane-heading"
+                draggable
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  writeAIContextDrag(event.dataTransfer, [
+                    { kind: "terminal", id: `${root}:${s.key}` },
+                  ]);
+                }}
+              >
                 <span className="pane-number">{split.indexOf(s.key) + 1}</span>
-                {s.name}
+                <span className="tab-label">{s.name}</span>
               </div>
             )}
-            <Terminal
-              ref={(handle) => {
-                if (handle) handles.current.set(s.key, handle);
-                else handles.current.delete(s.key);
-              }}
-              root={root}
-              profile={s.profile}
-              lineHeight={settings.terminalLineHeight}
-              cursorStyle={settings.terminalCursorStyle}
-              copyOnSelect={settings.terminalCopyOnSelect}
-              theme={settings.theme}
-              fontSize={settings.terminalFontSize}
-              scrollback={settings.terminalScrollback}
-              cursorBlink={settings.cursorBlink && !settings.reduceMotion}
-              onOpen={onOpen}
-              onError={onError}
-              onReady={(id) => {
-                ids.current.set(s.key, id);
-                if (s.key === active) cb.current(id);
-              }}
-            />
+            {s.options?.pseudoterminal && s.extensionId ? (
+              <PseudoTerminal
+                ref={(handle) => {
+                  if (handle) handles.current.set(s.key, handle);
+                  else handles.current.delete(s.key);
+                }}
+                id={s.extensionId}
+                settings={settings}
+                onError={onError}
+              />
+            ) : (
+              <Terminal
+                ref={(handle) => {
+                  if (handle) handles.current.set(s.key, handle);
+                  else handles.current.delete(s.key);
+                }}
+                root={root}
+                extensionOptions={s.options}
+                profile={s.profile}
+                lineHeight={settings.terminalLineHeight}
+                cursorStyle={settings.terminalCursorStyle}
+                copyOnSelect={settings.terminalCopyOnSelect}
+                theme={settings.theme}
+                fontSize={settings.terminalFontSize}
+                scrollback={settings.terminalScrollback}
+                cursorBlink={settings.cursorBlink && !settings.reduceMotion}
+                onOpen={onOpen}
+                onError={onError}
+                onExit={() => {
+                  if (s.extensionId)
+                    void hostRequest("terminalState", {
+                      id: s.extensionId,
+                      closed: true,
+                      reason: 2,
+                    }).catch(() => {});
+                }}
+                onReady={(id) => {
+                  ids.current.set(s.key, id);
+                  if (s.extensionId) {
+                    if (id) {
+                      for (const data of extensionInput.current.get(
+                        s.extensionId,
+                      ) ?? [])
+                        void invoke("terminal_write", { id, data }).catch(
+                          onError,
+                        );
+                      extensionInput.current.delete(s.extensionId);
+                      void invoke<number | null>("terminal_pid", { id })
+                        .then((pid) =>
+                          hostRequest("terminalState", {
+                            id: s.extensionId,
+                            pid,
+                          }),
+                        )
+                        .catch(onError);
+                    }
+                  }
+                  if (s.key === active) cb.current(id);
+                }}
+              />
+            )}
           </div>
         ))}
         {split && (

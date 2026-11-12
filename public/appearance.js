@@ -6,7 +6,13 @@ try {
       "{}",
   );
   const root = document.documentElement;
-  root.dataset.theme = saved.theme === "paper" ? "paper" : "midnight";
+  root.dataset.theme = saved.followSystemTheme
+    ? matchMedia("(prefers-color-scheme: dark)").matches
+      ? "midnight"
+      : "paper"
+    : saved.theme === "paper"
+      ? "paper"
+      : "midnight";
   root.dataset.vibrancy =
     saved.vibrancy === false ||
     matchMedia("(prefers-reduced-transparency: reduce)").matches

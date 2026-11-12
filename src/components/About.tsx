@@ -79,7 +79,7 @@ export default function About() {
             <dt>Build</dt>
             <dd>
               {info
-                ? `${info.revision}${info.arch === "—" ? "" : ` · ${info.arch}`}`
+                ? `${info.revision}${info.arch === "—" ? "" : ` — ${info.arch}`}`
                 : "—"}
             </dd>
           </div>

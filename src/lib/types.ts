@@ -11,6 +11,9 @@ export interface Workspace {
 }
 export interface Tab {
   path: string;
+  extensionUri?: string;
+  languageId?: string;
+  readOnly?: boolean;
   content: string;
   saved: string;
   modified: string;
@@ -25,14 +28,22 @@ export interface GitChange {
   path: string;
   index: string;
   worktree: string;
+  oldPath?: string | null;
 }
 export interface GitState {
   branch: string;
   changes: GitChange[];
+  upstream?: string | null;
+  ahead?: number;
+  behind?: number;
 }
 import { validBinding } from "./shortcuts";
 
 export interface Settings {
+  accent: "neutral" | "blue" | "violet" | "mint" | "amber" | "custom";
+  customAccent: string;
+  extensionTheme: string;
+  followSystemTheme: boolean;
   fontSize: number;
   overlayTransparency: number;
   glassBlur: number;
@@ -90,9 +101,14 @@ export interface LspDiagnostic {
   source?: string;
 }
 export interface Problem extends LspDiagnostic {
+  collection?: string;
   path: string;
 }
 export const defaults: Settings = {
+  accent: "neutral",
+  customAccent: "#a7bcff",
+  extensionTheme: "",
+  followSystemTheme: false,
   fontSize: 14,
   overlayTransparency: 26,
   glassBlur: 24,
@@ -163,6 +179,7 @@ export function normalizeSettings(value: unknown): Settings {
       : {};
   const result = { ...defaults, bindings: {} };
   for (const key of [
+    "followSystemTheme",
     "fontLigatures",
     "activeLine",
     "relativeLineNumbers",
@@ -221,6 +238,19 @@ export function normalizeSettings(value: unknown): Settings {
       Object.assign(result, { [key]: s[key] });
   if (typeof s.terminalProfile === "string" && s.terminalProfile.length < 4096)
     result.terminalProfile = s.terminalProfile;
+  if (
+    ["neutral", "blue", "violet", "mint", "amber", "custom"].includes(
+      String(s.accent),
+    )
+  )
+    result.accent = s.accent as Settings["accent"];
+  if (
+    typeof s.customAccent === "string" &&
+    /^#[0-9a-f]{6}$/i.test(s.customAccent)
+  )
+    result.customAccent = s.customAccent;
+  if (typeof s.extensionTheme === "string" && s.extensionTheme.length < 1024)
+    result.extensionTheme = s.extensionTheme;
   if (s.theme === "paper") result.theme = "paper";
   if (s.fontFamily === "menlo" || s.fontFamily === "monospace")
     result.fontFamily = s.fontFamily;

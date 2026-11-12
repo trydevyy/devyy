@@ -7,6 +7,10 @@ import {
   Palette,
   TerminalSquare,
   Asterisk,
+  Blocks,
+  Plug,
+  Sparkles,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { Settings } from "./types";
 export const categories = [
@@ -53,6 +57,30 @@ export const categories = [
     icon: Accessibility,
   },
   {
+    id: "extensions",
+    label: "Extensions",
+    description: "Browse Open VSX and manage installed packages.",
+    icon: Blocks,
+  },
+  {
+    id: "ai",
+    label: "AI providers",
+    description: "Accounts, API keys, models, endpoints, and usage.",
+    icon: Sparkles,
+  },
+  {
+    id: "languages",
+    label: "Language servers",
+    description: "Local language intelligence over LSP.",
+    icon: Plug,
+  },
+  {
+    id: "setup",
+    label: "Setup & import",
+    description: "Bring over preferences or revisit your setup.",
+    icon: SlidersHorizontal,
+  },
+  {
     id: "about",
     label: "About devyy",
     description: "Version, build details, and updates.",
@@ -67,7 +95,14 @@ export interface SettingControl {
   label: string;
   description: string;
   keywords?: string;
-  type: "switch" | "range" | "select" | "theme" | "font-size" | "profile";
+  type:
+    | "switch"
+    | "range"
+    | "select"
+    | "theme"
+    | "font-size"
+    | "profile"
+    | "accent";
   min?: number;
   max?: number;
   step?: number;
@@ -98,6 +133,22 @@ export const controls: SettingControl[] = [
     keywords: "light dark colors",
     type: "theme",
   },
+  {
+    key: "accent",
+    category: "appearance",
+    section: "Color & material",
+    label: "Accent color",
+    description: "Used for selection, controls, and focus indicators.",
+    keywords: "white neutral custom color secondary",
+    type: "accent",
+  },
+  ...switches("appearance", "Color & material", [
+    [
+      "followSystemTheme",
+      "Follow system appearance",
+      "Switch between light and dark with your operating system.",
+    ],
+  ]),
   ...switches("appearance", "Color & material", [
     [
       "vibrancy",

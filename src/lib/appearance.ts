@@ -1,6 +1,8 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { invoke, native } from "./native";
 import type { Settings } from "./types";
+import { useExtensions } from "./extensions";
+import { accentColor, onAccent } from "./palette";
 
 function mediaPreference(query: string) {
   return {
@@ -19,6 +21,14 @@ export function useAppearance(
   settings: Settings,
   onError: (error: unknown) => void,
 ) {
+  const extensions = useExtensions();
+  useEffect(() => {
+    void import("./textmate")
+      .then((m) => m.applyExtensionTheme(settings))
+      .catch((error) =>
+        onError(`Could not load extension theme: ${String(error)}`),
+      );
+  }, [settings.extensionTheme, settings.theme, extensions]);
   const reducedTransparency = useSyncExternalStore(
     transparency.subscribe,
     transparency.snapshot,
@@ -27,6 +37,31 @@ export function useAppearance(
   const callback = useRef(onError);
   callback.current = onError;
   const vibrancy = settings.vibrancy && !reducedTransparency;
+  useEffect(() => {
+    const root = document.documentElement;
+    const color = accentColor(settings, settings.theme === "midnight");
+    root.dataset.platform = /Mac/.test(navigator.platform)
+      ? "macos"
+      : /Win/.test(navigator.platform)
+        ? "windows"
+        : "linux";
+    root.style.setProperty("--accent", color);
+    root.style.setProperty("--accent-line", color);
+    root.style.setProperty(
+      "--accent-soft",
+      `color-mix(in srgb, ${color} 11%, transparent)`,
+    );
+    root.style.setProperty(
+      "--selection",
+      `color-mix(in srgb, ${color} 23%, transparent)`,
+    );
+    root.style.setProperty("--primary", color);
+    root.style.setProperty("--primary-ink", onAccent(color));
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (favicon)
+      favicon.href =
+        settings.theme === "paper" ? "/devyy-light.svg" : "/devyy.svg";
+  }, [settings.accent, settings.customAccent, settings.theme]);
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = settings.theme;

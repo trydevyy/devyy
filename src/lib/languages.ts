@@ -1,3 +1,4 @@
+import { extensionLanguage } from "./extensions";
 import { languages as bundledLanguages } from "@codemirror/language-data";
 import {
   LanguageDescription,
@@ -43,6 +44,8 @@ export function languageDescription(path: string) {
   return description;
 }
 export function languageId(path: string): string {
+  const contributed = extensionLanguage(path);
+  if (contributed) return contributed.id;
   const name = languageDescription(path)?.name.toLowerCase() ?? "text";
   return name === "tsx"
     ? "typescript"

@@ -11,7 +11,7 @@ import {
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
-import { invoke, listen, native } from "../lib/native";
+import { invoke, listen, native, workspaceRelativePath } from "../lib/native";
 import { readLocal, type Workspace } from "../lib/types";
 interface Frame {
   id: number;
@@ -97,9 +97,11 @@ export default function Debugger({
   async function inspect(frame: Frame) {
     setSelected(frame.id);
     if (frame.source?.path) {
-      const root = refs.current.workspace.root + "/";
-      if (frame.source.path.startsWith(root)) {
-        const path = frame.source.path.slice(root.length);
+      const path = workspaceRelativePath(
+        frame.source.path,
+        refs.current.workspace.root,
+      );
+      if (path !== null) {
         refs.current.onNavigate(path, frame.line);
         refs.current.onSession({ running: true, path, line: frame.line });
       }
@@ -142,7 +144,7 @@ export default function Debugger({
             }
             if (!id) return;
             setThread(id);
-            setState(`Paused · ${payload.body?.reason ?? "breakpoint"}`);
+            setState(`Paused — ${payload.body?.reason ?? "breakpoint"}`);
             const result = await request<{ stackFrames: Frame[] }>(
               "stackTrace",
               { threadId: id, startFrame: 0, levels: 30 },
@@ -265,8 +267,8 @@ export default function Debugger({
             localStorage.setItem("devyy.debug.kind", JSON.stringify(k));
           }}
         >
-          <option value="lldb">LLDB · Rust / C / C++</option>
-          <option value="python">Python · debugpy</option>
+          <option value="lldb">LLDB — Rust / C / C++</option>
+          <option value="python">Python — debugpy</option>
         </select>
         <label className="field-label" htmlFor="debug-program">
           {kind === "python" ? "SCRIPT PATH" : "COMPILED BINARY PATH"}
@@ -383,7 +385,7 @@ export default function Debugger({
             ))}
           </div>
           <div className="section-label">
-            <span>VARIABLES · LOCALS</span>
+            <span>VARIABLES — LOCALS</span>
           </div>
           <div className="debug-variables">
             {variables.map((v, i) => (
