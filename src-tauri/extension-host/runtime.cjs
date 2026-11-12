@@ -75,7 +75,9 @@ module.exports = function installRuntime(api, host) {
   }
   function register(map, key, value) {
     map.set(key, value);
-    return new Disposable(() => { if (map.get(key) === value) map.delete(key); });
+    return new Disposable(() => {
+      if (map.get(key) === value) map.delete(key);
+    });
   }
   const diagnosticCollections = new Map(),
     languageProviders = new Map(),
@@ -102,7 +104,8 @@ module.exports = function installRuntime(api, host) {
     const opened = !doc;
     if (!doc) {
       let text = "";
-      let lines = [""], lineStarts = [0];
+      let lines = [""],
+        lineStarts = [0];
       doc = {
         uri,
         fileName: uri.fsPath,
@@ -119,7 +122,8 @@ module.exports = function installRuntime(api, host) {
           text = value;
           lines = value.split(/\r?\n/);
           lineStarts = [0];
-          for (const match of value.matchAll(/\r?\n/g)) lineStarts.push(match.index + match[0].length);
+          for (const match of value.matchAll(/\r?\n/g))
+            lineStarts.push(match.index + match[0].length);
         },
         getText(r) {
           return r
@@ -148,13 +152,24 @@ module.exports = function installRuntime(api, host) {
         offsetAt(p) {
           if (p.line < 0) return 0;
           if (p.line >= lines.length) return text.length;
-          return lineStarts[p.line] + Math.max(0, Math.min(p.character, lines[p.line].length));
+          return (
+            lineStarts[p.line] +
+            Math.max(0, Math.min(p.character, lines[p.line].length))
+          );
         },
         positionAt(offset) {
           const n = Math.max(0, Math.min(offset, text.length));
-          let low = 0, high = lineStarts.length;
-          while (low + 1 < high) { const mid = (low + high) >> 1; if (lineStarts[mid] <= n) low = mid; else high = mid; }
-          return new Position(low, Math.min(n - lineStarts[low], lines[low].length));
+          let low = 0,
+            high = lineStarts.length;
+          while (low + 1 < high) {
+            const mid = (low + high) >> 1;
+            if (lineStarts[mid] <= n) low = mid;
+            else high = mid;
+          }
+          return new Position(
+            low,
+            Math.min(n - lineStarts[low], lines[low].length),
+          );
         },
         validatePosition(p) {
           return this.positionAt(this.offsetAt(p));
@@ -226,7 +241,9 @@ module.exports = function installRuntime(api, host) {
           value,
           new api.CancellationTokenSource().token,
         )
-      : value.scheme === "untitled" ? "" : Buffer.from(await api.workspace.fs.readFile(value)).toString("utf8");
+      : value.scheme === "untitled"
+        ? ""
+        : Buffer.from(await api.workspace.fs.readFile(value)).toString("utf8");
     return updateDocument({
       uri: value.toString(),
       text,
@@ -261,7 +278,8 @@ module.exports = function installRuntime(api, host) {
     const key = doc.uri.toString();
     const previous = editorModels.get(key);
     const selections = (
-      value.selections || previous?._selections || [
+      value.selections ||
+      previous?._selections || [
         {
           anchor: { line: 0, character: 0 },
           active: { line: 0, character: 0 },
@@ -277,20 +295,42 @@ module.exports = function installRuntime(api, host) {
     if (previous?.document === doc) {
       previous._selections = selections;
       previous.viewColumn = value.viewColumn ?? previous.viewColumn;
-      if (value.visibleRanges) previous.visibleRanges = value.visibleRanges.map(range);
+      if (value.visibleRanges)
+        previous.visibleRanges = value.visibleRanges.map(range);
       if (value.options) previous.options = value.options;
       return previous;
     }
     const editor = {
       document: doc,
       _selections: selections,
-      get selection() { return this._selections[0]; },
-      set selection(value) { this.selections = [value]; },
-      get selections() { return this._selections; },
+      get selection() {
+        return this._selections[0];
+      },
+      set selection(value) {
+        this.selections = [value];
+      },
+      get selections() {
+        return this._selections;
+      },
       set selections(values) {
-        if (!Array.isArray(values) || !values.length) throw new Error("An editor must have at least one selection");
-        this._selections = values.map((value) => new Selection(position(value.anchor ?? value.start), position(value.active ?? value.end)));
-        void request("setSelections", { uri: key, selections: this._selections.map(({ anchor, active }) => ({ anchor, active })) }).catch((error) => emit("output", { text: `Editor selection: ${error.message}` }));
+        if (!Array.isArray(values) || !values.length)
+          throw new Error("An editor must have at least one selection");
+        this._selections = values.map(
+          (value) =>
+            new Selection(
+              position(value.anchor ?? value.start),
+              position(value.active ?? value.end),
+            ),
+        );
+        void request("setSelections", {
+          uri: key,
+          selections: this._selections.map(({ anchor, active }) => ({
+            anchor,
+            active,
+          })),
+        }).catch((error) =>
+          emit("output", { text: `Editor selection: ${error.message}` }),
+        );
       },
       visibleRanges: value.visibleRanges?.map(range) || [
         new Range(
@@ -508,24 +548,54 @@ module.exports = function installRuntime(api, host) {
         : undefined;
     },
     registerTextDocumentContentProvider(scheme, provider) {
-      const entry = { provideTextDocumentContent: scoped(provider.provideTextDocumentContent.bind(provider)) };
+      const entry = {
+        provideTextDocumentContent: scoped(
+          provider.provideTextDocumentContent.bind(provider),
+        ),
+      };
       const subscription = register(contentProviders, scheme, entry);
       const revisions = new Map();
       const change = provider.onDidChange?.(async (uri) => {
-        const key = uri.toString(), revision = (revisions.get(key) ?? 0) + 1;
+        const key = uri.toString(),
+          revision = (revisions.get(key) ?? 0) + 1;
         revisions.set(key, revision);
         if (!documents.has(key) || uri.scheme !== scheme) return;
         try {
-          const text = await entry.provideTextDocumentContent(uri, new api.CancellationTokenSource().token);
-          if (contentProviders.get(scheme) !== entry || revisions.get(key) !== revision || !documents.has(key)) return;
-          const doc = updateDocument({ uri: key, text, languageId: documents.get(key).languageId });
-          emit("documentContent", { uri: key, text: doc.getText(), readOnly: true });
-        } catch (error) { emit("output", { text: `Content provider ${scheme}: ${error.message}` }); }
+          const text = await entry.provideTextDocumentContent(
+            uri,
+            new api.CancellationTokenSource().token,
+          );
+          if (
+            contentProviders.get(scheme) !== entry ||
+            revisions.get(key) !== revision ||
+            !documents.has(key)
+          )
+            return;
+          const doc = updateDocument({
+            uri: key,
+            text,
+            languageId: documents.get(key).languageId,
+          });
+          emit("documentContent", {
+            uri: key,
+            text: doc.getText(),
+            readOnly: true,
+          });
+        } catch (error) {
+          emit("output", {
+            text: `Content provider ${scheme}: ${error.message}`,
+          });
+        }
       });
-      return new Disposable(() => { subscription.dispose(); change?.dispose(); revisions.clear(); });
+      return new Disposable(() => {
+        subscription.dispose();
+        change?.dispose();
+        revisions.clear();
+      });
     },
     registerFileSystemProvider(scheme, provider, options = {}) {
-      if (scheme === "file") throw new Error("The built-in file provider cannot be replaced");
+      if (scheme === "file")
+        throw new Error("The built-in file provider cannot be replaced");
       return register(fileProviders, scheme, { provider, options, ext: own() });
     },
     applyEdit: (edit) =>
@@ -573,7 +643,11 @@ module.exports = function installRuntime(api, host) {
         errorOnExist: !options?.overwrite,
       }),
     isWritableFileSystem: (scheme) =>
-      scheme === "file" ? true : fileProviders.has(scheme) ? !fileProviders.get(scheme).options.isReadonly : undefined,
+      scheme === "file"
+        ? true
+        : fileProviders.has(scheme)
+          ? !fileProviders.get(scheme).options.isReadonly
+          : undefined,
   });
   api.workspace.fs = new Proxy(localFs, {
     get: (target, key) => {
@@ -582,25 +656,61 @@ module.exports = function installRuntime(api, host) {
       return async (...args) => {
         const scheme = args[0]?.scheme;
         if (scheme === "file") {
-          if ((key === "copy" || key === "rename") && args[1]?.scheme !== "file") throw api.FileSystemError.Unavailable("Cross-filesystem operations are not supported");
-          try { return await fn(...args); }
-          catch (error) {
-            const translated = { ENOENT: "FileNotFound", EEXIST: "FileExists", EACCES: "NoPermissions", EPERM: "NoPermissions", EISDIR: "FileIsADirectory", ENOTDIR: "FileNotADirectory" }[error.code];
+          if (
+            (key === "copy" || key === "rename") &&
+            args[1]?.scheme !== "file"
+          )
+            throw api.FileSystemError.Unavailable(
+              "Cross-filesystem operations are not supported",
+            );
+          try {
+            return await fn(...args);
+          } catch (error) {
+            const translated = {
+              ENOENT: "FileNotFound",
+              EEXIST: "FileExists",
+              EACCES: "NoPermissions",
+              EPERM: "NoPermissions",
+              EISDIR: "FileIsADirectory",
+              ENOTDIR: "FileNotADirectory",
+            }[error.code];
             if (translated) throw api.FileSystemError[translated](args[0]);
             throw error;
           }
         }
         const entry = fileProviders.get(scheme);
-        if (!entry || typeof entry.provider[key] !== "function") throw api.FileSystemError.Unavailable(`No filesystem provider for ${scheme}`);
-        if (entry.options.isReadonly && ["writeFile", "delete", "rename", "copy", "createDirectory"].includes(key)) throw api.FileSystemError.NoPermissions("Filesystem is read-only");
-        if ((key === "copy" || key === "rename") && args[1]?.scheme !== scheme) throw api.FileSystemError.Unavailable("Cross-filesystem operations are not supported");
+        if (!entry || typeof entry.provider[key] !== "function")
+          throw api.FileSystemError.Unavailable(
+            `No filesystem provider for ${scheme}`,
+          );
+        if (
+          entry.options.isReadonly &&
+          ["writeFile", "delete", "rename", "copy", "createDirectory"].includes(
+            key,
+          )
+        )
+          throw api.FileSystemError.NoPermissions("Filesystem is read-only");
+        if ((key === "copy" || key === "rename") && args[1]?.scheme !== scheme)
+          throw api.FileSystemError.Unavailable(
+            "Cross-filesystem operations are not supported",
+          );
         const method = key === "createDirectory" ? "createDirectory" : key;
-        return host.scope.run(entry.ext, () => entry.provider[method](...args, ...(key === "writeFile" ? [{ create: true, overwrite: true }] : [])));
+        return host.scope.run(entry.ext, () =>
+          entry.provider[method](
+            ...args,
+            ...(key === "writeFile" ? [{ create: true, overwrite: true }] : []),
+          ),
+        );
       };
     },
   });
   function readOnlyDocument(uri) {
-    return contentProviders.has(uri.scheme) || (uri.scheme !== "file" && uri.scheme !== "untitled" && api.workspace.fs.isWritableFileSystem(uri.scheme) !== true);
+    return (
+      contentProviders.has(uri.scheme) ||
+      (uri.scheme !== "file" &&
+        uri.scheme !== "untitled" &&
+        api.workspace.fs.isWritableFileSystem(uri.scheme) !== true)
+    );
   }
   for (const name of [
     "onDidChangeActiveTextEditor",
@@ -656,7 +766,8 @@ module.exports = function installRuntime(api, host) {
       return { key, dispose: () => emit("decorationTypeRemoved", { key }) };
     },
     showTextDocument: async (value, options, preserveFocus) => {
-      if (typeof options === "number") options = { viewColumn: options, preserveFocus: !!preserveFocus };
+      if (typeof options === "number")
+        options = { viewColumn: options, preserveFocus: !!preserveFocus };
       const doc = await openDocument(value);
       const shown = await request("showDocument", {
         uri: doc.uri.toString(),
@@ -665,8 +776,14 @@ module.exports = function installRuntime(api, host) {
         languageId: doc.languageId,
         options,
       });
-      if (shown === false) throw new Error(`Could not show document ${doc.uri}`);
-      return activeEditor?.document === doc ? activeEditor : makeEditor(doc, { viewColumn: options?.viewColumn === -2 ? 2 : options?.viewColumn ?? 1 });
+      if (shown === false)
+        throw new Error(`Could not show document ${doc.uri}`);
+      return activeEditor?.document === doc
+        ? activeEditor
+        : makeEditor(doc, {
+            viewColumn:
+              options?.viewColumn === -2 ? 2 : (options?.viewColumn ?? 1),
+          });
     },
     registerUriHandler: (handler) =>
       register(uriHandlers, own().id, {
@@ -791,7 +908,8 @@ module.exports = function installRuntime(api, host) {
   function activateTerminal(terminal) {
     const previous = terminals.find((item) => item._active);
     for (const item of terminals) item._active = item === terminal;
-    if (previous !== terminal) event("window.onDidChangeActiveTerminal").fire(terminal);
+    if (previous !== terminal)
+      event("window.onDidChangeActiveTerminal").fire(terminal);
   }
   function closeTerminal(terminal, exitCode, reason = 2, closePty = true) {
     if (terminal._closed) return;
@@ -802,10 +920,14 @@ module.exports = function installRuntime(api, host) {
     const index = terminals.indexOf(terminal);
     if (index >= 0) terminals.splice(index, 1);
     if (closePty && terminal._pty) {
-      try { host.scope.run(terminal._ext, () => terminal._pty.close()); }
-      catch (error) { emit("output", { text: `Pseudoterminal close: ${error.message}` }); }
+      try {
+        host.scope.run(terminal._ext, () => terminal._pty.close());
+      } catch (error) {
+        emit("output", { text: `Pseudoterminal close: ${error.message}` });
+      }
     }
-    for (const subscription of terminal._ptySubscriptions ?? []) subscription?.dispose();
+    for (const subscription of terminal._ptySubscriptions ?? [])
+      subscription?.dispose();
     event("window.onDidCloseTerminal").fire(terminal);
   }
   function pseudoInput(terminal, text) {
@@ -815,41 +937,79 @@ module.exports = function installRuntime(api, host) {
       event("window.onDidChangeTerminalState").fire(terminal);
     }
     if (!terminal._ptyReady) {
-      if (terminal._inputBytes + text.length > 1024 * 1024) return Promise.reject(new Error("Pseudoterminal input queue is full"));
-      terminal._pendingInput.push(text); terminal._inputBytes += text.length;
+      if (terminal._inputBytes + text.length > 1024 * 1024)
+        return Promise.reject(new Error("Pseudoterminal input queue is full"));
+      terminal._pendingInput.push(text);
+      terminal._inputBytes += text.length;
       return Promise.resolve();
     }
-    const work = terminal._inputTail.catch(() => {}).then(() => {
-      if (!terminal._closed) return host.scope.run(terminal._ext, () => terminal._pty.handleInput?.(text));
-    });
+    const work = terminal._inputTail
+      .catch(() => {})
+      .then(() => {
+        if (!terminal._closed)
+          return host.scope.run(terminal._ext, () =>
+            terminal._pty.handleInput?.(text),
+          );
+      });
     terminal._inputTail = work;
     return work;
   }
   api.window.createTerminal = function (name, shellPath, shellArgs) {
-    const options = typeof name === "object" ? { ...name } : { name, shellPath, shellArgs };
+    const options =
+      typeof name === "object" ? { ...name } : { name, shellPath, shellArgs };
     const ext = own();
     options.env = { ...options.env };
     for (const collection of environments.values())
       for (const [key, mutation] of collection) {
         const before = options.env[key] ?? process.env[key] ?? "";
-        options.env[key] = mutation.type === 1 ? mutation.value : mutation.type === 2 ? before + mutation.value : mutation.value + before;
+        options.env[key] =
+          mutation.type === 1
+            ? mutation.value
+            : mutation.type === 2
+              ? before + mutation.value
+              : mutation.value + before;
       }
     const id = "extension-terminal-" + ++serial;
     let resolvePid;
     const terminal = {
-      name: options.name || "Extension terminal", creationOptions: options,
-      exitStatus: undefined, state: { isInteractedWith: false }, _active: false, _closed: false,
-      _ext: ext, _pty: options.pty, _ptyOpened: false, _ptyReady: false, _pendingInput: [], _inputBytes: 0, _pendingOutput: [], _outputBytes: 0, _inputTail: Promise.resolve(),
+      name: options.name || "Extension terminal",
+      creationOptions: options,
+      exitStatus: undefined,
+      state: { isInteractedWith: false },
+      _active: false,
+      _closed: false,
+      _ext: ext,
+      _pty: options.pty,
+      _ptyOpened: false,
+      _ptyReady: false,
+      _pendingInput: [],
+      _inputBytes: 0,
+      _pendingOutput: [],
+      _outputBytes: 0,
+      _inputTail: Promise.resolve(),
       processId: new Promise((resolve) => (resolvePid = resolve)),
       sendText(text, addNewLine = true) {
         const data = text + (addNewLine ? "\r" : "");
         if (terminal._closed) return;
-        if (terminal._pty) void pseudoInput(terminal, data).catch((error) => emit("output", { text: error.message }));
+        if (terminal._pty)
+          void pseudoInput(terminal, data).catch((error) =>
+            emit("output", { text: error.message }),
+          );
         else emit("terminalInput", { id, text: data });
       },
-      show(preserveFocus) { if (terminal._closed) return; activateTerminal(terminal); emit("terminalShow", { id, preserveFocus }); },
-      hide() { if (terminal._active) activateTerminal(undefined); emit("terminalHide", { id }); },
-      dispose() { closeTerminal(terminal, undefined, 4); emit("terminalClose", { id }); },
+      show(preserveFocus) {
+        if (terminal._closed) return;
+        activateTerminal(terminal);
+        emit("terminalShow", { id, preserveFocus });
+      },
+      hide() {
+        if (terminal._active) activateTerminal(undefined);
+        emit("terminalHide", { id });
+      },
+      dispose() {
+        closeTerminal(terminal, undefined, 4);
+        emit("terminalClose", { id });
+      },
     };
     Object.defineProperty(terminal, "_id", { value: id });
     Object.defineProperty(terminal, "_resolvePid", { value: resolvePid });
@@ -861,60 +1021,159 @@ module.exports = function installRuntime(api, host) {
           if (terminal._closed) return;
           const text = String(value);
           if (terminal._ptyOpened) emit("pseudoTerminalOutput", { id, text });
-          else { terminal._pendingOutput.push(text); terminal._outputBytes += text.length; while (terminal._outputBytes > 1024 * 1024 && terminal._pendingOutput.length) terminal._outputBytes -= terminal._pendingOutput.shift().length; }
+          else {
+            terminal._pendingOutput.push(text);
+            terminal._outputBytes += text.length;
+            while (
+              terminal._outputBytes > 1024 * 1024 &&
+              terminal._pendingOutput.length
+            )
+              terminal._outputBytes -= terminal._pendingOutput.shift().length;
+          }
         }),
-        options.pty.onDidClose?.((code) => { closeTerminal(terminal, typeof code === "number" ? code : undefined, 2, false); emit("terminalClose", { id, exitCode: code }); }),
-        options.pty.onDidChangeName?.((value) => { if (!terminal._closed) { terminal.name = String(value); emit("terminalName", { id, name: terminal.name }); } }),
+        options.pty.onDidClose?.((code) => {
+          closeTerminal(
+            terminal,
+            typeof code === "number" ? code : undefined,
+            2,
+            false,
+          );
+          emit("terminalClose", { id, exitCode: code });
+        }),
+        options.pty.onDidChangeName?.((value) => {
+          if (!terminal._closed) {
+            terminal.name = String(value);
+            emit("terminalName", { id, name: terminal.name });
+          }
+        }),
       ];
     }
     const { pty, ...publicOptions } = options;
-    emit("terminalCreate", { id, options: { ...publicOptions, pseudoterminal: !!pty } });
+    emit("terminalCreate", {
+      id,
+      options: { ...publicOptions, pseudoterminal: !!pty },
+    });
     event("window.onDidOpenTerminal").fire(terminal);
     return terminal;
   };
   const workbenchCommands = {
-    "workbench.action.quickOpen": "files", "workbench.action.showCommands": "commands",
-    "workbench.action.toggleSidebarVisibility": "sidebar", "workbench.action.togglePanel": "terminal",
-    "workbench.action.toggleZenMode": "focus", "workbench.action.focusActiveEditorGroup": "focus-editor",
-    "workbench.action.terminal.focus": "focus-terminal", "workbench.action.terminal.toggleTerminal": "focus-terminal",
-    "workbench.action.terminal.new": "new-terminal", "workbench.action.terminal.split": "split-terminal",
-    "workbench.action.terminal.kill": "close-terminal", "workbench.action.files.saveAll": "save-all",
-    "workbench.action.files.newUntitledFile": "new", "workbench.action.files.openFolder": "open",
-    "workbench.action.splitEditorRight": "split", "workbench.action.nextEditor": "next-tab",
-    "workbench.action.previousEditor": "previous-tab", "workbench.action.closeAllEditors": "close-all",
-    "workbench.action.findInFiles": "global", "workbench.action.gotoLine": "goto",
-    "editor.action.formatDocument": "format", "editor.action.revealDefinition": "definition",
-    "editor.action.toggleWordWrap": "wrap", "actions.find": "find"
+    "workbench.action.quickOpen": "files",
+    "workbench.action.showCommands": "commands",
+    "workbench.action.toggleSidebarVisibility": "sidebar",
+    "workbench.action.togglePanel": "terminal",
+    "workbench.action.toggleZenMode": "focus",
+    "workbench.action.focusActiveEditorGroup": "focus-editor",
+    "workbench.action.terminal.focus": "focus-terminal",
+    "workbench.action.terminal.toggleTerminal": "focus-terminal",
+    "workbench.action.terminal.new": "new-terminal",
+    "workbench.action.terminal.split": "split-terminal",
+    "workbench.action.terminal.kill": "close-terminal",
+    "workbench.action.files.saveAll": "save-all",
+    "workbench.action.files.newUntitledFile": "new",
+    "workbench.action.files.openFolder": "open",
+    "workbench.action.splitEditorRight": "split",
+    "workbench.action.nextEditor": "next-tab",
+    "workbench.action.previousEditor": "previous-tab",
+    "workbench.action.closeAllEditors": "close-all",
+    "workbench.action.findInFiles": "global",
+    "workbench.action.gotoLine": "goto",
+    "editor.action.formatDocument": "format",
+    "editor.action.revealDefinition": "definition",
+    "editor.action.toggleWordWrap": "wrap",
+    "actions.find": "find",
   };
   const providerCommands = {
-    "vscode.executeHoverProvider": "provideHover", "vscode.executeDefinitionProvider": "provideDefinition",
-    "vscode.executeDeclarationProvider": "provideDeclaration", "vscode.executeTypeDefinitionProvider": "provideTypeDefinition",
-    "vscode.executeImplementationProvider": "provideImplementation", "vscode.executeDocumentSymbolProvider": "provideDocumentSymbols",
-    "vscode.executeCompletionItemProvider": "provideCompletionItems", "vscode.executeCodeActionProvider": "provideCodeActions",
-    "vscode.executeFormatDocumentProvider": "provideDocumentFormattingEdits"
+    "vscode.executeHoverProvider": "provideHover",
+    "vscode.executeDefinitionProvider": "provideDefinition",
+    "vscode.executeDeclarationProvider": "provideDeclaration",
+    "vscode.executeTypeDefinitionProvider": "provideTypeDefinition",
+    "vscode.executeImplementationProvider": "provideImplementation",
+    "vscode.executeDocumentSymbolProvider": "provideDocumentSymbols",
+    "vscode.executeCompletionItemProvider": "provideCompletionItems",
+    "vscode.executeCodeActionProvider": "provideCodeActions",
+    "vscode.executeFormatDocumentProvider": "provideDocumentFormattingEdits",
   };
   const getCommands = api.commands.getCommands;
-  api.commands.getCommands = async (filterInternal = false) => [...new Set([
-    ...await getCommands(), ...[...extensions.values()].flatMap((extension) => (extension.manifest?.contributes?.commands ?? []).map((command) => command.command)), ...Object.keys(workbenchCommands), ...Object.keys(providerCommands),
-    "setContext", "vscode.open", "vscode.openWith", "vscode.diff", "workbench.action.files.save", "workbench.action.closeActiveEditor", "workbench.action.openSettings", "workbench.action.openGlobalSettings"
-  ])].filter((id) => !filterInternal || !id.startsWith("_"));
+  api.commands.getCommands = async (filterInternal = false) =>
+    [
+      ...new Set([
+        ...(await getCommands()),
+        ...[...extensions.values()].flatMap((extension) =>
+          (extension.manifest?.contributes?.commands ?? []).map(
+            (command) => command.command,
+          ),
+        ),
+        ...Object.keys(workbenchCommands),
+        ...Object.keys(providerCommands),
+        "setContext",
+        "vscode.open",
+        "vscode.openWith",
+        "vscode.diff",
+        "workbench.action.files.save",
+        "workbench.action.closeActiveEditor",
+        "workbench.action.openSettings",
+        "workbench.action.openGlobalSettings",
+      ]),
+    ].filter((id) => !filterInternal || !id.startsWith("_"));
   const execute = api.commands.executeCommand;
   api.commands.executeCommand = async (id, ...args) => {
-    if (workbenchCommands[id]) return request("executeBuiltin", { command: workbenchCommands[id], args });
+    if (workbenchCommands[id])
+      return request("executeBuiltin", {
+        command: workbenchCommands[id],
+        args,
+      });
     if (providerCommands[id]) {
       const doc = await openDocument(args[0]);
       const method = providerCommands[id];
-      const values = await runtime.methods.languageFeature({ method, uri: doc.uri.toString(),
-        position: method !== "provideDocumentFormattingEdits" && method !== "provideDocumentSymbols" && method !== "provideCodeActions" ? args[1] : undefined,
+      const values = await runtime.methods.languageFeature({
+        method,
+        uri: doc.uri.toString(),
+        position:
+          method !== "provideDocumentFormattingEdits" &&
+          method !== "provideDocumentSymbols" &&
+          method !== "provideCodeActions"
+            ? args[1]
+            : undefined,
         range: method === "provideCodeActions" ? args[1] : undefined,
-        context: method === "provideDocumentFormattingEdits" ? args[1] : method === "provideCompletionItems" ? { triggerKind: args[2] ? 1 : 0, triggerCharacter: args[2] } : method === "provideCodeActions" ? { diagnostics: api.languages.getDiagnostics(doc.uri), only: args[2] ? new api.CodeActionKind(String(args[2])) : undefined, triggerKind: 1 } : args[2],
+        context:
+          method === "provideDocumentFormattingEdits"
+            ? args[1]
+            : method === "provideCompletionItems"
+              ? { triggerKind: args[2] ? 1 : 0, triggerCharacter: args[2] }
+              : method === "provideCodeActions"
+                ? {
+                    diagnostics: api.languages.getDiagnostics(doc.uri),
+                    only: args[2]
+                      ? new api.CodeActionKind(String(args[2]))
+                      : undefined,
+                    triggerKind: 1,
+                  }
+                : args[2],
       });
-      if (method === "provideCompletionItems") return { items: values.flatMap((value) => Array.isArray(value) ? value : value.items ?? []), isIncomplete: values.some((value) => value.isIncomplete) };
+      if (method === "provideCompletionItems")
+        return {
+          items: values.flatMap((value) =>
+            Array.isArray(value) ? value : (value.items ?? []),
+          ),
+          isIncomplete: values.some((value) => value.isIncomplete),
+        };
       return values.flat();
     }
     if (id === "setContext") {
       emit("context", { key: args[0], value: args[1] });
       return;
+    }
+    for (const extension of extensions.values()) {
+      const containers = Object.values(
+        extension.manifest.contributes?.viewsContainers || {},
+      ).flat();
+      const container = containers.find(
+        (c) => id === "workbench.view.extension." + c.id,
+      );
+      if (container) {
+        emit("focusContainer", { id: container.id, extension: extension.id });
+        return;
+      }
     }
     if (id.endsWith(".focus")) {
       const viewId = id.slice(0, -6);
@@ -926,7 +1185,8 @@ module.exports = function installRuntime(api, host) {
       }
     }
     if (id === "vscode.open" || id === "vscode.openWith") {
-      const uri = args[0];
+      const uri = typeof args[0] === "string" ? Uri.parse(args[0]) : args[0];
+      if (/^https?$/.test(uri?.scheme)) return api.env.openExternal(uri);
       if (id === "vscode.openWith" && customEditors.has(args[1])) {
         const entry = customEditors.get(args[1]);
         return host.scope.run(entry.ext, async () => {
@@ -1175,6 +1435,25 @@ module.exports = function installRuntime(api, host) {
   Object.assign(api, { NotebookCellOutputItem, TabInputCustom });
   const runtime = {
     request,
+    secrets(ext) {
+      const changed = new EventEmitter();
+      const call = (method, key, value) =>
+        host.scope.run(ext, () => request(method, { key, value }));
+      return {
+        onDidChange: changed.event,
+        get: async (key) => (await call("secretGet", key)) ?? undefined,
+        store: async (key, value) => {
+          if (typeof value !== "string")
+            throw new TypeError("Secret must be a string");
+          await call("secretStore", key, value);
+          changed.fire({ key });
+        },
+        delete: async (key) => {
+          await call("secretDelete", key);
+          changed.fire({ key });
+        },
+      };
+    },
     updateDocument,
     environment(ext) {
       const file = path.join(host.storage(), ext.id, "environment.json");
@@ -1224,13 +1503,21 @@ module.exports = function installRuntime(api, host) {
     methods: {
       async readDocument({ uri }) {
         const doc = await openDocument(Uri.parse(uri));
-        return { text: doc.getText(), languageId: doc.languageId, readOnly: readOnlyDocument(doc.uri) };
+        return {
+          text: doc.getText(),
+          languageId: doc.languageId,
+          readOnly: readOnlyDocument(doc.uri),
+        };
       },
       async saveVirtualDocument({ uri, text }) {
         const parsed = Uri.parse(uri);
         await api.workspace.fs.writeFile(parsed, Buffer.from(text));
         const doc = documents.get(uri);
-        if (doc) updateDocument({ uri, text, isDirty: false, languageId: doc.languageId }, "save");
+        if (doc)
+          updateDocument(
+            { uri, text, isDirty: false, languageId: doc.languageId },
+            "save",
+          );
         return true;
       },
       async fileOperations({ files = [] }) {
@@ -1351,7 +1638,11 @@ module.exports = function installRuntime(api, host) {
       },
       async documentSaved({ uri, text }) {
         const doc = documents.get(uri);
-        if (doc) updateDocument({ uri, text, isDirty: false, languageId: doc.languageId }, "save");
+        if (doc)
+          updateDocument(
+            { uri, text, isDirty: false, languageId: doc.languageId },
+            "save",
+          );
       },
       async handleUri({ uri }) {
         const value = Uri.parse(uri);
@@ -1374,16 +1665,27 @@ module.exports = function installRuntime(api, host) {
         if (terminal._openPromise) return terminal._openPromise;
         terminal._openPromise = host.scope.run(terminal._ext, async () => {
           terminal._ptyOpened = true;
-          for (const text of terminal._pendingOutput.splice(0)) emit("pseudoTerminalOutput", { id, text });
+          for (const text of terminal._pendingOutput.splice(0))
+            emit("pseudoTerminalOutput", { id, text });
           terminal._outputBytes = 0;
           await terminal._pty.open(dimensions);
           if (terminal._closed) return;
           terminal._ptyReady = true;
-          for (const text of terminal._pendingInput.splice(0)) await pseudoInput(terminal, text);
+          for (const text of terminal._pendingInput.splice(0))
+            await pseudoInput(terminal, text);
           terminal._inputBytes = 0;
         });
-        try { await terminal._openPromise; }
-        catch (error) { emit("notification", { kind: "error", message: `Pseudoterminal failed: ${error.message}` }); closeTerminal(terminal, undefined, 2); emit("terminalClose", { id }); throw error; }
+        try {
+          await terminal._openPromise;
+        } catch (error) {
+          emit("notification", {
+            kind: "error",
+            message: `Pseudoterminal failed: ${error.message}`,
+          });
+          closeTerminal(terminal, undefined, 2);
+          emit("terminalClose", { id });
+          throw error;
+        }
       },
       pseudoTerminalInput({ id, text }) {
         const terminal = terminals.find((t) => t._id === id);
@@ -1392,7 +1694,9 @@ module.exports = function installRuntime(api, host) {
       async pseudoTerminalResize({ id, dimensions }) {
         const terminal = terminals.find((t) => t._id === id);
         if (!terminal?._ptyOpened || terminal._closed) return;
-        return host.scope.run(terminal._ext, () => terminal._pty.setDimensions?.(dimensions));
+        return host.scope.run(terminal._ext, () =>
+          terminal._pty.setDimensions?.(dimensions),
+        );
       },
       async languageFeature({ method, uri, position: pos, range: r, context }) {
         const doc = documents.get(uri);
@@ -1426,7 +1730,10 @@ module.exports = function installRuntime(api, host) {
       },
     },
     shutdown() {
-      for (const terminal of [...terminals]) { closeTerminal(terminal, undefined, 1); emit("terminalClose", { id: terminal._id }); }
+      for (const terminal of [...terminals]) {
+        closeTerminal(terminal, undefined, 1);
+        emit("terminalClose", { id: terminal._id });
+      }
       for (const dispose of watcherDisposables) dispose();
       for (const p of pending.values())
         p.reject(new Error("Extension host shutting down"));

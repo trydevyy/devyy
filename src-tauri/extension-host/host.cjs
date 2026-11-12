@@ -73,6 +73,13 @@ class Uri {
   static file(value) {
     return new Uri(pathToFileURL(value).href);
   }
+  static isUri(value) {
+    return value instanceof Uri;
+  }
+  static revive(value) {
+    if (!value || value instanceof Uri) return value;
+    return value.external ? Uri.parse(value.external) : Uri.from(value);
+  }
   static parse(value) {
     return new Uri(value);
   }
@@ -104,7 +111,11 @@ class Uri {
   }
   toJSON() {
     return {
+      $mid: 1,
       scheme: this.scheme,
+      authority: this.authority,
+      query: this.query,
+      fragment: this.fragment,
       path: this.path,
       fsPath: this.fsPath,
       external: this.value,
@@ -363,6 +374,7 @@ async function treeItems(id, parent) {
               ? item.tooltip
               : item.tooltip?.value,
           collapsibleState: item.collapsibleState || 0,
+          contextValue: item.contextValue,
           icon: item.iconPath?.id,
           command: item.command
             ? { title: item.command.title, command: item.command.command }
@@ -372,14 +384,17 @@ async function treeItems(id, parent) {
     );
   });
 }
-function makeWebview(id, title, options, ext = own()) {
+function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
   const received = new EventEmitter(),
     disposed = new EventEmitter(),
-    changed = new EventEmitter();
+    changed = new EventEmitter(),
+    visibility = new EventEmitter();
   const record = {
     id,
     title,
     html: "",
+    visible: true,
+    active: true,
     options: options || {},
     ext,
     received,
@@ -391,6 +406,7 @@ function makeWebview(id, title, options, ext = own()) {
       title: record.title,
       html: record.html,
       enableScripts: !!record.options.enableScripts,
+      viewKind,
       extension: ext.id,
     });
   const resourceToken = require("node:crypto").randomUUID();
@@ -471,11 +487,15 @@ function makeWebview(id, title, options, ext = own()) {
       record.title = value;
       publish();
     },
-    visible: true,
-    active: true,
+    get visible() {
+      return record.visible;
+    },
+    get active() {
+      return record.active;
+    },
     onDidDispose: disposed.event,
     onDidChangeViewState: changed.event,
-    onDidChangeVisibility: changed.event,
+    onDidChangeVisibility: visibility.event,
     reveal() {
       publish();
     },
@@ -490,6 +510,15 @@ function makeWebview(id, title, options, ext = own()) {
     },
   };
   record.panel = panel;
+  record.setState = (visible, active) => {
+    const wasVisible = record.visible,
+      wasActive = record.active;
+    record.visible = visible;
+    record.active = active;
+    if (wasVisible !== visible) visibility.fire();
+    if (wasVisible !== visible || wasActive !== active)
+      changed.fire({ webviewPanel: panel });
+  };
   webviews.set(id, record);
   return panel;
 }
@@ -511,14 +540,20 @@ function outputChannel(name) {
     dispose() {},
   };
 }
-function registerServer(languages, launch, clientOptions = {}) {
+function registerServer(languages, launch, clientOptions = {}, clientId) {
+  const registered = [];
   const ext = own();
   for (const selector of languages || []) {
     const language =
       typeof selector === "string" ? selector : selector.language;
     if (!language || language === "*") continue;
+    registered.push(language);
     emit("languageServer", {
       language,
+      clientId,
+      clientCapabilities: clientOptions.capabilities || null,
+      env: launch.options?.env || {},
+      cwd: launch.options?.cwd?.fsPath || launch.options?.cwd,
       command: launch.command,
       args: launch.args || [],
       initializationOptions: clientOptions.initializationOptions || null,
@@ -528,7 +563,9 @@ function registerServer(languages, launch, clientOptions = {}) {
       source: ext.id,
     });
   }
+  return registered;
 }
+const languageClients = new Map();
 class LanguageClient {
   constructor(id, name, serverOptions, clientOptions) {
     if (typeof name !== "string") {
@@ -541,10 +578,101 @@ class LanguageClient {
     this.ext = own();
     this.outputChannel = outputChannel(id);
     this.state = 1;
+    this.notifications = new Map();
+    this.requests = new Map();
+    this.started = undefined;
+    this.features = [];
+    this.code2ProtocolConverter = {
+      asUri: (uri) => uri.toString(),
+      asPosition: (p) => ({ line: p.line, character: p.character }),
+      asRange: (r) => ({
+        start: { line: r.start.line, character: r.start.character },
+        end: { line: r.end.line, character: r.end.character },
+      }),
+      asTextDocumentIdentifier: (doc) => ({ uri: doc.uri.toString() }),
+      asVersionedTextDocumentIdentifier: (doc) => ({
+        uri: doc.uri.toString(),
+        version: doc.version,
+      }),
+      asTextDocumentItem: (doc) => ({
+        uri: doc.uri.toString(),
+        languageId: doc.languageId,
+        version: doc.version,
+        text: doc.getText(),
+      }),
+      asTextDocumentPositionParams: (doc, position) => ({
+        textDocument: { uri: doc.uri.toString() },
+        position: { line: position.line, character: position.character },
+      }),
+      asTextEdit: (edit) => ({ range: edit.range, newText: edit.newText }),
+      asDiagnostic: (d) => ({
+        ...d,
+        severity: d.severity === undefined ? undefined : d.severity + 1,
+      }),
+    };
+    const toRange = (r) =>
+      r
+        ? new Range(
+            new Position(r.start.line, r.start.character),
+            new Position(r.end.line, r.end.character),
+          )
+        : undefined;
+    const toLocation = (l) =>
+      l ? { uri: Uri.parse(l.uri), range: toRange(l.range) } : undefined;
+    this.protocol2CodeConverter = {
+      asUri: (uri) => Uri.parse(uri),
+      asPosition: (p) => (p ? new Position(p.line, p.character) : undefined),
+      asRange: toRange,
+      asLocation: toLocation,
+      asLocations: (values) => values?.map(toLocation),
+      asTextEdit: (edit) =>
+        edit ? new api.TextEdit(toRange(edit.range), edit.newText) : undefined,
+      asTextEdits: (edits) =>
+        edits?.map(
+          (edit) => new api.TextEdit(toRange(edit.range), edit.newText),
+        ),
+      asDiagnostic: (d) =>
+        d
+          ? {
+              ...d,
+              range: toRange(d.range),
+              severity: d.severity === undefined ? undefined : d.severity - 1,
+            }
+          : undefined,
+      asDiagnostics: (ds) =>
+        ds?.map((d) => ({
+          ...d,
+          range: toRange(d.range),
+          severity: d.severity === undefined ? undefined : d.severity - 1,
+        })),
+      asHover: (h) =>
+        h
+          ? {
+              ...h,
+              range: toRange(h.range),
+              contents: Array.isArray(h.contents) ? h.contents : [h.contents],
+            }
+          : undefined,
+      asWorkspaceEdit: (value) => {
+        if (!value) return;
+        const edit = new api.WorkspaceEdit();
+        for (const [uri, edits] of Object.entries(value.changes || {}))
+          edit.set(
+            Uri.parse(uri),
+            edits.map((e) => new api.TextEdit(toRange(e.range), e.newText)),
+          );
+        if (value.documentChanges?.length)
+          throw Error(
+            "Document-change WorkspaceEdit conversion is not implemented",
+          );
+        return edit;
+      },
+    };
     this.changed = new EventEmitter();
     this.onDidChangeState = this.changed.event;
   }
   start() {
+    if (this.started) return this.started;
     const pending = scope.run(this.ext, async () => {
       let launch =
         typeof this.serverOptions === "function"
@@ -554,18 +682,26 @@ class LanguageClient {
       if (!launch)
         throw new Error("Language server did not provide launch options");
       if (launch.module) {
-        if (launch.transport !== undefined && launch.transport !== 0)
-          throw new Error(
-            "This language server uses a transport other than stdio",
-          );
+        const transport =
+          typeof launch.transport === "object"
+            ? launch.transport.kind
+            : (launch.transport ?? 0);
+        if (![0, 1, 2, 3].includes(transport))
+          throw new Error("Unknown language-server transport");
         launch = {
           command: process.execPath,
           args: [
             ...(launch.options?.execArgv || []),
-            launch.module,
-            ...(launch.args || []),
-            "--stdio",
+            ...(transport === 0
+              ? [launch.module, ...(launch.args || []), "--stdio"]
+              : [
+                  path.join(__dirname, "lsp-transport.cjs"),
+                  String(transport),
+                  launch.module,
+                  ...(launch.args || []),
+                ]),
           ],
+          options: launch.options,
         };
       }
       if (!launch.command)
@@ -574,20 +710,52 @@ class LanguageClient {
         );
       if (launch.transport !== undefined && launch.transport !== 0)
         throw new Error("Only stdio language servers are currently supported");
-      if (launch.options?.env || launch.options?.cwd)
-        throw new Error("Custom server environment/cwd is not implemented");
-      const options = { ...this.clientOptions };
+      const options = { ...this.clientOptions, capabilities: {} };
+      for (const feature of this.features)
+        feature.fillClientCapabilities?.(options.capabilities);
       if (typeof options.initializationOptions === "function")
         options.initializationOptions = await options.initializationOptions();
-      registerServer(options.documentSelector, launch, options);
+      const languages = registerServer(
+        options.documentSelector,
+        launch,
+        options,
+        this.id,
+      );
+      if (!languages.length)
+        throw new Error(
+          "LanguageClient requires at least one concrete language selector",
+        );
+      this.language = languages[0];
+      for (const language of languages) languageClients.set(language, this);
+      this.initializeResult = await runtime.request("languageClientStart", {
+        language: this.language,
+      });
+      for (const feature of this.features)
+        await feature.initialize?.(
+          this.initializeResult?.capabilities || {},
+          options.documentSelector,
+        );
       this.state = 2;
       this.changed.fire({ oldState: 1, newState: 2 });
     });
-    (this.ext.pendingStarts ??= []).push(pending);
+    this.started = pending;
+    (this.ext.pendingStarts ??= new Set()).add(pending);
+    pending.then(
+      () => this.ext.pendingStarts.delete(pending),
+      (error) => {
+        this.ext.pendingStarts.delete(pending);
+        this.started = undefined;
+        this.state = 1;
+        emit("output", {
+          name: this.id,
+          text: `Language server failed: ${error.message}`,
+        });
+      },
+    );
     return pending;
   }
   onReady() {
-    return Promise.resolve();
+    return this.started || this.start();
   }
   needsStart() {
     return this.state !== 2;
@@ -599,29 +767,69 @@ class LanguageClient {
     return this.state === 2;
   }
   registerProposedFeatures() {}
-  registerFeature() {
-    unsupported("LanguageClient.registerFeature");
+  registerFeature(feature) {
+    if (!feature || typeof feature !== "object")
+      throw new TypeError("Expected a language client feature");
+    this.features.push(feature);
   }
-  sendRequest() {
-    return Promise.reject(
-      new Error("Custom LanguageClient requests are not implemented"),
+  getFeature(method) {
+    return this.features.find(
+      (feature) => feature.registrationType?.method === method,
     );
   }
-  sendNotification() {
-    return Promise.reject(
-      new Error("Custom LanguageClient notifications are not implemented"),
+  async sendRequest(method, params, token) {
+    await this.onReady();
+    if (token?.isCancellationRequested)
+      throw new Error("Language server request cancelled");
+    return scope.run(this.ext, () =>
+      runtime.request("languageClientRequest", {
+        language: this.language,
+        method: typeof method === "string" ? method : method.method,
+        params: params ?? null,
+        notification: false,
+      }),
     );
   }
-  onNotification() {
-    return new Disposable();
+  async sendNotification(method, params) {
+    await this.onReady();
+    return scope.run(this.ext, () =>
+      runtime.request("languageClientRequest", {
+        language: this.language,
+        method: typeof method === "string" ? method : method.method,
+        params: params ?? null,
+        notification: true,
+      }),
+    );
   }
-  onRequest() {
-    return new Disposable();
+  onNotification(method, handler) {
+    return this.listen(this.notifications, method, handler);
+  }
+  onRequest(method, handler) {
+    return this.listen(this.requests, method, handler);
+  }
+  listen(map, method, handler) {
+    const name = typeof method === "string" ? method : method.method;
+    const entry = scoped(handler, this.ext);
+    map.set(name, entry);
+    return new Disposable(() => {
+      if (map.get(name) === entry) map.delete(name);
+    });
   }
   async stop() {
+    if (!this.language) return;
+    await scope.run(this.ext, () =>
+      runtime.request("languageClientStop", { language: this.language }),
+    );
+    for (const [language, client] of languageClients)
+      if (client === this) languageClients.delete(language);
+    const oldState = this.state;
     this.state = 1;
+    this.started = undefined;
+    this.changed.fire({ oldState, newState: 1 });
   }
   dispose() {
+    void this.stop().catch((error) => console.error(error.message));
+    for (const feature of this.features) feature.dispose?.();
     this.changed.dispose();
   }
 }
@@ -657,7 +865,9 @@ const api = {
       const ext = own();
       const entry = { fn: scoped(fn.bind(self), ext), ext };
       commands.set(id, entry);
-      return new Disposable(() => { if (commands.get(id) === entry) commands.delete(id); });
+      return new Disposable(() => {
+        if (commands.get(id) === entry) commands.delete(id);
+      });
     },
     registerTextEditorCommand() {
       unsupported("commands.registerTextEditorCommand");
@@ -668,9 +878,15 @@ const api = {
         emit("openFile", { uri: args[0]?.toString() });
         return;
       }
-      await activateEvent("onCommand:" + id);
+      let errors = [];
+      if (!commands.has(id)) errors = await activateEvent("onCommand:" + id);
       const command = commands.get(id);
-      if (!command) throw new Error(`Command is not supported: ${id}`);
+      if (!command)
+        throw new Error(
+          errors.length
+            ? `Could not activate command ${id}: ${errors.join("; ")}`
+            : `No extension registered command: ${id}`,
+        );
       const result = await command.fn(...args);
       await Promise.all(command.ext.pendingStarts || []);
       return result;
@@ -897,6 +1113,7 @@ async function activate(ext, chain = new Set()) {
         ),
         asAbsolutePath: (relative) => path.join(ext.path, relative),
         environmentVariableCollection: runtime.environment(ext),
+        secrets: runtime.secrets(ext),
       };
       ext.context = context;
       ext.module = require(file);
@@ -934,7 +1151,7 @@ function matches(ext, event) {
 async function activateEvent(event) {
   const result = await Promise.allSettled(
     [...extensions.values()]
-      .filter((ext) => matches(ext, event))
+      .filter((ext) => !ext.active && ext !== current() && matches(ext, event))
       .map((ext) => activate(ext)),
   );
   return result
@@ -950,6 +1167,15 @@ function snapshot() {
 }
 const methods = {
   ...runtime.methods,
+  async languageServerMessage({ language, method, params, request }) {
+    const client = languageClients.get(language);
+    const callback = (request ? client?.requests : client?.notifications)?.get(
+      method,
+    );
+    if (callback) return callback(params);
+    if (request) throw new Error("No extension handler for " + method);
+    return null;
+  },
   async initialize(params) {
     workspaceRoot = params.workspaceRoot || undefined;
     webviewOrigin = params.webviewOrigin || webviewOrigin;
@@ -1013,10 +1239,28 @@ const methods = {
     return snapshot();
   },
   command: async ({ id, args = [] }) => {
-    await api.commands.executeCommand(id, ...args);
-    return null;
+    const revive = (value) => {
+      if (Array.isArray(value)) return value.map(revive);
+      if (value && typeof value === "object") {
+        if (value.$mid === 1 || (value.scheme && value.external))
+          return Uri.revive(value);
+        return Object.fromEntries(
+          Object.entries(value).map(([k, v]) => [k, revive(v)]),
+        );
+      }
+      return value;
+    };
+    return api.commands.executeCommand(id, ...revive(args));
   },
   tree: ({ id, parent }) => treeItems(id, parent),
+  treeMenuCommand: async ({ id, key, command }) => {
+    const tree = trees.get(id);
+    if (!tree || !tree.nodes.has(key))
+      throw new Error("Tree item is no longer available");
+    return scope.run(tree.ext, () =>
+      api.commands.executeCommand(command, tree.nodes.get(key)),
+    );
+  },
   treeCommand: async ({ id, key }) => {
     const tree = trees.get(id);
     if (!tree) return;
@@ -1035,13 +1279,30 @@ const methods = {
     if (!entry) throw new Error(`No webview provider registered for ${id}`);
     if (!webviews.has(id))
       await scope.run(entry.ext, async () => {
-        const panel = makeWebview(id, id, {}, entry.ext);
+        const definition = Object.values(
+          entry.ext.manifest.contributes?.views || {},
+        )
+          .flat()
+          .find((view) => view.id === id);
+        const panel = makeWebview(
+          id,
+          definition?.name || id,
+          {},
+          entry.ext,
+          "view",
+        );
         await entry.provider.resolveWebviewView(
           panel,
           {},
           new CancellationTokenSource().token,
         );
       });
+    return null;
+  },
+  webviewState: ({ id, visible, active }) => {
+    const record = webviews.get(id);
+    if (record)
+      scope.run(record.ext, () => record.setState(!!visible, !!active));
     return null;
   },
   webviewMessage: ({ id, message }) => {

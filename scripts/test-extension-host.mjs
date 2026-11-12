@@ -19,13 +19,51 @@ async function fixture(t) {
   });
   const pending = new Map(),
     events = [];
+  const secrets = new Map();
   let serial = 0;
   readline.createInterface({ input: child.stdout }).on("line", (line) => {
     const value = JSON.parse(line);
     if (value.id) {
       pending.get(value.id)?.(value);
       pending.delete(value.id);
-    } else events.push(value);
+    } else {
+      events.push(value);
+      if (
+        value.event === "workbenchRequest" &&
+        ["languageClientStart", "languageClientStop"].includes(
+          value.payload.method,
+        )
+      )
+        child.stdin.write(
+          JSON.stringify({
+            id: ++serial,
+            method: "workbenchResponse",
+            params: { id: value.payload.id, result: true },
+          }) + "\n",
+        );
+      if (
+        value.event === "workbenchRequest" &&
+        ["secretGet", "secretStore", "secretDelete"].includes(
+          value.payload.method,
+        )
+      ) {
+        const { method, extension, params } = value.payload,
+          key = extension + ":" + params.key;
+        if (method === "secretStore") secrets.set(key, params.value);
+        if (method === "secretDelete") secrets.delete(key);
+        child.stdin.write(
+          JSON.stringify({
+            id: ++serial,
+            method: "workbenchResponse",
+            params: {
+              id: value.payload.id,
+              result:
+                method === "secretGet" ? (secrets.get(key) ?? null) : null,
+            },
+          }) + "\n",
+        );
+      }
+    }
   });
   let stderr = "";
   child.stderr.on("data", (chunk) => {
@@ -141,7 +179,7 @@ test(
     );
     await assert.rejects(
       f.request("command", { id: "broken.go" }),
-      /not supported/,
+      /No extension registered command/,
     );
     status = await f.request("status");
     assert.equal(status.find((s) => s.id === broken.id).status, "error");
@@ -573,5 +611,86 @@ test(
       reason: 3,
     });
     await f.request("command", { id: "pseudo.closed" });
+  },
+);
+
+test(
+  "commands called during activation do not deadlock, return values, and revive URI arguments",
+  { timeout: 8000 },
+  async (t) => {
+    const f = await fixture(t);
+    const ext = await f.extension(
+      "command-cycle",
+      {
+        activationEvents: ["*"],
+        contributes: {
+          commands: [{ command: "cycle.inspect", title: "Inspect" }],
+        },
+      },
+      `
+    const v = require('vscode');
+    exports.activate = async () => {
+      v.commands.registerCommand('cycle.inner', value => value + 1);
+      const n = await v.commands.executeCommand('cycle.inner', 3);
+      await v.commands.executeCommand('setContext', 'cycle.ready', n === 4);
+      v.commands.registerCommand('cycle.inspect', uri => ({ path: uri.fsPath, joined: v.Uri.joinPath(uri, 'child').toString(), isUri: v.Uri.isUri(uri) }));
+    };
+  `,
+    );
+    await f.request("initialize", {
+      extensions: [ext],
+      workspaceRoot: f.root,
+      storageRoot: path.join(f.root, "state"),
+    });
+    const result = await f.request("command", {
+      id: "cycle.inspect",
+      args: [{ $mid: 1, scheme: "file", path: f.root }],
+    });
+    assert.equal(result.path, f.root);
+    assert.equal(result.isUri, true);
+    assert.ok(result.joined.endsWith("/child"));
+    assert.ok(
+      f.events.some(
+        (e) =>
+          e.event === "context" &&
+          e.payload.key === "cycle.ready" &&
+          e.payload.value === true,
+      ),
+    );
+  },
+);
+
+test(
+  "extension secret storage awaits native operations and isolates extension namespaces",
+  { timeout: 8000 },
+  async (t) => {
+    const f = await fixture(t);
+    const first = await f.extension(
+      "secrets-one",
+      { activationEvents: ["*"] },
+      `const v=require('vscode');exports.activate=async context=>{const changes=[];context.secrets.onDidChange(e=>changes.push(e.key));await context.secrets.store('token','synthetic-test-secret');const saved=await context.secrets.get('token');await context.secrets.delete('token');await v.commands.executeCommand('setContext','secret.one',{saved,missing:await context.secrets.get('token')===undefined,changes});};`,
+    );
+    const second = await f.extension(
+      "secrets-two",
+      { activationEvents: ["*"] },
+      `const v=require('vscode');exports.activate=async context=>v.commands.executeCommand('setContext','secret.two',await context.secrets.get('token')===undefined);`,
+    );
+    await f.request("initialize", {
+      extensions: [first, second],
+      workspaceRoot: f.root,
+      storageRoot: path.join(f.root, "state"),
+    });
+    const one = f.events.find(
+      (e) => e.event === "context" && e.payload.key === "secret.one",
+    ).payload.value;
+    assert.equal(one.saved, "synthetic-test-secret");
+    assert.equal(one.missing, true);
+    assert.deepEqual(one.changes, ["token", "token"]);
+    assert.equal(
+      f.events.find(
+        (e) => e.event === "context" && e.payload.key === "secret.two",
+      ).payload.value,
+      true,
+    );
   },
 );
