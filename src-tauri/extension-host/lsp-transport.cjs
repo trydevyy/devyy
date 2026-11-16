@@ -1,4 +1,18 @@
-/* Bridges Node IPC, pipes and sockets to LSP stdio. No shell is involved. */
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 "use strict";
 const { fork } = require("node:child_process");
 const net = require("node:net");
@@ -9,6 +23,7 @@ const [kind, modulePath, ...args] = process.argv.slice(2);
 let child,
   server,
   stream,
+  pipePath,
   stopped = false;
 function stop(code = 0) {
   if (stopped) return;
@@ -16,6 +31,11 @@ function stop(code = 0) {
   stream?.destroy();
   server?.close();
   child?.kill();
+  if (pipePath && process.platform !== "win32") {
+    try {
+      require("node:fs").unlinkSync(pipePath);
+    } catch {}
+  }
   process.exit(code);
 }
 process.on("SIGTERM", () => stop());
@@ -102,11 +122,14 @@ if (kind === "1") {
     stop(1);
   });
   if (kind === "2") {
-    const name =
+    pipePath =
       process.platform === "win32"
         ? "\\\\.\\pipe\\devyy-lsp-" + crypto.randomUUID()
-        : path.join(os.tmpdir(), "devyy-lsp-" + crypto.randomUUID() + ".sock");
-    server.listen(name, () => launch("--pipe=" + name));
+        : path.join(
+            os.tmpdir().length > 60 ? "/tmp" : os.tmpdir(),
+            "devyy-lsp-" + crypto.randomBytes(6).toString("hex") + ".sock",
+          );
+    server.listen(pipePath, () => launch("--pipe=" + pipePath));
   } else {
     server.listen(0, "127.0.0.1", () =>
       launch("--socket=" + server.address().port),

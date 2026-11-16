@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 /* Devyy's process-isolated, deliberately bounded VS Code API adapter.
  * stdout is exclusively the bridge protocol. Extensions retain Node permissions.
  */
@@ -6,6 +21,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const readline = require("node:readline");
+const util = require("node:util");
 const { pathToFileURL, fileURLToPath } = require("node:url");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const scope = new AsyncLocalStorage();
@@ -156,8 +172,12 @@ class TreeItem {
   }
 }
 class MarkdownString {
-  constructor(value = "") {
+  constructor(value = "", supportThemeIcons = false) {
     this.value = value;
+    this.isTrusted = false;
+    this.supportThemeIcons = supportThemeIcons;
+    this.supportHtml = false;
+    this.baseUri = undefined;
   }
   appendText(text) {
     this.value += text;
@@ -184,18 +204,23 @@ class ThemeColor {
   }
 }
 class CancellationTokenSource {
-  constructor() {
+  constructor(parent) {
     this.emitter = new EventEmitter();
     this.token = {
       isCancellationRequested: false,
       onCancellationRequested: this.emitter.event,
     };
+    if (parent?.isCancellationRequested) this.cancel();
+    else this.parent = parent?.onCancellationRequested(() => this.cancel());
   }
   cancel() {
+    if (this.token.isCancellationRequested) return;
     this.token.isCancellationRequested = true;
     this.emitter.fire();
   }
-  dispose() {
+  dispose(cancel = false) {
+    if (cancel) this.cancel();
+    this.parent?.dispose();
     this.emitter.dispose();
   }
 }
@@ -273,7 +298,7 @@ function defaults() {
   return all;
 }
 const overrides = new Map();
-function configuration(section = "") {
+function configuration(section = "", scope) {
   const prefix = section ? section + "." : "";
   const get = (key, fallback) =>
     overrides.has(prefix + key)
@@ -283,12 +308,20 @@ function configuration(section = "") {
     {
       get,
       has: (key) => get(key) !== undefined,
-      inspect: (key) => ({
-        key: prefix + key,
-        defaultValue: defaults()[prefix + key],
-        globalValue: overrides.get(prefix + key),
-      }),
-      update: async (key, value) => {
+      inspect: (key) => {
+        const fullKey = prefix + key;
+        const def = defaults()[fullKey];
+        const glob = overrides.get(fullKey);
+        if (def === undefined && glob === undefined) return undefined;
+        return {
+          key: fullKey,
+          defaultValue: def,
+          globalValue: glob,
+          workspaceValue: undefined,
+          workspaceFolderValue: undefined,
+        };
+      },
+      update: async (key, value, configurationTarget, overrideInLanguage) => {
         if (value === undefined) overrides.delete(prefix + key);
         else overrides.set(prefix + key, value);
         fs.mkdirSync(storageRoot, { recursive: true });
@@ -344,22 +377,21 @@ function registerTree(id, provider) {
   );
 }
 async function treeItems(id, parent) {
-  await activateEvent("onView:" + id);
+  const errors = await activateEvent("onView:" + id);
   const tree = trees.get(id);
+  if (!tree && errors.length)
+    throw Error("Could not load this view: " + errors.join("; "));
   if (!tree) return [];
   return scope.run(tree.ext, async () => {
     const children =
       (await tree.provider.getChildren(
         parent ? tree.nodes.get(parent) : undefined,
       )) || [];
-    if (!parent) {
-      tree.nodes.clear();
-      tree.serial = 0;
-    }
+    if (!parent) tree.nodes.clear();
     return Promise.all(
       children.slice(0, 2000).map(async (element) => {
         const item = await tree.provider.getTreeItem(element);
-        const key = String(++tree.serial);
+        const key = item.id ? "item:" + item.id : "auto:" + ++tree.serial;
         tree.nodes.set(key, element);
         return {
           key,
@@ -384,7 +416,16 @@ async function treeItems(id, parent) {
     );
   });
 }
-function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
+function makeWebview(
+  id,
+  title,
+  options,
+  ext = own(),
+  viewKind = "panel",
+  placement = {},
+) {
+  if (typeof placement === "number") placement = { viewColumn: placement };
+  placement ??= {};
   const received = new EventEmitter(),
     disposed = new EventEmitter(),
     changed = new EventEmitter(),
@@ -407,6 +448,8 @@ function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
       html: record.html,
       enableScripts: !!record.options.enableScripts,
       viewKind,
+      viewColumn: panel.viewColumn,
+      preserveFocus: !!placement.preserveFocus,
       extension: ext.id,
     });
   const resourceToken = require("node:crypto").randomUUID();
@@ -479,7 +522,13 @@ function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
   const panel = {
     webview,
     viewType: id,
-    viewColumn: 1,
+    viewColumn: placement.viewColumn ?? 1,
+    iconPath: undefined,
+    description: undefined,
+    badge: undefined,
+    get options() {
+      return record.options || {};
+    },
     get title() {
       return record.title;
     },
@@ -496,11 +545,13 @@ function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
     onDidDispose: disposed.event,
     onDidChangeViewState: changed.event,
     onDidChangeVisibility: visibility.event,
-    reveal() {
+    reveal(viewColumn, preserveFocus = false) {
+      if (viewColumn !== undefined) panel.viewColumn = viewColumn;
       publish();
+      emit("focusWebview", { id, preserveFocus });
     },
-    show() {
-      publish();
+    show(preserveFocus = false) {
+      panel.reveal(undefined, preserveFocus);
     },
     dispose() {
       disposed.fire();
@@ -522,22 +573,69 @@ function makeWebview(id, title, options, ext = own(), viewKind = "panel") {
   webviews.set(id, record);
   return panel;
 }
-function outputChannel(name) {
+function outputChannel(name, options) {
+  emit("outputChannelCreated", { name });
+  let logLevel = 3;
+  const onDidChangeLogLevelEmitter = new EventEmitter();
+  const formatMsg = (msg, ...args) => {
+    if (args.length === 0) {
+      if (typeof msg === "string") return msg;
+      if (msg instanceof Error) return msg.stack || msg.message;
+      return util.inspect(msg);
+    }
+    return util.format(msg, ...args);
+  };
   const append = (text) => emit("output", { name, text: String(text) });
+  const appendLine = (text = "") =>
+    emit("output", { name, text: String(text) });
   return {
     name,
+    get logLevel() {
+      return logLevel;
+    },
+    set logLevel(level) {
+      const num = Number(level);
+      if (!Number.isNaN(num) && logLevel !== num) {
+        logLevel = num;
+        onDidChangeLogLevelEmitter.fire(num);
+      }
+    },
+    onDidChangeLogLevel: onDidChangeLogLevelEmitter.event,
     append,
-    appendLine: append,
-    trace: append,
-    debug: append,
-    info: append,
-    warn: append,
-    error: append,
-    clear() {},
-    show() {},
+    appendLine,
+    trace: (msg, ...args) => {
+      if (logLevel <= 1)
+        emit("output", { name, text: formatMsg(msg, ...args), level: "trace" });
+    },
+    debug: (msg, ...args) => {
+      if (logLevel <= 2)
+        emit("output", { name, text: formatMsg(msg, ...args), level: "debug" });
+    },
+    info: (msg, ...args) => {
+      if (logLevel <= 3)
+        emit("output", { name, text: formatMsg(msg, ...args), level: "info" });
+    },
+    warn: (msg, ...args) => {
+      if (logLevel <= 4)
+        emit("output", { name, text: formatMsg(msg, ...args), level: "warn" });
+    },
+    error: (msg, ...args) => {
+      if (logLevel <= 5)
+        emit("output", { name, text: formatMsg(msg, ...args), level: "error" });
+    },
+    clear() {
+      emit("outputClear", { name });
+    },
+    show(preserveFocus) {
+      emit("outputShow", { name, preserveFocus: Boolean(preserveFocus) });
+    },
     hide() {},
-    replace: append,
-    dispose() {},
+    replace(text) {
+      emit("outputReplace", { name, text: String(text) });
+    },
+    dispose() {
+      onDidChangeLogLevelEmitter.listeners.clear();
+    },
   };
 }
 function registerServer(languages, launch, clientOptions = {}, clientId) {
@@ -934,9 +1032,20 @@ const api = {
       readFile: async (uri) => fs.promises.readFile(uri.fsPath),
       writeFile: async (uri, bytes) => fs.promises.writeFile(uri.fsPath, bytes),
       stat: async (uri) => {
-        const s = await fs.promises.stat(uri.fsPath);
+        let s;
+        try {
+          s = await fs.promises.lstat(uri.fsPath);
+        } catch {
+          s = await fs.promises.stat(uri.fsPath);
+        }
         return {
-          type: s.isDirectory() ? 2 : 1,
+          type: s.isSymbolicLink()
+            ? 64
+            : s.isDirectory()
+              ? 2
+              : s.isFile()
+                ? 1
+                : 0,
           ctime: s.ctimeMs,
           mtime: s.mtimeMs,
           size: s.size,
@@ -944,7 +1053,10 @@ const api = {
       },
       readDirectory: async (uri) =>
         (await fs.promises.readdir(uri.fsPath, { withFileTypes: true })).map(
-          (e) => [e.name, e.isDirectory() ? 2 : 1],
+          (e) => [
+            e.name,
+            e.isSymbolicLink() ? 64 : e.isDirectory() ? 2 : e.isFile() ? 1 : 0,
+          ],
         ),
       createDirectory: async (uri) =>
         fs.promises.mkdir(uri.fsPath, { recursive: true }),
@@ -961,10 +1073,17 @@ const api = {
     registerTreeDataProvider: registerTree,
     createTreeView: (id, options) => registerTree(id, options.treeDataProvider),
     createWebviewPanel: (type, title, _column, options) =>
-      makeWebview(type + ":" + ++counter, title, options),
-    registerWebviewViewProvider(id, provider) {
+      makeWebview(
+        type + ":" + ++counter,
+        title,
+        options,
+        own(),
+        "panel",
+        _column,
+      ),
+    registerWebviewViewProvider(id, provider, options) {
       const ext = own();
-      providers.set(id, { provider, ext });
+      providers.set(id, { provider, ext, options });
       return new Disposable(() => providers.delete(id));
     },
     showInformationMessage: async (message) => {
@@ -1172,8 +1291,32 @@ const methods = {
     const callback = (request ? client?.requests : client?.notifications)?.get(
       method,
     );
+    if (method === "experimental/serverStatus" && params?.quiescent === true) {
+      for (const tree of trees.values())
+        if (tree.ext === client?.ext) emit("treeChanged", { id: tree.id });
+    }
     if (callback) return callback(params);
-    if (request) throw new Error("No extension handler for " + method);
+    if (request) {
+      if (
+        method === "workspace/diagnostic/refresh" ||
+        method === "workspace/codeLens/refresh" ||
+        method === "workspace/inlayHint/refresh" ||
+        method === "workspace/semanticTokens/refresh" ||
+        method === "workspace/inlineValue/refresh" ||
+        method === "workspace/foldingRange/refresh"
+      ) {
+        emit("lspRefresh", { language, method, params });
+        return null;
+      }
+      if (
+        method === "client/registerCapability" ||
+        method === "client/unregisterCapability" ||
+        method === "window/workDoneProgress/create"
+      ) {
+        return null;
+      }
+      throw new Error("No extension handler for " + method);
+    }
     return null;
   },
   async initialize(params) {
@@ -1215,6 +1358,7 @@ const methods = {
         extensionPath: ext.path,
         extensionUri: Uri.file(ext.path),
         packageJSON: manifest,
+        extensionKind: manifest.extensionKind?.includes?.("workspace") ? 2 : 1,
         get isActive() {
           return ext.active;
         },
@@ -1231,12 +1375,29 @@ const methods = {
         value: overrides.has(key) ? overrides.get(key) : value,
       });
     await activateEvent("onStartupFinished");
+    await require("./workspace-activation.cjs")({
+      root: workspaceRoot,
+      extensions: [...extensions.values()],
+      findFiles: api.workspace.findFiles,
+      activate,
+      report: (text) => emit("output", { name: "Extension activation", text }),
+    });
     return snapshot();
   },
   status: snapshot,
   activateLanguage: async ({ language }) => {
     await activateEvent("onLanguage:" + language);
     return snapshot();
+  },
+  readConfiguration: () => ({
+    ...defaults(),
+    ...Object.fromEntries(overrides),
+  }),
+  async updateConfiguration({ key, value, reset }) {
+    if (!Object.prototype.hasOwnProperty.call(defaults(), key))
+      throw Error("Unknown extension setting: " + key);
+    await configuration().update(key, reset ? undefined : value);
+    return null;
   },
   command: async ({ id, args = [] }) => {
     const revive = (value) => {
