@@ -1,4 +1,18 @@
-//! Extension secrets are encrypted at rest; only a small encryption key enters the OS keyring.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ring::{
     aead,
@@ -10,7 +24,7 @@ use tauri::{AppHandle, Manager};
 pub struct ExtensionSecrets(Mutex<()>);
 const MAX: usize = 2 * 1024 * 1024;
 fn cipher(id: &str, create: bool) -> Result<aead::LessSafeKey, String> {
-    let entry = keyring::Entry::new("app.devvy.editor.extension-secrets", id)
+    let entry = keyring::Entry::new("xyz.devyy.editor.extension-secrets", id)
         .map_err(|_| "Could not access extension credential store")?;
     let encoded = match entry.get_password() {
         Ok(key) => key,

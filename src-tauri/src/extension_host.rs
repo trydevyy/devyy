@@ -1,4 +1,18 @@
-//! Process boundary between third-party Node extensions and the editor UI.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::{
     language_config::ServerConfig,
     workspace::{root, Workspace},
@@ -116,6 +130,11 @@ fn start(
     let script = runtime.join("host.cjs");
     fs::write(&script, include_str!("../extension-host/host.cjs")).map_err(|e| e.to_string())?;
     fs::write(
+        runtime.join("workspace-activation.cjs"),
+        include_str!("../extension-host/workspace-activation.cjs"),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::write(
         runtime.join("lsp-transport.cjs"),
         include_str!("../extension-host/lsp-transport.cjs"),
     )
@@ -128,6 +147,11 @@ fn start(
     fs::write(
         runtime.join("runtime.cjs"),
         include_str!("../extension-host/runtime.cjs"),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::write(
+        runtime.join("quick-input.cjs"),
+        include_str!("../extension-host/quick-input.cjs"),
     )
     .map_err(|e| e.to_string())?;
     fs::write(
@@ -319,8 +343,6 @@ pub async fn extension_host_request(
             }
             slot.as_ref().unwrap().clone()
         };
-        // Responses must be allowed while initialize/commands await UI input.
-        // Never hold the host slot mutex across a round trip to the child.
         if matches!(method.as_str(), "restart" | "status" | "activateLanguage" | "command" | "tree" | "treeCommand" | "resolveView" | "handleUri") {
             let mut initialized = client.initialized.lock().map_err(|e| e.to_string())?;
             if !*initialized {

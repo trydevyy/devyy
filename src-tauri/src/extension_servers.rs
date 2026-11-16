@@ -1,5 +1,18 @@
-//! Deterministic server discovery. Never guess executable commands from arbitrary
-//! package files: use explicit Devyy contributions or known package layouts.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::{extensions::InstalledExtension, language_config::ServerConfig};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -36,8 +49,6 @@ pub fn discover(extensions: &[InstalledExtension]) -> Vec<ServerConfig> {
     let mut result = Vec::new();
     for ext in extensions.iter().filter(|e| e.enabled) {
         let base = Path::new(&ext.install_path);
-        // Devyy-aware extensions declare language, a package-relative executable
-        // or module, arguments and initialization options without JS activation.
         if let Some(entries) = ext.contributes["devyy.languageServers"].as_array() {
             for entry in entries {
                 let Some(language) = entry["language"].as_str() else {

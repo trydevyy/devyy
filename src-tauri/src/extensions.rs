@@ -1,5 +1,18 @@
-//! Open VSX packages and declarative contributions. Runtime activation lives in
-//! a separate Node process, never in the editor webview.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -257,7 +270,6 @@ fn unpack(
         if file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
             return Err("Symlinks are not allowed in extension packages".into());
         }
-        // Deny Windows device names and case collisions on every host for portable packages.
         for part in path.components() {
             if let Component::Normal(part) = part {
                 let part = part.to_string_lossy();
@@ -446,8 +458,6 @@ async fn download_package_with_progress(
         }
     }
     output.flush().await.map_err(|e| e.to_string())?;
-    // Close the writer before extraction; NamedTempFile removes partial and
-    // completed downloads on every exit path, including failed installations.
     drop(output);
     progress(size, total);
     Ok(package)

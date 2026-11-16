@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::workspace::{resolve, root, Workspace};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -177,7 +192,18 @@ pub async fn lsp_start<R: tauri::Runtime>(
         let mut client = Client { child, stdin, pending, next: AtomicU64::new(1), server_key, initialize_result: Value::Null };
         let uri = workspace_root.as_ref().and_then(|base|tauri::Url::from_directory_path(base).ok()).map(|u|u.to_string());
         let folders = uri.as_ref().map(|uri|json!([{"uri":uri,"name":base.file_name().unwrap_or_default().to_string_lossy()}]));
-        let mut capabilities=json!({"workspace":{"configuration":true,"workspaceFolders":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":false}},"publishDiagnostics":{"relatedInformation":true}},"general":{"positionEncodings":["utf-16"]}});
+        let mut capabilities=json!({"window":{"workDoneProgress":true},"workspace":{"configuration":true,"workspaceFolders":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":true,"insertReplaceSupport":true},"completionList":{"itemDefaults":["editRange","insertTextFormat"]}},"publishDiagnostics":{"relatedInformation":true}},"general":{"positionEncodings":["utf-16"]}});
+        merge_json(&mut capabilities, json!({"textDocument": {
+            "inlayHint": {"dynamicRegistration": false},
+            "codeLens": {"dynamicRegistration": false},
+            "semanticTokens": {
+                "dynamicRegistration": false,
+                "requests": {"range": false, "full": true},
+                "tokenTypes": ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator", "decorator"],
+                "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification", "documentation", "defaultLibrary"],
+                "formats": ["relative"], "overlappingTokenSupport": false, "multilineTokenSupport": false
+            }
+        }}));
         merge_json(&mut capabilities, client_capabilities);
         let initialized = client.request("initialize", json!({"processId":std::process::id(),"initializationOptions":initialization_options,"rootUri":uri,"workspaceFolders":folders,"capabilities":capabilities}));
         client.initialize_result = match initialized {Ok(result)=>result,Err(error)=>{let _=client.child.kill();let _=client.child.wait();return Err(error);}};
