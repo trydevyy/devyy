@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::workspace::{resolve, root, Workspace};
 use serde_json::{json, Value};
 use std::{
@@ -101,7 +116,6 @@ pub async fn debug_start<R: tauri::Runtime>(
                 let Ok(message) = serde_json::from_slice::<Value>(&bytes) else { continue };
                 if message["type"] == "response" { if let Some(seq) = message["request_seq"].as_u64() { if let Ok(mut map) = responses.lock() { if let Some(tx) = map.remove(&seq) { let _ = tx.send(message); } } } }
                 else if message["type"] == "event" { let _ = app.emit("debug-event", message); }
-                // Reverse requests are deliberately unsupported; debuggees use the output panel.
             }
         });
         let adapter = Arc::new(Adapter { child, stdin: Mutex::new(stdin), pending, sequence: AtomicU64::new(1) });

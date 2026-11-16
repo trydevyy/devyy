@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::workspace::{root, Workspace};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -44,7 +59,7 @@ pub async fn terminal_create<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let base = root(&workspace)?;
+    let base = root(&workspace).or_else(|_| app.path().home_dir().map_err(|e| e.to_string()))?;
     tauri::async_runtime::spawn_blocking(move || {
         create_session(app, base, cols, rows, profile, options)
     })

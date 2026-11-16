@@ -1,9 +1,12 @@
 [package]
 name = "devyy"
 version = "0.1.0"
-description = "A little less interface. A lot more flow."
-authors = ["devyy"]
+description = "Devyy, a modern developer editor and IDE"
+authors = ["Devyy contributors"]
+homepage = "https://github.com/trydevyy/devyy"
+repository = "https://github.com/trydevyy/devyy"
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "devyy_lib"
@@ -35,6 +38,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 json5 = "0.4"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "process", "sync", "time", "macros", "net"] }
+
+futures-util = "0.3"
+tokio-tungstenite = {version="0.29",features= ["rustls-tls-webpki-roots"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

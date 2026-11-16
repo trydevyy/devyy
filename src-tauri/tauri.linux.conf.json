@@ -1,20 +1,24 @@
 {
+  "bundle": {
+    "targets": [
+      "deb",
+      "appimage"
+    ]
+  },
   "app": {
     "windows": [
       {
-        "title": "devyy",
+        "label": "main",
+        "title": "Devyy",
         "width": 1440,
         "height": 940,
         "minWidth": 860,
         "minHeight": 600,
-        "decorations": true,
-        "transparent": false,
-        "backgroundColor": "#1b1c1e",
-        "theme": "Dark"
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "dragDropEnabled": false
       }
     ]
-  },
-  "bundle": {
-    "targets": ["deb", "appimage"]
   }
 }

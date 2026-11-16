@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use std::collections::HashMap;
 use tauri::{
     menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
@@ -6,11 +21,11 @@ use tauri::{
 
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = Menu::new(app)?;
-    let application = Submenu::new(app, "devyy", true)?;
+    let application = Submenu::new(app, "Devyy", true)?;
     application.append(&MenuItem::with_id(
         app,
         "about",
-        "About devyy",
+        "About Devyy",
         true,
         None::<&str>,
     )?)?;
@@ -38,7 +53,6 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         application.append(&PredefinedMenuItem::show_all(app, None)?)?;
     }
     application.append(&PredefinedMenuItem::separator(app)?)?;
-    // Route quit through the window close handler so unsaved changes are protected.
     application.append(&MenuItem::with_id(
         app,
         "quit-devyy",
@@ -157,6 +171,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         ],
     )?;
     menu.append(&window)?;
+    #[cfg(target_os = "macos")]
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
@@ -197,7 +212,6 @@ pub fn set_menu_shortcuts(app: AppHandle, bindings: HashMap<String, String>) -> 
     }
     let mut items = HashMap::new();
     collect(menu.items().map_err(|e| e.to_string())?, &mut items).map_err(|e| e.to_string())?;
-    // Clear first so reassignment never temporarily registers a duplicate accelerator.
     for id in bindings.keys() {
         if let Some(item) = items.get(id) {
             item.set_accelerator(None::<&str>)

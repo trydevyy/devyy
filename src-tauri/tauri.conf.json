@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "devyy",
+  "productName": "Devyy",
   "version": "0.1.0",
-  "identifier": "app.devvy.editor",
+  "identifier": "xyz.devyy.editor",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "devyy",
+        "title": "Devyy",
         "width": 1440,
         "height": 940,
         "minWidth": 860,
@@ -30,24 +30,144 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: https: http:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; frame-src 'self' devyy-extension: http://devyy-extension.localhost"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: https: http:; media-src 'self' data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; frame-src 'self' devyy-extension: http://devyy-extension.localhost"
     },
     "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app"
-    ],
+    "targets": "all",
     "category": "DeveloperTool",
-    "shortDescription": "Make room for your next idea.",
+    "shortDescription": "A modern developer editor and IDE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "rs"
+        ],
+        "name": "RS file",
+        "role": "Editor",
+        "mimeType": "text/x-rust"
+      },
+      {
+        "ext": [
+          "js"
+        ],
+        "name": "JS file",
+        "role": "Editor",
+        "mimeType": "application/javascript"
+      },
+      {
+        "ext": [
+          "ts"
+        ],
+        "name": "TS file",
+        "role": "Editor",
+        "mimeType": "text/typescript"
+      },
+      {
+        "ext": [
+          "tsx"
+        ],
+        "name": "TSX file",
+        "role": "Editor",
+        "mimeType": "text/tsx"
+      },
+      {
+        "ext": [
+          "jsx"
+        ],
+        "name": "JSX file",
+        "role": "Editor",
+        "mimeType": "text/jsx"
+      },
+      {
+        "ext": [
+          "py"
+        ],
+        "name": "PY file",
+        "role": "Editor",
+        "mimeType": "text/x-python"
+      },
+      {
+        "ext": [
+          "go"
+        ],
+        "name": "GO file",
+        "role": "Editor",
+        "mimeType": "text/x-go"
+      },
+      {
+        "ext": [
+          "html"
+        ],
+        "name": "HTML file",
+        "role": "Editor",
+        "mimeType": "text/html"
+      },
+      {
+        "ext": [
+          "css"
+        ],
+        "name": "CSS file",
+        "role": "Editor",
+        "mimeType": "text/css"
+      },
+      {
+        "ext": [
+          "json"
+        ],
+        "name": "JSON file",
+        "role": "Editor",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": [
+          "toml"
+        ],
+        "name": "TOML file",
+        "role": "Editor",
+        "mimeType": "application/toml"
+      },
+      {
+        "ext": [
+          "yaml"
+        ],
+        "name": "YAML file",
+        "role": "Editor",
+        "mimeType": "application/yaml"
+      },
+      {
+        "ext": [
+          "md"
+        ],
+        "name": "MD file",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": [
+          "txt"
+        ],
+        "name": "TXT file",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      }
+    ],
+    "publisher": "Devyy",
+    "homepage": "https://github.com/trydevyy/devyy",
+    "license": "GPL-3.0-only",
+    "copyright": "Copyright \u00a9 2026 Devyy contributors",
+    "longDescription": "Devyy is a Rust-powered developer editor with language servers, extensions, source control, terminals and an integrated AI workspace.",
+    "resources": {
+      "../LICENSE": "LICENSE"
+    }
   },
   "plugins": {
     "deep-link": {
@@ -57,5 +177,6 @@
         ]
       }
     }
-  }
+  },
+  "mainBinaryName": "Devyy"
 }

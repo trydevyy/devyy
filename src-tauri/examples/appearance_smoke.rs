@@ -1,5 +1,18 @@
-//! Run on macOS with `cargo run --example appearance_smoke` after building the frontend.
-//! Unlike a mock-runtime test, this creates real AppKit views on the main thread.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 #[path = "../src/appearance.rs"]
 mod appearance;
 #[path = "../src/menus.rs"]
@@ -10,7 +23,6 @@ use tauri::Manager;
 fn check_window_controls(window: &tauri::WebviewWindow) -> Result<(), Box<dyn std::error::Error>> {
     use objc2_app_kit::{NSWindow, NSWindowButton};
     use objc2_foundation::NSPoint;
-    // The example runs on AppKit's main thread and borrows the live Tauri window.
     let native = unsafe { &*(window.ns_window()? as *const NSWindow) };
     let content = native.contentView().ok_or("Missing content view")?;
     for kind in [
@@ -71,7 +83,6 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .ok_or("Main window missing")?;
-            // Include repeated enables to exercise the idempotent material lifecycle.
             for (theme, vibrancy) in [
                 ("midnight", true),
                 ("midnight", true),
@@ -93,8 +104,6 @@ fn main() {
         .expect("Native appearance smoke test failed");
     app.run(|handle, event| {
         if let tauri::RunEvent::Ready = event {
-            // Tao applies the custom inset during the first draw. Check after
-            // AppKit has laid out the titlebar, on its main thread.
             let app = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(750));

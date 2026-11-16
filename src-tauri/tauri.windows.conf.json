@@ -1,29 +1,23 @@
 {
+  "bundle": {
+    "targets": [
+      "nsis"
+    ]
+  },
   "app": {
     "windows": [
       {
-        "title": "devyy",
+        "label": "main",
+        "title": "Devyy",
         "width": 1440,
         "height": 940,
         "minWidth": 860,
         "minHeight": 600,
-        "decorations": true,
+        "decorations": false,
         "transparent": true,
-        "backgroundColor": "#1b1c1e",
-        "theme": "Dark"
+        "backgroundColor": "#00000000",
+        "dragDropEnabled": false
       }
     ]
-  },
-  "bundle": {
-    "targets": ["nsis"],
-    "windows": {
-      "nsis": {
-        "displayLanguageSelector": false,
-        "languages": ["English"]
-      },
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper"
-      }
-    }
   }
 }

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
@@ -58,7 +73,6 @@ pub fn display_path(path: &Path) -> String {
         text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
     }
 }
-// All frontend paths are workspace-relative. Canonicalization prevents symlink escapes.
 pub fn resolve(base: &Path, relative: &str, create: bool) -> Result<PathBuf, String> {
     let path = Path::new(relative);
     if relative.is_empty()
@@ -89,10 +103,10 @@ fn stamp(path: &Path) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     Ok(format!("{}:{}", modified.as_nanos(), m.len()))
 }
-fn entries(base: &Path) -> Vec<Entry> {
+fn scan_entries(base: &Path, depth: usize, limit: usize) -> Vec<Entry> {
     let mut out: Vec<Entry> = WalkBuilder::new(base)
         .hidden(false)
-        .max_depth(Some(20))
+        .max_depth(Some(depth))
         .filter_entry(|e| {
             !matches!(
                 e.file_name().to_str(),
@@ -102,7 +116,7 @@ fn entries(base: &Path) -> Vec<Entry> {
         .build()
         .filter_map(Result::ok)
         .filter(|e| e.path() != base)
-        .take(30_000)
+        .take(limit)
         .map(|e| Entry {
             path: e
                 .path()
@@ -114,16 +128,98 @@ fn entries(base: &Path) -> Vec<Entry> {
             directory: e.file_type().is_some_and(|f| f.is_dir()),
         })
         .collect();
-    out.sort_by(|a, b| {
-        b.directory
-            .cmp(&a.directory)
-            .then(a.path.to_lowercase().cmp(&b.path.to_lowercase()))
-    });
+    out.sort_by_cached_key(|entry| (!entry.directory, entry.path.to_lowercase()));
     out
 }
 
-// Reuse the bounded, ignore-aware project listing. Prefer actual logos over app
-// icons/favicons, and top-level assets over logos in nested example projects.
+fn entries(base: &Path) -> Vec<Entry> {
+    scan_entries(base, 20, 30_000)
+}
+fn explorer_entries(base: &Path, depth: usize, limit: usize) -> Vec<Entry> {
+    let mut pending = std::collections::VecDeque::from([(base.to_path_buf(), depth)]);
+    let mut out = Vec::new();
+    while let Some((dir, remaining)) = pending.pop_front() {
+        if remaining == 0 || out.len() >= limit {
+            continue;
+        }
+        let Ok(items) = fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut items: Vec<_> = items.filter_map(Result::ok).collect();
+        items.sort_by_key(|e| e.file_name());
+        for item in items {
+            if dir != base && out.len() >= limit {
+                break;
+            }
+            if item.file_name() == ".git" {
+                continue;
+            }
+            let Ok(kind) = item.file_type() else {
+                continue;
+            };
+            let path = item.path();
+            let directory = kind.is_dir();
+            let name = item.file_name().to_string_lossy().into_owned();
+            out.push(Entry {
+                path: path
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                name: name.clone(),
+                directory,
+            });
+            if directory
+                && !matches!(
+                    name.as_str(),
+                    "node_modules" | "target" | ".next" | "dist" | ".venv" | "vendor" | "build"
+                )
+            {
+                pending.push_back((path, remaining - 1));
+            }
+        }
+    }
+    out.sort_by_cached_key(|e| (!e.directory, e.path.to_lowercase()));
+    out
+}
+fn directory_entries(base: &Path, path: &str) -> Result<Vec<Entry>, String> {
+    let dir = resolve(base, path, false)?;
+    let mut out = Vec::new();
+    for item in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let item = item.map_err(|e| e.to_string())?;
+        if item.file_name() == ".git" {
+            continue;
+        }
+        out.push(Entry {
+            path: item
+                .path()
+                .strip_prefix(base)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/"),
+            name: item.file_name().to_string_lossy().into_owned(),
+            directory: item.file_type().map_err(|e| e.to_string())?.is_dir(),
+        });
+    }
+    out.sort_by_cached_key(|e| (!e.directory, e.name.to_lowercase()));
+    Ok(out)
+}
+#[tauri::command]
+pub async fn list_directory(
+    path: String,
+    state: State<'_, Workspace>,
+) -> Result<Vec<Entry>, String> {
+    let base = root(&state)?;
+    background(move || directory_entries(&base, &path)).await?
+}
+
+async fn background<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())
+}
 const MAX_LOGO_BYTES: u64 = 5 * 1024 * 1024;
 
 fn project_logo(base: &Path, files: &[Entry]) -> Option<String> {
@@ -206,7 +302,7 @@ fn project_logo(base: &Path, files: &[Entry]) -> Option<String> {
 }
 
 fn workspace_info(base: &Path) -> WorkspaceInfo {
-    let files = entries(base);
+    let files = explorer_entries(base, 20, 30_000);
     let logo = project_logo(base, &files);
     WorkspaceInfo {
         root: display_path(base),
@@ -224,23 +320,39 @@ pub async fn open_workspace(
     path: String,
     state: State<'_, Workspace>,
 ) -> Result<WorkspaceInfo, String> {
-    let base = PathBuf::from(path)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    if !base.is_dir() {
-        return Err("Choose a folder".into());
-    }
-    let info = workspace_info(&base);
+    let (base, info) = background(move || {
+        let base = PathBuf::from(path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if !base.is_dir() {
+            return Err("Choose a folder".to_string());
+        }
+        let files = explorer_entries(&base, 2, 2048);
+        let info = WorkspaceInfo {
+            root: display_path(&base),
+            name: base
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into(),
+            logo: project_logo(&base, &files),
+            files,
+        };
+        Ok::<_, String>((base, info))
+    })
+    .await??;
     *state.0.lock().map_err(|e| e.to_string())? = Some(base);
     Ok(info)
 }
 #[tauri::command]
 pub async fn refresh_workspace(state: State<'_, Workspace>) -> Result<WorkspaceInfo, String> {
-    Ok(workspace_info(&root(&state)?))
+    let base = root(&state)?;
+    background(move || workspace_info(&base)).await
 }
 #[tauri::command]
 pub async fn list_files(state: State<'_, Workspace>) -> Result<Vec<Entry>, String> {
-    Ok(entries(&root(&state)?))
+    let base = root(&state)?;
+    background(move || explorer_entries(&base, 20, 30_000)).await
 }
 #[tauri::command]
 pub async fn read_file(path: String, state: State<'_, Workspace>) -> Result<Document, String> {
@@ -275,6 +387,17 @@ fn write_document(
     content: &str,
     expected: &str,
 ) -> Result<String, String> {
+    if expected == "devyy:new" {
+        let full = resolve(base, path, true)?;
+        let mut file =
+            tempfile::NamedTempFile::new_in(full.parent().ok_or("Invalid new file path")?)
+                .map_err(|e| e.to_string())?;
+        use std::io::Write;
+        file.write_all(content.as_bytes())
+            .map_err(|e| e.to_string())?;
+        file.persist_noclobber(&full).map_err(|_|"A file appeared at this path. Reopen it before saving to avoid overwriting its contents.".to_string())?;
+        return stamp(&full);
+    }
     let full = resolve(base, path, false)?;
     if stamp(&full)? != expected {
         return Err(
@@ -319,10 +442,16 @@ pub async fn rename_file(
 }
 #[tauri::command]
 pub async fn delete_file(path: String, state: State<'_, Workspace>) -> Result<(), String> {
-    let full = resolve(&root(&state)?, &path, false)?;
-    // Empty directories only: a typo can never recursively remove a project.
-    if full.is_dir() {
-        fs::remove_dir(full)
+    let base = root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || delete_path(&base, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+fn delete_path(base: &Path, path: &str) -> Result<(), String> {
+    let full = resolve(base, path, false)?;
+    let metadata = fs::symlink_metadata(&full).map_err(|e| e.to_string())?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(full)
     } else {
         fs::remove_file(full)
     }
@@ -409,6 +538,8 @@ fn preview_image(base: &Path, path: &str) -> Result<String, String> {
         "svg" => "image/svg+xml",
         "webp" => "image/webp",
         "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
         "ico" => "image/x-icon",
         _ => return Err("Unsupported image format".into()),
     };
@@ -423,9 +554,67 @@ fn preview_image(base: &Path, path: &str) -> Result<String, String> {
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
+#[tauri::command]
+pub async fn read_preview_media(
+    path: String,
+    state: State<'_, Workspace>,
+) -> Result<String, String> {
+    let base = root(&state)?;
+    background(move || {
+        let full = resolve(&base, &path, false)?;
+        let mime = match full
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "mp3" => "audio/mpeg",
+            "wav" => "audio/wav",
+            "ogg" => "audio/ogg",
+            "m4a" => "audio/mp4",
+            "flac" => "audio/flac",
+            "mp4" => "video/mp4",
+            "webm" => "video/webm",
+            "ogv" => "video/ogg",
+            "mov" => "video/quicktime",
+            _ => return Err("Unsupported media format".to_string()),
+        };
+        let file = fs::File::open(full).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        file.take(32 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > 32 * 1024 * 1024 {
+            return Err("Media exceeds the 32 MiB preview limit".into());
+        }
+        Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+    })
+    .await?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn deleting_nonempty_folders_stays_inside_the_workspace() {
+        let base = tempfile::tempdir().unwrap();
+        let base = base.path().canonicalize().unwrap();
+        fs::create_dir_all(base.join("folder/nested")).unwrap();
+        fs::write(base.join("folder/nested/file.rs"), "data").unwrap();
+        fs::write(base.join("keep.rs"), "keep").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("keep.txt"), "outside").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), base.join("folder/link")).unwrap();
+        assert!(delete_path(&base, "").is_err());
+        assert!(delete_path(&base, ".").is_err());
+        assert!(delete_path(&base, "../keep.txt").is_err());
+        delete_path(&base, "folder").unwrap();
+        assert!(!base.join("folder").exists());
+        assert!(base.join("keep.rs").exists());
+        assert!(outside.path().join("keep.txt").exists());
+    }
     #[test]
     fn preview_images_are_bounded_and_confined_to_the_workspace() {
         let base = std::env::temp_dir().join(format!("devyy-preview-{}", std::process::id()));
@@ -458,7 +647,6 @@ mod tests {
         let base = std::env::temp_dir().join(format!("devyy-large-logo-{}", std::process::id()));
         fs::create_dir_all(base.join("assets")).unwrap();
         let base = base.canonicalize().unwrap();
-        // A decodable 1px PNG with trailing padding reproduces the old size cutoff.
         let mut png = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=").unwrap();
         png.resize(700 * 1024, 0);
         fs::write(base.join("assets/logo.png"), &png).unwrap();
@@ -484,7 +672,6 @@ mod tests {
         let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"8\"/></svg>";
         fs::write(base.join("public/assets/logo.svg"), svg).unwrap();
         fs::write(base.join("favicon.ico"), [0, 0, 1, 0, 1, 0]).unwrap();
-        // A corrupt higher-ranked image must not hide a valid logo.
         fs::write(base.join("logo.png"), b"not an image").unwrap();
         assert_eq!(
             workspace_info(&base).logo,
@@ -550,6 +737,22 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
     #[test]
+    fn explorer_budget_never_hides_root_siblings() {
+        let folder = tempfile::tempdir().unwrap();
+        let base = folder.path();
+        fs::create_dir_all(base.join(".cache/deep")).unwrap();
+        for n in 0..40 {
+            fs::write(base.join(format!(".cache/deep/{n}")), "").unwrap();
+        }
+        fs::create_dir(base.join("src")).unwrap();
+        fs::write(base.join("src/main.rs"), "").unwrap();
+        fs::write(base.join("README.md"), "").unwrap();
+        let listed = explorer_entries(base, 20, 12);
+        assert!(listed.iter().any(|e| e.path == "README.md"));
+        assert!(listed.iter().any(|e| e.path == "src/main.rs"));
+        assert_eq!(listed.len(), 12);
+    }
+    #[test]
     fn file_listing_respects_gitignore_and_excludes_generated_directories() {
         let base = std::env::temp_dir().join(format!("devyy-list-test-{}", std::process::id()));
         fs::create_dir_all(base.join(".git")).unwrap();
@@ -566,6 +769,28 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
     #[test]
+    fn explorer_includes_ignored_files_and_loads_generated_children_on_demand() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        fs::create_dir_all(base.join(".git")).unwrap();
+        fs::create_dir_all(base.join("target/debug")).unwrap();
+        fs::write(base.join(".gitignore"), "secret.txt\ntarget/\n").unwrap();
+        fs::write(base.join("secret.txt"), "secret").unwrap();
+        fs::write(base.join("target/debug/app"), "binary").unwrap();
+        let listed = explorer_entries(&base, 20, 30_000);
+        assert!(listed.iter().any(|e| e.path == "secret.txt"));
+        assert!(listed.iter().any(|e| e.path == "target" && e.directory));
+        assert!(!listed
+            .iter()
+            .any(|e| e.path.starts_with("target/") || e.path.starts_with(".git/")));
+        assert_eq!(
+            directory_entries(&base, "target").unwrap()[0].path,
+            "target/debug"
+        );
+        assert!(directory_entries(&base, "../").is_err());
+        assert!(!entries(&base).iter().any(|e| e.path == "secret.txt"));
+    }
+    #[test]
     fn prevents_workspace_traversal() {
         let base = std::env::temp_dir().canonicalize().unwrap();
         for path in ["../secret", "/etc/passwd", "", ".", "a/../../secret"] {
@@ -580,5 +805,50 @@ mod tests {
         std::os::unix::fs::symlink("/", base.join("outside")).unwrap();
         assert!(resolve(&base.canonicalize().unwrap(), "outside/etc/passwd", false).is_err());
         fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod opening_tests {
+    use super::*;
+    #[test]
+    fn opening_uses_a_bounded_snapshot_and_new_file_saves_never_clobber() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(base.join("src/deep/nested")).unwrap();
+        std::fs::write(base.join("src/main.rs"), "main").unwrap();
+        std::fs::write(base.join("src/deep/nested/lib.rs"), "deep").unwrap();
+        let early = scan_entries(&base, 2, 2048);
+        assert!(early.iter().any(|f| f.path == "src/main.rs"));
+        assert!(!early.iter().any(|f| f.path == "src/deep/nested/lib.rs"));
+        assert!(entries(&base)
+            .iter()
+            .any(|f| f.path == "src/deep/nested/lib.rs"));
+        let stamp = write_document(&base, "new.rs", "new content", "devyy:new").unwrap();
+        assert!(!stamp.is_empty());
+        assert!(write_document(&base, "new.rs", "overwrite", "devyy:new").is_err());
+        assert_eq!(
+            std::fs::read_to_string(base.join("new.rs")).unwrap(),
+            "new content"
+        );
+    }
+    #[test]
+    #[ignore = "Developer performance measurement against the current workspace"]
+    fn benchmark_open_snapshot() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for _ in 0..3 {
+            let start = std::time::Instant::now();
+            let early = scan_entries(base, 2, 2048);
+            let elapsed = start.elapsed();
+            let start = std::time::Instant::now();
+            let all = entries(base);
+            println!(
+                "snapshot: {} entries in {:?}; full index: {} entries in {:?}",
+                early.len(),
+                elapsed,
+                all.len(),
+                start.elapsed()
+            );
+        }
     }
 }

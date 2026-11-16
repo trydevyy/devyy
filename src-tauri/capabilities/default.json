@@ -1,11 +1,10 @@
 {
   "identifier": "default",
   "description": "Main editor window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:webview:allow-set-webview-zoom",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
@@ -24,6 +23,9 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "deep-link:default",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized"
   ]
 }

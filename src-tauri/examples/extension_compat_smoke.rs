@@ -1,5 +1,18 @@
-//! Run real third-party bundles in a native sandboxed WebView, without signing in.
-//! DEVYY_COMPAT_EXTENSION=/absolute/package cargo run --example extension_compat_smoke
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 #![allow(dead_code)]
 #[path = "../src/extension_host.rs"]
 mod extension_host;
@@ -62,14 +75,13 @@ fn main() {
     std::os::unix::fs::symlink(&package, base.path().join("extensions").join(&id)).unwrap();
     #[cfg(not(unix))]
     panic!("This smoke fixture currently uses a symlink on Unix");
-    // Isolate account/config state. This test must never send a prompt or sign in.
     std::env::set_var("CODEX_HOME", base.path().join("codex"));
     std::env::set_var("CLAUDE_CONFIG_DIR", base.path().join("claude"));
     std::fs::create_dir_all(base.path().join("project")).unwrap();
     std::fs::write(base.path().join("project/example.rs"), "fn main() {}\n").unwrap();
     let project = base.path().join("project");
     let mut context = tauri::generate_context!();
-    context.config_mut().identifier = "app.devvy.compat-smoke".into();
+    context.config_mut().identifier = "xyz.devyy.compat-smoke".into();
     context.config_mut().app.app_directories_override = Some(
         tauri::utils::config::AppDirectoriesOverride::Root(base.path().to_path_buf()),
     );

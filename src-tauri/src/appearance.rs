@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use serde::Serialize;
 use tauri::{Theme, WebviewWindow};
 
@@ -6,8 +21,6 @@ pub struct Appearance {
     material: &'static str,
 }
 
-/// This synchronous command runs on the UI thread: AppKit views must be modified there.
-/// Native material is behind the webview; editor surfaces stay opaque for readability.
 #[tauri::command]
 pub fn set_appearance(
     window: WebviewWindow,
@@ -46,8 +59,6 @@ pub fn set_appearance(
         use window_vibrancy::{
             apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
         };
-        // Applying the material adds an NSVisualEffectView. Remove the previous
-        // instance first so theme changes and repeated requests never stack blur views.
         clear_vibrancy(&window).map_err(|e| e.to_string())?;
         if vibrancy {
             apply_vibrancy(
@@ -64,13 +75,11 @@ pub fn set_appearance(
     }
     #[cfg(target_os = "windows")]
     {
-        // Mica avoids the resize/dragging performance problems of Acrylic.
         let mica =
             vibrancy && window_vibrancy::apply_mica(&window, Some(theme == Theme::Dark)).is_ok();
         if !mica {
             let _ = window_vibrancy::clear_mica(&window);
         }
-        // Windows 10 and older Windows 11 builds have no Mica. Keep them opaque.
         window
             .set_background_color(Some(if mica {
                 tauri::window::Color(0, 0, 0, 0)

@@ -1,16 +1,35 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+mod account;
 mod ai;
 mod app_info;
 mod appearance;
+mod associations;
 mod debug;
 mod extension_host;
 mod extension_secrets;
 mod extension_servers;
 mod extensions;
 mod git;
+mod github;
 mod language_config;
 mod lsp;
 mod menus;
 mod process;
+mod remote;
 mod setup_import;
 mod shells;
 mod terminal;
@@ -21,7 +40,11 @@ pub fn run() {
     use tauri::Manager;
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, cwd| {
+        associations::enqueue(
+            app,
+            associations::launch_paths(arguments.into_iter().skip(1), std::path::Path::new(&cwd)),
+        );
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
@@ -40,9 +63,13 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(account::Accounts::default())
+        .manage(remote::Remotes::default())
         .manage(ai::AiState::default())
+        .manage(ai::agent::AccessState::default())
         .manage(extension_secrets::ExtensionSecrets::default())
         .manage(workspace::Workspace::default())
+        .manage(associations::OpenTargets::default())
         .manage(terminal::Terminals::default())
         .manage(lsp::LanguageServers::default())
         .manage(debug::Debugger::default())
@@ -50,6 +77,19 @@ pub fn run() {
         .manage(extension_host::ExtensionHost::default())
         .setup(|app| {
             menus::install(app.handle())?;
+            {
+                use tauri::Emitter;
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        if url.scheme() == "devyy" && url.host_str() == Some("account") {
+                            let _ = handle.emit("devyy-account-callback", url.as_str());
+                        }
+                    }
+                });
+            }
+            associations::enqueue(app.handle(), std::env::args().skip(1).collect());
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = appearance::set_appearance(window, "midnight".into(), true) {
                     eprintln!("Native material unavailable; using a solid window: {error}");
@@ -58,9 +98,21 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            account::account_begin,
+            account::account_finish,
+            account::account_request,
+            account::account_disconnect,
+            remote::remote_list,
+            remote::remote_stop,
+            remote::ssh_forward,
+            remote::port_forward,
+            github::github_status,
+            github::github_login,
+            github::github_git_identity,
             ai::ai_providers,
             ai::ai_save_provider,
             ai::ai_chat,
+            ai::agent::ai_workspace_access,
             ai::ai_cancel,
             ai::ai_account,
             ai::ai_models,
@@ -83,19 +135,26 @@ pub fn run() {
             extensions::extension_asset,
             extensions::extension_icon,
             app_info::build_info,
+            associations::default_app_status,
+            associations::set_default_app,
+            associations::take_open_targets,
             app_info::check_updates,
             workspace::read_preview_image,
+            workspace::read_preview_media,
             menus::set_menu_shortcuts,
             workspace::open_workspace,
             workspace::refresh_workspace,
             workspace::list_files,
+            workspace::list_directory,
             workspace::read_file,
             workspace::write_file,
             workspace::create_file,
             workspace::rename_file,
             workspace::delete_file,
             workspace::search_workspace,
+            git::git_init,
             git::git_status,
+            git::git_pull,
             git::git_diff,
             git::git_diff_files,
             git::git_stage_all,
@@ -107,6 +166,10 @@ pub fn run() {
             git::git_submodule_action,
             git::git_switch_branch,
             git::git_history,
+            git::git_graph,
+            git::git_commit_files,
+            git::git_commit_details,
+            git::git_commit_diff,
             git::git_stage,
             git::git_commit,
             shells::terminal_profiles,
@@ -131,6 +194,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Unable to start devyy")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                associations::enqueue(
+                    app,
+                    urls.iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect(),
+                );
+            }
             if let tauri::RunEvent::Exit = event {
                 app.state::<ai::AiState>().shutdown();
                 app.state::<extension_host::ExtensionHost>().shutdown();
@@ -171,9 +244,11 @@ mod integration_tests {
                 workspace::read_file,
                 workspace::write_file,
                 workspace::search_workspace,
+                git::git_init,
                 git::git_stage,
                 git::git_commit,
                 git::git_status,
+                git::git_pull,
                 git::git_diff_files,
                 git::git_stage_all,
                 git::git_discard,
@@ -279,7 +354,6 @@ mod integration_tests {
             .unwrap()
             .iter()
             .any(|value| value == "devyy-checkpoint"));
-        // Exercise the actual IPC boundary with a separately selected submodule.
         let source = tempfile::tempdir().unwrap();
         let source_path = source.path();
         for args in [
