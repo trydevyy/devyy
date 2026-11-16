@@ -1,0 +1,28 @@
+{
+  "bundle": {
+    "targets": [
+      "app"
+    ]
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Devyy Installer",
+        "width": 640,
+        "height": 480,
+        "minWidth": 600,
+        "minHeight": 460,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 29
+        },
+        "backgroundColor": "#171819",
+        "dragDropEnabled": true
+      }
+    ]
+  }
+}
