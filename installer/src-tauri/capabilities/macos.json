@@ -1,0 +1,12 @@
+{
+  "identifier": "macos-drag",
+  "platforms": [
+    "macOS"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "drag:allow-start-drag"
+  ]
+}
