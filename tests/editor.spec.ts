@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 test("edit, save, switch tabs, and restore playground changes", async ({
@@ -5,7 +20,7 @@ test("edit, save, switch tabs, and restore playground changes", async ({
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(".terminal-welcome strong")).toBeVisible();
@@ -36,7 +51,7 @@ test("edit, save, switch tabs, and restore playground changes", async ({
 test("file palette, workspace search, split, preferences and keyboard flow", async ({
   page,
 }, testInfo) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await page.keyboard.press(`${mod}+p`);
   const palette = page.getByRole("dialog", { name: "Go to file" });
@@ -91,7 +106,7 @@ test("file palette, workspace search, split, preferences and keyboard flow", asy
 test("create and rename files, add breakpoints, and expose desktop features honestly", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("button", { name: "New file", exact: true })
     .first()
@@ -115,16 +130,20 @@ test("create and rename files, add breakpoints, and expose desktop features hone
     page.locator(".editor-document.visible .breakpoint-dot"),
   ).toHaveCount(2); // marker + invisible sizing spacer
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
-  await page.getByRole("button", { name: "Run command", exact: true }).click();
-  await expect(page.locator("[data-sonner-toast]")).toContainText(
-    "desktop app",
-  );
+  await expect(
+    page.getByRole("button", { name: "Run command", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("tab", { name: "Debug", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Debugger", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Call stack", { exact: false })).toBeVisible();
 });
 
 test("vibrancy and motion preferences persist, and the workspace fits compact windows", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-vibrancy", "on");
   await page
@@ -175,7 +194,7 @@ test("system accessibility preferences override decorative effects", async ({
       { name: "prefers-reduced-transparency", value: "reduce" },
     ],
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
   await expect(page.locator("html")).toHaveAttribute("data-vibrancy", "off");
@@ -192,7 +211,7 @@ test("system accessibility preferences override decorative effects", async ({
 test("settings categories, global search, keyboard navigation and reset", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   const search = page.getByRole("searchbox", { name: "Search settings" });
   await expect(search).toBeFocused();
@@ -246,7 +265,7 @@ test("island tabs and the files footer hold their position with a long explorer"
     for (let i = 0; i < 150; i++) files[`file-${i}.txt`] = "test";
     localStorage.setItem("devyy.playground", JSON.stringify(files));
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const sidebar = await page.locator(".sidebar").boundingBox();
   const footer = await page.locator(".sidebar-foot").boundingBox();
   expect(
@@ -276,7 +295,7 @@ test("the rename preserves existing preferences and saved playground files", asy
       JSON.stringify({ "src/main.rs": "// preserved user code" }),
     );
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
   await expect(page.locator("html")).toHaveAttribute("data-vibrancy", "off");
   await expect(
@@ -294,7 +313,6 @@ test("the rename preserves existing preferences and saved playground files", asy
 test("project logos load, refresh, and fall back to the workspace initial", async ({
   page,
 }) => {
-  // Exercise the UI's native bridge contract; filesystem detection is covered by Rust IPC tests.
   await page.addInitScript(() => {
     const testWindow = window as typeof window & { __testLogo: string | null };
     testWindow.__testLogo =
@@ -330,8 +348,11 @@ test("project logos load, refresh, and fall back to the workspace initial", asyn
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
     });
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.locator(".project-title").click();
+  await page
+    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .click();
   const logo = page.getByRole("img", { name: "Project logo" });
   await expect(logo).toBeVisible();
   await expect
@@ -346,4 +367,49 @@ test("project logos load, refresh, and fall back to the workspace initial", asyn
   await page.evaluate(() => Object.assign(window, { __testLogo: null }));
   await page.getByRole("button", { name: "Refresh files" }).click();
   await expect(page.locator(".project-monogram")).toHaveText("P");
+});
+
+test("file list supports Cmd+A select all and shift multi-selection", async ({
+  page,
+}) => {
+  await page.goto("/?playground=1");
+  const tree = page.locator(".file-tree");
+  await expect(tree).toBeVisible();
+  await tree.focus();
+  await page.keyboard.press(`${mod}+a`);
+  const selectedRows = page.locator(".tree-row.selected");
+  await expect(selectedRows).toHaveCount(await page.locator(".tree-row").count());
+
+  const firstFile = page.locator(".tree-file").first();
+  await firstFile.click();
+  await expect(page.locator(".tree-row.selected")).toHaveCount(1);
+
+  const thirdFile = page.locator(".tree-file").nth(2);
+  await thirdFile.click({ modifiers: ["Shift"] });
+  await expect(page.locator(".tree-row.selected")).toHaveCount(3);
+});
+
+test("cursor is visible when editor is clicked", async ({ page }) => {
+  await page.goto("/?playground=1");
+  await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
+  const editor = page.locator(".editor-document.visible .cm-content").first();
+  await editor.click();
+  const info = await page.evaluate(() => {
+    const cursor = document.querySelector(".cm-cursor");
+    const cursorLayer = document.querySelector(".cm-cursorLayer");
+    return {
+      hasCursor: !!cursor,
+      cursorDisplay: cursor ? getComputedStyle(cursor).display : null,
+      cursorVisibility: cursor ? getComputedStyle(cursor).visibility : null,
+      cursorOpacity: cursor ? getComputedStyle(cursor).opacity : null,
+      cursorLayerClip: cursorLayer ? (cursorLayer as HTMLElement).style.clipPath : "",
+      cursorRect: cursor ? cursor.getBoundingClientRect() : null,
+    };
+  });
+  expect(info.hasCursor).toBe(true);
+  expect(info.cursorDisplay).toBe("block");
+  expect(info.cursorVisibility).toBe("visible");
+  expect(Number(info.cursorOpacity)).toBeGreaterThan(0);
+  expect(info.cursorLayerClip).toBe("");
+  expect(info.cursorRect?.height).toBeGreaterThan(0);
 });

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 async function contributedShortcuts(page: Page, override = false) {
@@ -59,7 +74,7 @@ async function contributedShortcuts(page: Page, override = false) {
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
     });
   }, override);
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -76,7 +91,7 @@ test("global shortcuts handle native commands, window targets, dead keys and Set
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent("devyy-native-command", { detail: "files" }),
@@ -129,9 +144,7 @@ test("extension chords activate commands with arguments and honor when clauses",
   await contributedShortcuts(page);
   await page.locator(".editor-document.visible .cm-content").click();
   await page.keyboard.press(`${mod}+k`);
-  await expect(page.getByRole("status")).toContainText(
-    "waiting for the next key",
-  );
+  await expect(page.getByRole("status")).toContainText("press the next key");
   await page.keyboard.press(`${mod}+c`);
   await expect
     .poll(() =>
@@ -166,9 +179,7 @@ test("extension chords activate commands with arguments and honor when clauses",
   await page.getByRole("tab", { name: "main.rs", exact: true }).click();
   await page.locator(".editor-document.visible .cm-content").click();
   await page.keyboard.press(`${mod}+k`);
-  await expect(page.getByRole("status")).toContainText(
-    "waiting for the next key",
-  );
+  await expect(page.getByRole("status")).toContainText("press the next key");
   await page.keyboard.press("Escape");
   await expect(page.locator(".shortcut-hint")).toHaveCount(0);
 });
