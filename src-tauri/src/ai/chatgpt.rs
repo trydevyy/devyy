@@ -1,4 +1,18 @@
-//! Devyy's own public-client ChatGPT connection. Does not read Codex credentials.
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use super::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use jsonwebtoken::{decode, decode_header, jwk::JwkSet, Algorithm, DecodingKey, Validation};
@@ -106,7 +120,7 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         .map_err(|_| "Could not replace credential file")?;
     Ok(())
 }
-fn vault_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn vault_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(config_path(app)?.with_file_name("chatgpt-accounts.enc"))
 }
 fn vault_key(create: bool) -> Result<aead::LessSafeKey, String> {
@@ -155,7 +169,7 @@ fn unseal(mut bytes: Vec<u8>, key: &aead::LessSafeKey) -> Result<Vault, String> 
         })?;
     serde_json::from_slice(data).map_err(|_| "Invalid ChatGPT credential record".into())
 }
-fn load_vault(app: &AppHandle) -> Result<Vault, String> {
+fn load_vault<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Vault, String> {
     let path = vault_path(app)?;
     if !path.exists() {
         return Ok(Vault::default());
@@ -172,7 +186,7 @@ fn load_vault(app: &AppHandle) -> Result<Vault, String> {
         &vault_key(false)?,
     )
 }
-fn save_vault(app: &AppHandle, vault: &Vault) -> Result<(), String> {
+fn save_vault<R: tauri::Runtime>(app: &AppHandle<R>, vault: &Vault) -> Result<(), String> {
     atomic_write(&vault_path(app)?, &seal(vault, &vault_key(true)?)?)
 }
 async fn read_json(mut response: reqwest::Response) -> Result<Value, String> {
@@ -440,7 +454,6 @@ async fn callback(listener: &TcpListener, attempt: &Attempt) -> Result<(String, 
         } else {
             Err("Invalid callback request".into())
         };
-        // Ignore unrelated requests and invalid state without consuming the pending sign-in.
         let state_matches = valid
             && reqwest::Url::parse(&format!("http://127.0.0.1{target}"))
                 .ok()
@@ -450,17 +463,18 @@ async fn callback(listener: &TcpListener, attempt: &Attempt) -> Result<(String, 
                         .collect::<Vec<_>>()
                         == vec![("state".into(), attempt.state.as_str().into())]
                 });
-        let body = if result.is_ok() {
-            "Authorization received. Return to Devyy to finish connecting."
-        } else {
-            "Authorization could not be completed. Return to Devyy."
-        };
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let body = include_str!("auth-result.html")
+            .replace("__TITLE__", if result.is_ok() { "Authorization received" } else { "Let’s try that again" })
+            .replace("__MESSAGE__", if result.is_ok() { "Your browser has securely sent authorization to Devyy. Return to the app to finish connecting your ChatGPT account." } else { "Authorization couldn’t be completed. Return to Devyy to start a new sign-in." })
+            .replace("__ICON__", if result.is_ok() { "m5 12 4 4L19 6" } else { "M12 5v8m0 5h.01" })
+            .replace("__NONCE__", &nonce);
         let status = if result.is_ok() {
             "200 OK"
         } else {
             "400 Bad Request"
         };
-        let response = format!("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
+        let response = format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
         let _ = tokio::time::timeout(
             Duration::from_secs(2),
             socket.write_all(response.as_bytes()),
@@ -623,7 +637,6 @@ pub(super) async fn account(
                     revoked = revoke(&a.client_id, &session.refresh_token).await;
                 }
             }
-            // Retain the account/client mapping for reauthorization; never sign out of Codex.
             save_vault(app, &vault)?;
             let mut result = status(&vault);
             if !revoked {
@@ -665,7 +678,7 @@ async fn revoke(client_id: &str, token: &str) -> bool {
     }
     false
 }
-async fn access(app: &AppHandle, state: &AiState) -> Result<String, String> {
+async fn access<R: tauri::Runtime>(app: &AppHandle<R>, state: &AiState) -> Result<String, String> {
     let _lock = state.oauth.lock().await;
     let mut vault = load_vault(app)?;
     let a = vault
@@ -770,8 +783,17 @@ pub(super) async fn models(app: &AppHandle, state: &AiState) -> Result<Vec<Value
     model_catalog(&value)
 }
 fn model_catalog(value: &Value) -> Result<Vec<Value>, String> {
-    Ok(value["models"].as_array().ok_or("ChatGPT returned no model catalog")?.iter().filter(|m|m["visibility"]=="list").filter_map(|m|m["slug"].as_str().map(|id|json!({"id":id,"name":m["display_name"].as_str().unwrap_or(id),"description":m["description"],"reasoningEfforts":m["supported_reasoning_levels"].as_array().map(|a|a.iter().filter_map(|v|v["effort"].as_str()).collect::<Vec<_>>()).unwrap_or_default()}))).collect())
+    Ok(value["models"].as_array().ok_or("ChatGPT returned no model catalog")?.iter()
+        .filter(|m| m["visibility"] == "list")
+        .filter_map(|m| m["slug"].as_str().map(|id| {
+            let levels = m["supported_reasoning_levels"].as_array().cloned().unwrap_or_default();
+            json!({"id":id,"name":m["display_name"].as_str().unwrap_or(id),"description":m["description"],
+                "defaultEffort":m["default_reasoning_level"],
+                "reasoningOptions":levels.iter().filter_map(|level| level["effort"].as_str().map(|effort|
+                    json!({"id":effort,"label":level["display_name"].as_str().or_else(||level["label"].as_str()).unwrap_or(effort),"description":level["description"]}))).collect::<Vec<_>>()})
+        })).collect())
 }
+
 fn body(p: &Provider, r: &ChatRequest) -> Value {
     let mut body = json!({"model":p.model,"instructions":SYSTEM,"input":r.messages,"store":false,"stream":true});
     if super::openai_reasoning_model(&p.model) || r.effort.as_ref().is_some_and(|s| !s.is_empty()) {
@@ -781,6 +803,21 @@ fn body(p: &Provider, r: &ChatRequest) -> Value {
         }
     }
     body
+}
+pub(super) async fn agent_request<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    state: &AiState,
+) -> Result<reqwest::RequestBuilder, String> {
+    Ok(client()?
+        .post(format!("{RESOURCE}/responses"))
+        .bearer_auth(access(app, state).await?))
+}
+pub(super) fn agent_body(p: &Provider, r: &ChatRequest, mut agent: Value) -> Value {
+    let normal = body(p, r);
+    if let Some(reasoning) = normal.get("reasoning") {
+        agent["reasoning"] = reasoning.clone();
+    }
+    agent
 }
 pub(super) async fn chat(
     app: &AppHandle,
@@ -811,6 +848,20 @@ async fn consume<R: tauri::Runtime>(
         return Err(api_error(&read_json(response).await?, code));
     }
     let mut sse = Sse::default();
+    let limits: serde_json::Map<String, Value> = response
+        .headers()
+        .iter()
+        .filter(|(key, _)| key.as_str().starts_with("x-ratelimit-"))
+        .filter_map(|(key, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (key.to_string(), json!(value)))
+        })
+        .collect();
+    if !limits.is_empty() {
+        emit(app, &r.request_id, "limits", json!(limits));
+    }
     let mut total = 0;
     while let Some(chunk) = response
         .chunk()
@@ -823,6 +874,13 @@ async fn consume<R: tauri::Runtime>(
             }
             let event: Value =
                 serde_json::from_str(&data).map_err(|_| "Invalid ChatGPT stream event")?;
+            if let Some(usage) = event
+                .pointer("/response/usage")
+                .or_else(|| event.get("usage"))
+                .filter(|usage| usage.is_object())
+            {
+                emit(app, &r.request_id, "usage", usage.clone());
+            }
             match event["type"].as_str().unwrap_or("") {
                 "response.failed" | "error" => return Err(api_error(&event, 400)),
                 "response.incomplete" => {
@@ -856,9 +914,6 @@ async fn consume<R: tauri::Runtime>(
                     {
                         return Err("ChatGPT did not complete the reply".into());
                     }
-                    if let Some(usage) = event.pointer("/response/usage") {
-                        emit(app, &r.request_id, "usage", usage.clone());
-                    }
                     return Ok(());
                 }
                 _ => {}
@@ -871,6 +926,59 @@ async fn consume<R: tauri::Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn responses_usage_is_reported_for_completed_and_incomplete_streams() {
+        use tauri::{
+            test::{mock_builder, mock_context, noop_assets},
+            Listener,
+        };
+        for status in ["completed", "incomplete"] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let body = format!("data: {{\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}}\n\ndata: {{\"type\":\"response.{status}\",\"response\":{{\"status\":\"{status}\",\"usage\":{{\"input_tokens\":12,\"output_tokens\":7,\"input_tokens_details\":{{\"cached_tokens\":4}},\"output_tokens_details\":{{\"reasoning_tokens\":3}}}}}}}}\n\n");
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-ratelimit-remaining-tokens: 50\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            });
+            let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+            let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let sink = events.clone();
+            app.listen("devyy-ai", move |event| {
+                sink.lock()
+                    .unwrap()
+                    .push(serde_json::from_str(event.payload()).unwrap())
+            });
+            let request = ChatRequest {
+                request_id: "usage-fixture".into(),
+                provider_id: "chatgpt".into(),
+                messages: vec![Message {
+                    role: "user".into(),
+                    content: "fixture".into(),
+                }],
+                cwd: None,
+                model: None,
+                effort: None,
+            };
+            let response = reqwest::Client::new()
+                .get(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap();
+            let result = consume(app.handle(), &request, response).await;
+            assert_eq!(result.is_ok(), status == "completed");
+            server.await.unwrap();
+            let events = events.lock().unwrap();
+            let usage = events.iter().find(|e| e["kind"] == "usage").unwrap();
+            assert_eq!(usage["data"]["input_tokens"], 12);
+            assert_eq!(
+                usage["data"]["output_tokens_details"]["reasoning_tokens"],
+                3
+            );
+            assert!(events.iter().any(|e| e["kind"] == "limits"));
+        }
+    }
     fn attempt() -> Attempt {
         Attempt {
             state: "expected-state".into(),
@@ -935,7 +1043,6 @@ mod tests {
     }
     #[test]
     fn oidc_verifies_real_signatures_issuer_audience_expiration_nonce_and_subject() {
-        // Public fixture key, used only to sign synthetic identities in this test.
         let key =
             jsonwebtoken::EncodingKey::from_rsa_pem(include_bytes!("fixtures/test-only-rsa.pem"))
                 .unwrap();
@@ -1033,11 +1140,32 @@ mod tests {
                 .as_u16(),
             400
         );
-        assert_eq!(client.get(format!("http://{address}/auth/callback?state=expected-state&code=ok&client_id=oaiapp_test")).send().await.unwrap().status().as_u16(),200);
+        let response = client
+            .get(format!(
+                "http://{address}/auth/callback?state=expected-state&code=ok&client_id=oaiapp_test"
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+        assert!(response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("script-src 'nonce-"));
+        let page = response.text().await.unwrap();
+        assert!(page.contains("Authorization received"));
+        assert!(page.contains("devyy://auth-complete"));
+        assert!(!page.contains("expected-state"));
+        assert!(!page.contains("oaiapp_test"));
         assert_eq!(
             task.await.unwrap().unwrap(),
             ("ok".into(), "oaiapp_test".into())
         );
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(tokio::net::TcpStream::connect(address).await.is_err());
     }
     #[tokio::test]
@@ -1060,6 +1188,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["b", "a"]
         );
+        let capabilities = model_catalog(&json!({"models":[{"slug":"adaptive", "visibility":"list", "default_reasoning_level":"adaptive", "supported_reasoning_levels":[{"effort":"adaptive", "display_name":"Automatic", "description":"The model chooses"},{"effort":"extended", "display_name":"Extended thinking"}]}]})).unwrap();
+        assert_eq!(capabilities[0]["defaultEffort"], "adaptive");
+        assert_eq!(capabilities[0]["reasoningOptions"][0]["label"], "Automatic");
+        assert_eq!(capabilities[0]["reasoningOptions"][1]["id"], "extended");
+        assert!(models[0]["reasoningOptions"].as_array().unwrap().is_empty());
         let mut p = defaults().remove(0);
         p.model = "b".into();
         let r = ChatRequest {
