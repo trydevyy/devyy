@@ -1,3 +1,20 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import RepositorySections from "./RepositorySections";
+import Select from "./ui/Select";
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
@@ -51,7 +68,9 @@ export default function SourceControl({
   onDiscard,
   onSwitch,
   onCreateBranch,
+  onGraph,
 }: {
+  onGraph: (hash?: string) => void;
   state: GitState;
   root: string;
   repository: string;
@@ -83,14 +102,17 @@ export default function SourceControl({
   const [branches, setBranches] = useState<GitBranchInfo[]>([]),
     [modules, setModules] = useState<GitSubmodule[]>([]),
     [history, setHistory] = useState<Commit[]>([]),
-    [showHistory, setShowHistory] = useState(false),
+    [showHistory, setShowHistory] = useState(true),
+    [page, setPage] = useState("changes"),
     [error, setError] = useState("");
   const menu = useContextMenu();
   useEffect(() => {
     let current = true;
     void Promise.allSettled([
       invoke<GitBranchInfo[]>("git_branch_details", { repository }),
-      invoke<Commit[]>("git_history", { repository }),
+      page === "history"
+        ? invoke<Commit[]>("git_history", { repository })
+        : Promise.resolve([]),
       invoke<GitSubmodule[]>("git_submodules"),
     ]).then(([branches, history, submodules]) => {
       if (!current) return;
@@ -107,7 +129,7 @@ export default function SourceControl({
     return () => {
       current = false;
     };
-  }, [root, repository, state]);
+  }, [root, repository, state, page]);
   const staged = state.changes.filter(
     (change) => change.index.trim() && !["?", "!", "U"].includes(change.index),
   );
@@ -218,7 +240,7 @@ export default function SourceControl({
       {!!modules.length && (
         <label className="scm-repository-picker">
           <span>Repository</span>
-          <select
+          <Select
             aria-label="Source Control repository"
             value={repository}
             disabled={busy}
@@ -232,12 +254,13 @@ export default function SourceControl({
                   {item.path}
                 </option>
               ))}
-          </select>
+          </Select>
         </label>
       )}
+      <RepositorySections modules={modules} refreshToken={state} onRefresh={onRefresh} onDiff={(repo,path,staged)=>{onRepository(repo);onDiff(path,staged);}}/>
       <div className="branch-card">
         <GitBranch size={15} />
-        <select
+        <Select
           aria-label="Current Git branch"
           value={state.branch}
           disabled={busy}
@@ -268,7 +291,7 @@ export default function SourceControl({
                 </option>
               ))}
           </optgroup>
-        </select>
+        </Select>
         <button
           className="icon-button"
           aria-label="Create Git branch"
@@ -286,15 +309,6 @@ export default function SourceControl({
           <RefreshCw size={13} />
         </button>
       </div>
-      <GitBranches
-        branches={branches}
-        current={state.branch}
-        busy={busy}
-        onSwitch={onSwitch}
-        onCreate={onCreateBranch}
-        onAction={onBranchAction}
-        onRename={onRenameBranch}
-      />
       {state.upstream && (
         <p className="scm-upstream" title={state.upstream}>
           {state.upstream}
@@ -303,91 +317,142 @@ export default function SourceControl({
           </span>
         </p>
       )}
-      <div className="scm-summary" aria-label="Change summary">
-        <strong>
-          {state.changes.length}{" "}
-          {state.changes.length === 1 ? "changed file" : "changed files"}
-        </strong>
-        <span>{staged.length} staged</span>
+      <nav
+        className="scm-pages"
+        aria-label="Source Control sections"
+        role="tablist"
+      >
+        {[
+          ["changes", "Changes"],
+          ["history", "History"],
+          ["repositories", "Repositories"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={page === id}
+            onClick={() => setPage(id)}
+          >
+            {label}
+            {id === "changes" && <small>{state.changes.length}</small>}
+          </button>
+        ))}
+      </nav>
+      <div hidden={page !== "changes"} role="tabpanel" aria-label="Changes">
+        <div className="scm-summary" aria-label="Change summary">
+          <strong>
+            {state.changes.length}{" "}
+            {state.changes.length === 1 ? "changed file" : "changed files"}
+          </strong>
+          <span>{staged.length} staged</span>
+        </div>
+        <textarea
+          className="commit-message"
+          value={commit}
+          onChange={(event) => onCommitChange(event.target.value)}
+          placeholder="Commit message"
+          aria-label="Commit message"
+          onKeyDown={(event) => {
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              event.key === "Enter" &&
+              staged.length &&
+              commit.trim() &&
+              !busy
+            ) {
+              event.preventDefault();
+              onCommit();
+            }
+          }}
+        />
+        <button
+          className="primary full"
+          disabled={busy || (!(state.behind && !staged.length) && (!commit.trim() || !staged.length))}
+          onClick={()=>{if(state.behind && !staged.length)void invoke("git_pull",{repository}).then(onRefresh).catch(error=>setError(String(error)));else onCommit();}}
+        >
+          <Check size={14} /> {state.behind && !staged.length ? `Pull ${state.behind} incoming changes` : "Commit staged changes"}
+        </button>
+        {group(staged, true)}
+        {group(unstaged, false)}
+        {!state.changes.length && (
+          <p className="scm-clean">
+            <Check size={14} /> Working tree clean
+          </p>
+        )}
       </div>
-      <textarea
-        className="commit-message"
-        value={commit}
-        onChange={(event) => onCommitChange(event.target.value)}
-        placeholder="Commit message"
-        aria-label="Commit message"
-        onKeyDown={(event) => {
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            event.key === "Enter" &&
-            staged.length &&
-            commit.trim() &&
-            !busy
-          ) {
-            event.preventDefault();
-            onCommit();
-          }
-        }}
-      />
-      <button
-        className="primary full"
-        disabled={busy || !commit.trim() || !staged.length}
-        onClick={onCommit}
+      <div
+        hidden={page !== "repositories"}
+        role="tabpanel"
+        aria-label="Repositories"
       >
-        <Check size={14} /> Commit staged changes
-      </button>
-      {group(staged, true)}
-      {group(unstaged, false)}
-      {!state.changes.length && (
-        <p className="scm-clean">
-          <Check size={14} /> Working tree clean
-        </p>
-      )}
-      <GitSubmodules
-        modules={modules}
-        repository={repository}
-        busy={busy}
-        onSelect={onRepository}
-        onAction={onSubmoduleAction}
-      />
-      <button
-        className="scm-history-toggle"
-        aria-expanded={showHistory}
-        onClick={() => setShowHistory((value) => !value)}
-      >
-        <History size={13} /> Commit history <ChevronDown size={12} />
-      </button>
-      {showHistory && (
-        <section className="scm-history" aria-label="Commit history">
-          {history.map((item) => (
-            <div className="scm-commit" key={item.hash}>
-              <GitCommitHorizontal size={13} />
-              <div>
-                <strong title={item.subject}>{item.subject}</strong>
-                <small>
-                  {item.author}
-                  <time dateTime={item.date}>
-                    {new Date(item.date).toLocaleDateString()}
-                  </time>
-                </small>
-                <code title={item.hash}>{item.short}</code>
+        <GitBranches
+          branches={branches}
+          current={state.branch}
+          busy={busy}
+          onSwitch={onSwitch}
+          onCreate={onCreateBranch}
+          onAction={onBranchAction}
+          onRename={onRenameBranch}
+        />
+        <GitSubmodules
+          modules={modules}
+          repository={repository}
+          busy={busy}
+          onSelect={onRepository}
+          onAction={onSubmoduleAction}
+        />
+      </div>
+      <div hidden={page !== "history"} role="tabpanel" aria-label="History">
+        <button className="scm-open-graph" onClick={() => onGraph()}>
+          <GitCommitHorizontal size={15} />
+          Open commit graph
+          <ArrowUpRight size={13} />
+        </button>
+        <button
+          className="scm-history-toggle"
+          aria-expanded={showHistory}
+          onClick={() => setShowHistory((value) => !value)}
+        >
+          <History size={13} /> Commit history <ChevronDown size={12} />
+        </button>
+        {showHistory && (
+          <section className="scm-history" aria-label="Commit history">
+            {history.map((item) => (
+              <div className="scm-commit" key={item.hash}>
+                <button
+                  className="icon-button"
+                  aria-label={`Inspect commit ${item.short}`}
+                  onClick={() => onGraph(item.hash)}
+                >
+                  <GitCommitHorizontal size={13} />
+                </button>
+                <div>
+                  <strong title={item.subject}>{item.subject}</strong>
+                  <small>
+                    {item.author}
+                    <time dateTime={item.date}>
+                      {new Date(item.date).toLocaleDateString()}
+                    </time>
+                  </small>
+                  <code title={item.hash}>{item.short}</code>
+                </div>
+                <button
+                  className="icon-button"
+                  aria-label={`Copy commit ${item.short}`}
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(item.hash)
+                      .catch(() => toast.error("Could not copy commit hash"))
+                  }
+                >
+                  <ArrowUpRight size={12} />
+                </button>
               </div>
-              <button
-                className="icon-button"
-                aria-label={`Copy commit ${item.short}`}
-                onClick={() =>
-                  void navigator.clipboard
-                    .writeText(item.hash)
-                    .catch(() => toast.error("Could not copy commit hash"))
-                }
-              >
-                <ArrowUpRight size={12} />
-              </button>
-            </div>
-          ))}
-          {!history.length && <p className="muted">No commits yet.</p>}
-        </section>
-      )}
+            ))}
+            {!history.length && <p className="muted">No commits yet.</p>}
+          </section>
+        )}
+      </div>
       {error && (
         <p className="scm-error" role="status">
           {error}
