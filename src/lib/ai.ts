@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { supportedEffort } from "./aiReasoning";
 import { useSyncExternalStore } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, listen, native } from "./native";
@@ -6,10 +22,21 @@ import { contextPrompt, type AIAttachment } from "./aiContext";
 export interface AIProvider {
   id: string;
   name: string;
-  kind: "chatgpt" | "codex" | "claude" | "openai" | "anthropic" | "custom";
+  kind:
+    | "chatgpt"
+    | "codex"
+    | "claude"
+    | "antigravity"
+    | "opencode"
+    | "openai"
+    | "anthropic"
+    | "custom"
+    | "cli";
   endpoint: string;
   model: string;
   executable: string;
+  args?: string[];
+  cliJson?: boolean;
   hasKey: boolean;
   enabled?: boolean;
 }
@@ -18,12 +45,31 @@ export interface AIModel {
   name: string;
   description?: string;
   reasoningEfforts?: string[];
+  reasoningOptions?: { id: string; label: string; description?: string }[];
+  reasoningLabel?: string;
   defaultEffort?: string;
   isDefault?: boolean;
 }
 export interface AIChoice {
   model: string;
   effort: string;
+}
+export interface AIProposal {
+  id: string;
+  path: string;
+  original: string;
+  modified: string;
+  create?: boolean;
+  workspace: string;
+  status: "pending" | "reviewed" | "applied" | "dismissed";
+}
+export interface AITool {
+  id: string;
+  name: string;
+  path: string;
+  status: "running" | "complete" | "error" | "cancelled";
+  args?: Record<string, unknown>;
+  detail?: string;
 }
 export interface AIMessage {
   id: string;
@@ -33,6 +79,8 @@ export interface AIMessage {
   error?: string;
   stopped?: boolean;
   reasoning?: string;
+  proposals?: AIProposal[];
+  tools?: AITool[];
   attachments?: AIAttachment[];
   startedAt?: number;
   finishedAt?: number;
@@ -56,6 +104,8 @@ export interface AIUsage {
   observedAt?: number;
   costUSD?: number;
   requests?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
 }
 export interface AIState {
   providers: AIProvider[];
@@ -83,6 +133,24 @@ const initialProviders: AIProvider[] = [
     id: "claude",
     name: "Claude Code",
     kind: "claude",
+    endpoint: "",
+    model: "",
+    executable: "",
+    hasKey: false,
+  },
+  {
+    id: "antigravity",
+    name: "Antigravity",
+    kind: "antigravity",
+    endpoint: "",
+    model: "",
+    executable: "",
+    hasKey: false,
+  },
+  {
+    id: "opencode",
+    name: "OpenCode",
+    kind: "opencode",
     endpoint: "",
     model: "",
     executable: "",
@@ -150,7 +218,6 @@ function savedConversations(): AIConversation[] {
       try {
         localStorage.setItem("devyy.ai.chats", JSON.stringify(chats));
       } catch {
-        /* Keep readable history when storage is full. */
       }
     }
     return chats;
@@ -180,12 +247,45 @@ function savedChoices(): Record<string, AIChoice> {
     return {};
   }
 }
+function savedUsage(): Record<string, AIUsage> {
+  try {
+    const values = JSON.parse(localStorage.getItem("devyy.ai.usage") ?? "{}");
+    if (!values || typeof values !== "object" || Array.isArray(values))
+      return {};
+    return Object.fromEntries(
+      Object.entries(values)
+        .slice(0, 64)
+        .filter(([, value]) => value && typeof value === "object")
+        .map(([id, value]) => {
+          const usage = value as AIUsage;
+          const inputTokens = numeric(usage.inputTokens),
+            outputTokens = numeric(usage.outputTokens);
+          return [
+            id,
+            {
+              inputTokens,
+              outputTokens,
+              tokens: inputTokens + outputTokens,
+              requests: numeric(usage.requests),
+              cachedInputTokens: numeric(usage.cachedInputTokens),
+              reasoningTokens: numeric(usage.reasoningTokens),
+              ...(typeof usage.costUSD === "number" && usage.costUSD >= 0
+                ? { costUSD: usage.costUSD }
+                : {}),
+            },
+          ];
+        }),
+    );
+  } catch {
+    return {};
+  }
+}
 let state: AIState = {
   providers: initialProviders,
-  conversations: savedConversations(),
+  conversations: [],
   selected: "",
   active: {},
-  usage: {},
+  usage: savedUsage(),
   accounts: {},
   models: {},
   choices: savedChoices(),
@@ -195,8 +295,26 @@ let state: AIState = {
 const listeners = new Set<() => void>();
 function update(patch: Partial<AIState>) {
   state = { ...state, ...patch };
+  if (patch.usage)
+    try {
+      localStorage.setItem(
+        "devyy.ai.usage",
+        JSON.stringify(
+          Object.fromEntries(
+            Object.entries(state.usage).map(
+              ([id, { limits: _limits, observedAt: _observed, ...usage }]) => [
+                id,
+                usage,
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch {
+    }
   listeners.forEach((fn) => fn());
 }
+export const aiSnapshot = () => state;
 export function useAI() {
   return useSyncExternalStore(
     (fn) => {
@@ -226,7 +344,12 @@ function persist() {
   }, 300);
 }
 let loading: Promise<void> | undefined;
+let historyHydrated = false;
 export function loadAI(force = false): Promise<void> {
+  if (!historyHydrated) {
+    historyHydrated = true;
+    update({ conversations: savedConversations() });
+  }
   if (loading && !force) return loading;
   if (state.loaded && !force) return Promise.resolve();
   loading = (async () => {
@@ -269,11 +392,30 @@ export async function saveAIProvider(
     removeKey ||
     previous?.endpoint !== provider.endpoint ||
     previous?.kind !== provider.kind ||
-    previous?.executable !== provider.executable
+    previous?.executable !== provider.executable ||
+    (previous?.model !== provider.model && provider.kind === "cli") ||
+    previous?.cliJson !== provider.cliJson ||
+    JSON.stringify(previous?.args ?? []) !== JSON.stringify(provider.args ?? [])
   ) {
+    modelVersions.set(provider.id, (modelVersions.get(provider.id) ?? 0) + 1);
     const models = { ...state.models };
     delete models[provider.id];
     update({ models });
+  }
+  if (previous && previous.model !== provider.model) {
+    const choice = state.choices[provider.id];
+    if (choice?.model === previous.model)
+      chooseAIModel(provider.id, { model: provider.model, effort: "" });
+    update({
+      conversations: state.conversations.map((chat) =>
+        chat.providerId === provider.id &&
+        !state.active[chat.id] &&
+        chat.model === previous.model
+          ? { ...chat, model: provider.model, effort: "" }
+          : chat,
+      ),
+    });
+    persist();
   }
   await loadAI(true);
 }
@@ -414,6 +556,42 @@ function editMessage(
   });
   persist();
 }
+export function getPendingAIProposals(chatId?: string): AIProposal[] {
+  const chats = chatId
+    ? state.conversations.filter((c) => c.id === chatId)
+    : state.conversations;
+  const pending: AIProposal[] = [];
+  for (const c of chats) {
+    for (const m of c.messages) {
+      if (m.proposals) {
+        for (const p of m.proposals) {
+          if (p.status !== "applied" && p.status !== "dismissed") {
+            pending.push(p);
+          }
+        }
+      }
+    }
+  }
+  return pending;
+}
+export function setAIProposalStatus(id: string, status: AIProposal["status"]) {
+  update({
+    conversations: state.conversations.map((chat) => ({
+      ...chat,
+      messages: chat.messages.map((message) =>
+        message.proposals?.some((p) => p.id === id)
+          ? {
+              ...message,
+              proposals: message.proposals.map((proposal) =>
+                proposal.id === id ? { ...proposal, status } : proposal,
+              ),
+            }
+          : message,
+      ),
+    })),
+  });
+  persist();
+}
 export async function editAIMessage(
   chatId: string,
   messageId: string,
@@ -462,6 +640,12 @@ export function tokenUsage(data: Record<string, unknown>): {
   input: number;
   output: number;
 } {
+  const nested =
+    data.usage ??
+    (data.response as Record<string, unknown> | undefined)?.usage ??
+    (data.info as Record<string, unknown> | undefined)?.total_token_usage;
+  if (nested && typeof nested === "object")
+    data = nested as Record<string, unknown>;
   return {
     input:
       numeric(data.input_tokens ?? data.prompt_tokens ?? data.inputTokens) +
@@ -470,6 +654,85 @@ export function tokenUsage(data: Record<string, unknown>): {
     output: numeric(
       data.output_tokens ?? data.completion_tokens ?? data.outputTokens,
     ),
+  };
+}
+export function usageRecorder(providerId: string) {
+  let input = 0,
+    output = 0,
+    cached = 0,
+    reasoning = 0,
+    cost = 0,
+    counted = false;
+  return (kind: string, value?: unknown) => {
+    if (!["usage", "cost", "limits", "request"].includes(kind)) return;
+    const old = state.usage[providerId] ?? {
+      tokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+    const data =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+    let next: AIUsage = { ...old };
+    if (kind === "request") {
+      if (counted) return;
+      counted = true;
+      next.requests = (old.requests ?? 0) + 1;
+    }
+    if (kind === "limits")
+      next = { ...old, limits: data, observedAt: Date.now() };
+    if (kind === "cost") {
+      if (
+        typeof data.amount !== "number" ||
+        !Number.isFinite(data.amount) ||
+        data.amount < 0
+      )
+        return;
+      next.costUSD = (old.costUSD ?? 0) + Math.max(0, data.amount - cost);
+      cost = Math.max(cost, data.amount);
+    }
+    if (kind === "usage") {
+      const normalized = tokenUsage(data),
+        nextInput = Math.max(input, normalized.input),
+        nextOutput = Math.max(output, normalized.output);
+      const raw = (data.usage ??
+        (data.response as Record<string, unknown> | undefined)?.usage ??
+        data) as Record<string, unknown>;
+      const nextCached = Math.max(
+        cached,
+        numeric(
+          (raw.input_tokens_details as Record<string, unknown> | undefined)
+            ?.cached_tokens ??
+            raw.cached_input_tokens ??
+            raw.cache_read_input_tokens ??
+            raw.cache_read_tokens,
+        ),
+      );
+      const nextReasoning = Math.max(
+        reasoning,
+        numeric(
+          (raw.output_tokens_details as Record<string, unknown> | undefined)
+            ?.reasoning_tokens ??
+            raw.reasoning_output_tokens ??
+            raw.reasoning_tokens ??
+            raw.thinking_tokens,
+        ),
+      );
+      next = {
+        ...old,
+        inputTokens: old.inputTokens + nextInput - input,
+        outputTokens: old.outputTokens + nextOutput - output,
+        tokens: old.tokens + nextInput - input + nextOutput - output,
+        cachedInputTokens: (old.cachedInputTokens ?? 0) + nextCached - cached,
+        reasoningTokens: (old.reasoningTokens ?? 0) + nextReasoning - reasoning,
+      };
+      input = nextInput;
+      output = nextOutput;
+      cached = nextCached;
+      reasoning = nextReasoning;
+    }
+    update({ usage: { ...state.usage, [providerId]: next } });
   };
 }
 export async function sendAIMessage(
@@ -532,10 +795,8 @@ export async function sendAIMessage(
   });
   persist();
   let unlisten: (() => void) | undefined;
-  let input = 0,
-    output = 0,
-    stopped = false,
-    cost = 0;
+  let stopped = false;
+  const recordUsage = usageRecorder(providerId);
   let pendingReasoning = "";
   let pendingText = "",
     frame = 0;
@@ -564,12 +825,84 @@ export async function sendAIMessage(
         const e = event.payload;
         if (e.requestId !== requestId) return;
         if (e.kind === "delta" && typeof e.data === "string") {
-          pendingText += e.data;
-          if (!frame) frame = requestAnimationFrame(flushText);
+          let text = e.data;
+          if (
+            text.includes("<ctrl94>") ||
+            text.includes("<ctrl95>") ||
+            text.includes("\u001e") ||
+            text.includes("\u001f")
+          ) {
+            const thoughtMatch = text.match(
+              /(?:<ctrl94>(?:thought)?|\u001e(?:thought)?)([\s\S]*?)(?:<ctrl95>|\u001f|$)/,
+            );
+            if (thoughtMatch) {
+              pendingReasoning = (pendingReasoning + thoughtMatch[1]).slice(
+                0,
+                256 * 1024,
+              );
+              text = text.replace(
+                /(?:<ctrl94>(?:thought)?|\u001e(?:thought)?)([\s\S]*?)(?:<ctrl95>|\u001f|$)/g,
+                "",
+              );
+            }
+          }
+          if (text) {
+            pendingText += text;
+            if (!frame) frame = requestAnimationFrame(flushText);
+          }
         }
         if (e.kind === "reasoning" && typeof e.data === "string") {
           pendingReasoning = (pendingReasoning + e.data).slice(0, 256 * 1024);
           if (!frame) frame = requestAnimationFrame(flushText);
+        }
+        if (
+          (e.kind === "proposal" || e.kind === "tool") &&
+          e.data &&
+          typeof e.data === "object"
+        ) {
+          const data = e.data as Record<string, unknown>;
+          const message = state.conversations
+            .find((c) => c.id === chatId)
+            ?.messages.find((m) => m.id === assistant.id);
+          if (
+            message &&
+            e.kind === "proposal" &&
+            typeof data.id === "string" &&
+            typeof data.path === "string" &&
+            typeof data.original === "string" &&
+            typeof data.modified === "string" &&
+            typeof data.workspace === "string"
+          ) {
+            const proposals = message.proposals ?? [];
+            if (
+              proposals.length < 32 &&
+              !proposals.some((p) => p.id === data.id)
+            )
+              editMessage(chatId, assistant.id, {
+                proposals: [
+                  ...proposals,
+                  { ...data, status: "pending" } as unknown as AIProposal,
+                ],
+              });
+          } else if (
+            message &&
+            e.kind === "tool" &&
+            typeof data.id === "string" &&
+            typeof data.name === "string"
+          ) {
+            const tools = message.tools ?? [];
+            const exists = tools.some((t) => t.id === data.id);
+            const nextTools = exists
+              ? tools.map((t) =>
+                  t.id === data.id
+                    ? ({ ...t, ...data } as unknown as AITool)
+                    : t,
+                )
+              : [...tools, data as unknown as AITool];
+            editMessage(chatId, assistant.id, {
+              tools: nextTools.slice(-96),
+            });
+          }
         }
         if (e.kind === "error")
           editMessage(chatId, assistant.id, { error: String(e.data) });
@@ -577,56 +910,7 @@ export async function sendAIMessage(
           stopped = true;
           editMessage(chatId, assistant.id, { stopped: true });
         }
-        if (e.kind === "cost" && e.data && typeof e.data === "object") {
-          const amount = numeric((e.data as Record<string, unknown>).amount);
-          const old = state.usage[providerId] ?? {
-            tokens: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-          };
-          update({
-            usage: {
-              ...state.usage,
-              [providerId]: {
-                ...old,
-                costUSD: (old.costUSD ?? 0) + Math.max(0, amount - cost),
-              },
-            },
-          });
-          cost = Math.max(cost, amount);
-        }
-        if (
-          (e.kind === "usage" || e.kind === "limits") &&
-          e.data &&
-          typeof e.data === "object"
-        ) {
-          const old = state.usage[providerId] ?? {
-            inputTokens: 0,
-            outputTokens: 0,
-            tokens: 0,
-          };
-          const data = e.data as Record<string, unknown>;
-          if (e.kind === "usage") {
-            const usage = tokenUsage(data);
-            const nextInput = Math.max(input, usage.input),
-              nextOutput = Math.max(output, usage.output);
-            const usagePatch = {
-              ...old,
-              inputTokens: old.inputTokens + nextInput - input,
-              outputTokens: old.outputTokens + nextOutput - output,
-              tokens: old.tokens + nextInput - input + nextOutput - output,
-            };
-            input = nextInput;
-            output = nextOutput;
-            update({ usage: { ...state.usage, [providerId]: usagePatch } });
-          } else
-            update({
-              usage: {
-                ...state.usage,
-                [providerId]: { ...old, limits: data, observedAt: Date.now() },
-              },
-            });
-        }
+        recordUsage(e.kind, e.data);
       },
     );
     await invoke("ai_chat", {
@@ -636,7 +920,16 @@ export async function sendAIMessage(
         messages,
         cwd: cwd ?? null,
         model: chat.model ?? null,
-        effort: chat.effort || null,
+        effort:
+          supportedEffort(
+            state.models[providerId]?.find(
+              (m) =>
+                m.id ===
+                (chat.model ||
+                  state.providers.find((p) => p.id === providerId)?.model),
+            ),
+            chat.effort || "",
+          ) || null,
       },
     });
     flushText();
@@ -644,7 +937,12 @@ export async function sendAIMessage(
       const reply = state.conversations
         .find((c) => c.id === chatId)
         ?.messages.find((m) => m.id === assistant.id);
-      if (reply && !reply.content && !reply.error)
+      if (
+        reply &&
+        !reply.content.trim() &&
+        !reply.error &&
+        !reply.proposals?.length
+      )
         editMessage(chatId, assistant.id, {
           error:
             "The provider returned an empty reply. Try a different model or retry.",
@@ -654,18 +952,18 @@ export async function sendAIMessage(
     editMessage(chatId, assistant.id, { error: String(e) });
   } finally {
     flushText();
-    editMessage(chatId, assistant.id, { finishedAt: Date.now() });
-    const usage = state.usage[providerId] ?? {
-      tokens: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-    };
-    update({
-      usage: {
-        ...state.usage,
-        [providerId]: { ...usage, requests: (usage.requests ?? 0) + 1 },
-      },
+    const completed = state.conversations
+      .find((c) => c.id === chatId)
+      ?.messages.find((m) => m.id === assistant.id);
+    editMessage(chatId, assistant.id, {
+      finishedAt: Date.now(),
+      tools: completed?.tools?.map((tool) =>
+        tool.status === "running"
+          ? { ...tool, status: stopped ? "cancelled" : "error" }
+          : tool,
+      ),
     });
+    recordUsage("request");
     unlisten?.();
     const active = { ...state.active };
     delete active[chatId];
@@ -710,7 +1008,6 @@ export async function aiAccount(
         });
       });
     } catch {
-      /* Ignore unexpected URLs from a CLI. */
     }
   });
   try {
