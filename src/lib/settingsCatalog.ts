@@ -1,7 +1,24 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import {
   Accessibility,
   Code2,
   Files,
+  AppWindow,
+  UserRound,
   Keyboard,
   Layout,
   Palette,
@@ -12,9 +29,11 @@ import {
   Sparkles,
   SlidersHorizontal,
   HeartHandshake,
+  Github,
 } from "lucide-react";
 import type { Settings } from "./types";
 export const categories = [
+  {id:"account",label:"Account & sync",description:"Devyy account, devices and selective synchronization.",icon:UserRound},
   {
     id: "appearance",
     label: "Appearance",
@@ -32,6 +51,12 @@ export const categories = [
     label: "Files & saving",
     description: "Save behavior and timing.",
     icon: Files,
+  },
+  {
+    id: "applications",
+    label: "Default applications",
+    description: "Open source files and documents in Devyy.",
+    icon: AppWindow,
   },
   {
     id: "layout",
@@ -60,19 +85,25 @@ export const categories = [
   {
     id: "extensions",
     label: "Extensions",
-    description: "Browse Open VSX and manage installed packages.",
+    description: "Find extensions and manage the ones you have installed.",
     icon: Blocks,
   },
   {
     id: "ai",
     label: "AI providers",
-    description: "Accounts, API keys, models, endpoints, and usage.",
+    description: "Connect accounts, choose models, and view usage.",
     icon: Sparkles,
+  },
+  {
+    id: "git",
+    label: "Git & GitHub",
+    description: "GitHub sign-in, Git installation and commit identity.",
+    icon: Github,
   },
   {
     id: "languages",
     label: "Language servers",
-    description: "Local language intelligence over LSP.",
+    description: "Completions, diagnostics, and navigation for your languages.",
     icon: Plug,
   },
   {
@@ -132,11 +163,38 @@ const switches = (
   }));
 export const controls: SettingControl[] = [
   {
+    key: "uiScale",
+    category: "appearance",
+    section: "Interface size",
+    label: "Interface scale",
+    description: "Resize the entire interface, including controls and panels.",
+    keywords: "zoom size accessibility",
+    type: "range",
+    min: 80,
+    max: 150,
+    step: 5,
+    unit: "%",
+  },
+  {
+    key: "uiTextSize",
+    category: "appearance",
+    section: "Interface size",
+    label: "Interface text size",
+    description:
+      "Resize labels, menus and chat text. Editor and terminal fonts have their own settings.",
+    keywords: "font text size accessibility",
+    type: "range",
+    min: 11,
+    max: 18,
+    step: 1,
+    unit: "px",
+  },
+  {
     key: "theme",
     category: "appearance",
     section: "Color & material",
     label: "Color theme",
-    description: "A coordinated palette for your whole workspace.",
+    description: "Choose a light or dark appearance.",
     keywords: "light dark colors",
     type: "theme",
   },
@@ -169,7 +227,7 @@ export const controls: SettingControl[] = [
     category: "appearance",
     section: "Glass",
     label: "Window transparency",
-    description: "How much of the desktop shows through the window chrome.",
+    description: "Adjust how much of your desktop shows through the app.",
     keywords: "opacity background",
     type: "range",
     min: 0,
@@ -182,7 +240,7 @@ export const controls: SettingControl[] = [
     category: "appearance",
     section: "Glass",
     label: "Editor transparency",
-    description: "Set the code surface independently. Your text stays crisp.",
+    description: "Adjust the editor background separately from other panels.",
     keywords: "opacity code background",
     type: "range",
     min: 0,
@@ -222,7 +280,7 @@ export const controls: SettingControl[] = [
     category: "appearance",
     section: "Motion",
     label: "Interface motion",
-    description: "Quick transitions that stay out of your way.",
+    description: "Choose the speed of menus and transitions.",
     keywords: "animations snappy speed instant",
     type: "select",
     options: [
@@ -236,7 +294,7 @@ export const controls: SettingControl[] = [
     category: "editor",
     section: "Typography",
     label: "Font family",
-    description: "A monospace face for your code.",
+    description: "Choose the font used in the editor.",
     keywords: "typeface",
     type: "select",
     options: [
@@ -259,7 +317,7 @@ export const controls: SettingControl[] = [
     category: "editor",
     section: "Typography",
     label: "Line height",
-    description: "Give your code a little breathing room.",
+    description: "Adjust the space between lines of code.",
     keywords: "spacing leading",
     type: "range",
     min: 1.2,
@@ -381,7 +439,7 @@ export const controls: SettingControl[] = [
     category: "editor",
     section: "Guides & gutters",
     label: "Column ruler",
-    description: "A subtle guide for your preferred line length.",
+    description: "Show a guide at your preferred line length.",
     keywords: "80 100 120 margin",
     type: "select",
     options: [
@@ -441,6 +499,12 @@ export const controls: SettingControl[] = [
   ]),
   ...switches("editor", "Suggestions", [
     [
+      "aiCompletions",
+      "AI code suggestions",
+      "Send nearby code to your selected provider while typing. Uses account tokens or API credits; off by default.",
+      "AI autocomplete model tokens usage",
+    ],
+    [
       "autocomplete",
       "Code suggestions",
       "Offer completions from your code and connected language servers.",
@@ -490,7 +554,13 @@ export const controls: SettingControl[] = [
       { value: 5000, label: "5 seconds" },
     ],
   },
+  ...switches("files", "Deletion", [["confirmDelete", "Confirm file deletion", "Ask before deleting files and folders. Unsaved changes always require confirmation."]]),
   ...switches("layout", "Workspace", [
+    [
+      "aiPanelOnDrag",
+      "Open AI panel while dragging",
+      "Temporarily reveal the AI panel when dragging files or context. It closes when the drag ends.",
+    ],
     [
       "showBreadcrumbs",
       "Breadcrumbs",
@@ -544,7 +614,7 @@ export const controls: SettingControl[] = [
     category: "terminal",
     section: "Cursor & selection",
     label: "Terminal cursor shape",
-    description: "A familiar cursor for your shell.",
+    description: "Choose the cursor displayed in the terminal.",
     keywords: "caret",
     type: "select",
     options: [

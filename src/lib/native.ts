@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { serverLanguages } from "./languageServers";
@@ -5,6 +20,15 @@ import { activateExtensionLanguage } from "./extensionHost";
 import type { Position, LspDiagnostic } from "./types";
 export const native = isTauri();
 export { invoke, listen };
+interface ServerCapabilities {
+  semanticTokensProvider?: {
+    legend?: { tokenTypes: string[]; tokenModifiers: string[] };
+  };
+}
+const capabilities = new Map<string, ServerCapabilities>();
+export function documentCapabilities(path: string) {
+  return capabilities.get(documents.get(path)?.language ?? "");
+}
 const ready = new Map<string, Promise<void>>();
 const documents = new Map<
   string,
@@ -25,6 +49,7 @@ export function clearLanguageServers() {
   connections.clear();
   tickets.clear();
   ready.clear();
+  capabilities.clear();
   documents.clear();
 }
 async function openDocument(
@@ -35,8 +60,6 @@ async function openDocument(
   epoch: number,
 ) {
   if (!native) return false;
-  // Activation failures are reported in Installed extensions. A configured or
-  // discovered server can still work when its extension uses an unsupported API.
   await activateExtensionLanguage(language).catch(() => {});
   if (
     epoch !== generation ||
@@ -47,10 +70,15 @@ async function openDocument(
   if (!ready.has(language))
     ready.set(
       language,
-      invoke<void>("lsp_start", { language }).catch((e) => {
-        if (epoch === generation) ready.delete(language);
-        throw e;
-      }),
+      invoke<{ capabilities?: ServerCapabilities }>("lsp_start", { language })
+        .then((result) => {
+          if (epoch === generation)
+            capabilities.set(language, result?.capabilities ?? {});
+        })
+        .catch((e) => {
+          if (epoch === generation) ready.delete(language);
+          throw e;
+        }),
     );
   await ready.get(language);
   const uri = await invoke<string>("file_uri", { path });
@@ -72,6 +100,10 @@ async function openDocument(
     updates: Promise.resolve(),
   });
   await flushDocumentChanges(path);
+  if (typeof window !== "undefined")
+    window.dispatchEvent(
+      new CustomEvent("devyy-document-connected", { detail: { path } }),
+    );
   return true;
 }
 export function connectDocument(path: string, language: string, text: string) {
@@ -156,6 +188,27 @@ export async function languageRequest<T>(
   path: string,
   method: string,
   position?: Position,
+  extraParams?: Record<string, unknown>,
+): Promise<T | null> {
+  await connections.get(path)?.catch(() => false);
+  const doc = documents.get(path);
+  if (!doc) return null;
+  return languageServerRequest<T>(path, method, {
+    textDocument: { uri: doc.uri },
+    ...(position ? { position } : {}),
+    ...(method.endsWith("formatting")
+      ? { options: { tabSize: 4, insertSpaces: true } }
+      : {}),
+    ...(method === "textDocument/signatureHelp"
+      ? { context: { triggerKind: 1, isRetrigger: false } }
+      : {}),
+    ...(extraParams ? extraParams : {}),
+  });
+}
+export async function languageServerRequest<T>(
+  path: string,
+  method: string,
+  params: unknown,
 ): Promise<T | null> {
   await flushDocumentChanges(path);
   const doc = documents.get(path);
@@ -164,13 +217,7 @@ export async function languageRequest<T>(
   return invoke<T>("lsp_request", {
     language: doc.language,
     method,
-    params: {
-      textDocument: { uri: doc.uri },
-      ...(position ? { position } : {}),
-      ...(method.endsWith("formatting")
-        ? { options: { tabSize: 4, insertSpaces: true } }
-        : {}),
-    },
+    params,
     notification: false,
   });
 }

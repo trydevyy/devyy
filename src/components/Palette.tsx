@@ -1,19 +1,36 @@
-import { motion } from "motion/react";
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import ModalBackdrop from "./ui/ModalBackdrop";
+import { motion, useIsPresent } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   Command,
   CornerDownLeft,
   Search,
+  Clock3,
   X,
 } from "lucide-react";
 import FileIcon from "./FileIcon";
 import ExtensionIcon from "./ExtensionIcon";
 import AIProviderIcon from "./AIProviderIcon";
 import { readLocal } from "../lib/types";
-import { searchScore } from "../lib/search";
+import { searchScore, searchHighlights } from "../lib/search";
 export interface PaletteItem {
   id: string;
   label: string;
@@ -36,9 +53,9 @@ export default function Palette({
   const { transition, instant } = useSurfaceMotion();
   const [query, setQuery] = useState(""),
     [selected, setSelected] = useState(0);
-  const recent = useMemo(
-    () => readLocal<string[]>(`devyy.palette.${mode}`, []),
-    [mode],
+  const present = useIsPresent();
+  const [recent, setRecent] = useState(() =>
+    readLocal<string[]>(`devyy.palette.${mode}`, []),
   );
   const input = useRef<HTMLInputElement>(null),
     list = useRef<HTMLDivElement>(null);
@@ -66,17 +83,20 @@ export default function Palette({
         .map(({ item }) => item),
     [items, query, recent],
   );
-  useEffect(() => {
+  const selectedIndex = Math.max(0, Math.min(selected, filtered.length - 1));
+  useLayoutEffect(() => {
+    if (!present) return;
+    setRecent(readLocal<string[]>(`devyy.palette.${mode}`, []));
     input.current?.focus();
     setQuery("");
     setSelected(0);
-  }, [mode]);
+  }, [mode, present]);
   useEffect(() => setSelected(0), [query]);
   useEffect(() => {
     list.current
-      ?.querySelector(`[data-index="${selected}"]`)
+      ?.querySelector(`[data-index="${selectedIndex}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+  }, [selectedIndex, query]);
   function choose(item: PaletteItem) {
     localStorage.setItem(
       `devyy.palette.${mode}`,
@@ -88,12 +108,15 @@ export default function Palette({
     item.run();
   }
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <ModalBackdrop
+      className="modal-backdrop palette-backdrop"
+      onMouseDown={onClose}
+    >
       <motion.div
-        layout
+        layout="position"
         transition={transition}
-        initial={{ opacity: 0, scale: instant ? 1 : 0.97, y: instant ? 0 : -8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
+        initial={{ opacity: 0, y: instant ? 0 : -8 }}
+        animate={{ opacity: 1, y: 0 }}
         className="palette"
         role="dialog"
         aria-label={mode === "files" ? "Go to file" : "Command palette"}
@@ -123,21 +146,28 @@ export default function Palette({
                     ),
             );
           }
-          if (e.key === "Enter" && filtered[selected]) {
+          if (
+            e.key === "Enter" &&
+            e.target === input.current &&
+            !e.nativeEvent.isComposing &&
+            filtered[selectedIndex]
+          ) {
             e.preventDefault();
-            choose(filtered[selected]);
+            choose(filtered[selectedIndex]);
           }
         }}
       >
         <div className="palette-modes">
           <button
             className={mode === "files" ? "active" : ""}
+            aria-pressed={mode === "files"}
             onClick={() => onModeChange("files")}
           >
             <Search size={13} /> Files
           </button>
           <button
             className={mode === "commands" ? "active" : ""}
+            aria-pressed={mode === "commands"}
             onClick={() => onModeChange("commands")}
           >
             <Command size={13} /> Commands
@@ -162,12 +192,42 @@ export default function Palette({
             aria-label="Search"
             aria-controls="palette-results"
             aria-activedescendant={
-              filtered[selected] ? `palette-option-${selected}` : undefined
+              filtered[selectedIndex]
+                ? `palette-option-${selectedIndex}`
+                : undefined
             }
+            aria-autocomplete="list"
             autoComplete="off"
             spellCheck={false}
           />
-          <kbd>esc</kbd>
+          {query ? (
+            <button
+              className="icon-button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                input.current?.focus();
+              }}
+            >
+              <X size={14} />
+            </button>
+          ) : (
+            <kbd>esc</kbd>
+          )}
+        </div>
+        <div
+          className="palette-results-heading"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span>
+            {query.trim()
+              ? "Results"
+              : mode === "files"
+                ? "Project files"
+                : "Commands"}
+          </span>
+          <span>{filtered.length === 80 ? "80 shown" : filtered.length}</span>
         </div>
         <div
           className="palette-list"
@@ -179,12 +239,13 @@ export default function Palette({
           {filtered.map((item, i) => (
             <button
               role="option"
-              aria-selected={i === selected}
+              aria-selected={i === selectedIndex}
               id={`palette-option-${i}`}
               key={item.id}
               data-index={i}
-              className={i === selected ? "active" : ""}
-              onMouseEnter={() => setSelected(i)}
+              className={i === selectedIndex ? "active" : ""}
+              tabIndex={-1}
+              onMouseMove={() => setSelected(i)}
               onClick={() => choose(item)}
             >
               {mode === "files" ? (
@@ -203,18 +264,64 @@ export default function Palette({
                 <Command size={18} />
               )}
               <span className="palette-item-content">
-                <strong>{item.label}</strong>
-                {item.detail && <small>{item.detail}</small>}
+                <strong>
+                  <Highlighted
+                    text={
+                      mode === "files"
+                        ? (item.detail ?? item.label)
+                        : item.label
+                    }
+                    query={query}
+                    from={
+                      mode === "files" && item.detail
+                        ? item.detail.lastIndexOf("/") + 1
+                        : 0
+                    }
+                  />
+                </strong>
+                {item.detail &&
+                  (mode !== "files" || item.detail.includes("/")) && (
+                    <small title={item.detail}>
+                      <Highlighted
+                        text={item.detail}
+                        to={
+                          mode === "files"
+                            ? item.detail.lastIndexOf("/")
+                            : undefined
+                        }
+                        query={query}
+                      />
+                    </small>
+                  )}
               </span>
+              {!query && recent.includes(item.id) && (
+                <Clock3
+                  className="palette-recent-icon"
+                  size={12}
+                  aria-label="Recently opened"
+                />
+              )}
               {item.shortcut && <kbd>{item.shortcut}</kbd>}
-              {i === selected && <CornerDownLeft size={14} />}
+              <CornerDownLeft
+                className="palette-enter"
+                size={14}
+                aria-hidden={i !== selectedIndex}
+              />
             </button>
           ))}
           {!filtered.length && (
             <div className="palette-empty">
               <Search size={25} />
-              <strong>No matches found</strong>
-              <span>Try a file name, path, or a few letters in order.</span>
+              <strong>
+                {!items.length && mode === "files"
+                  ? "No project files"
+                  : "No matches found"}
+              </strong>
+              <span>
+                {!items.length && mode === "files"
+                  ? "Open a project to search its files."
+                  : `Try another ${mode === "files" ? "file name or path" : "command name"}.`}
+              </span>
             </div>
           )}
         </div>
@@ -224,10 +331,41 @@ export default function Palette({
             <ArrowDown size={12} /> Navigate
           </span>
           <span>
-            <CornerDownLeft size={12} /> Open
+            <CornerDownLeft size={12} />{" "}
+            {mode === "files" ? "Open file" : "Run command"}
+          </span>
+          <span className="palette-escape">
+            esc <span>Close</span>
           </span>
         </div>
       </motion.div>
-    </div>
+    </ModalBackdrop>
   );
+}
+function Highlighted({
+  text,
+  query,
+  from = 0,
+  to = text.length,
+}: {
+  text: string;
+  query: string;
+  from?: number;
+  to?: number;
+}) {
+  let offset = 0;
+  return searchHighlights(query, text).map((part, index) => {
+    const start = offset;
+    offset += part.text.length;
+    const visible = part.text.slice(
+      Math.max(0, from - start),
+      Math.max(0, Math.min(part.text.length, to - start)),
+    );
+    if (!visible) return null;
+    return part.match ? (
+      <mark key={index}>{visible}</mark>
+    ) : (
+      <span key={index}>{visible}</span>
+    );
+  });
 }

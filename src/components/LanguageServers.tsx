@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
 import { Check, Plus, RotateCcw, Save, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +58,8 @@ export default function LanguageServers() {
     setBusy(true);
     setError("");
     try {
+      if (!edit.language.trim() || !edit.command.trim())
+        throw Error("Enter a language identifier and server command.");
       const parsed: unknown = JSON.parse(args);
       if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string"))
         throw new Error("Arguments must be a JSON array of strings.");
@@ -63,10 +81,8 @@ export default function LanguageServers() {
   return (
     <div className="language-servers">
       <p className="settings-note">
-        Compatible bundled servers and servers registered by extensions are
-        added automatically. Your configuration takes priority. Other servers
-        can run from your PATH or an absolute path using LSP over standard input
-        and output.
+        Extensions add their language servers automatically. Add a server here
+        to use your own installation or override an extension’s settings.
       </p>
       {!native && (
         <p className="settings-note">
@@ -94,6 +110,7 @@ export default function LanguageServers() {
       </div>
       {edit ? (
         <form
+          noValidate
           className="server-editor"
           onSubmit={(e) => {
             e.preventDefault();
@@ -143,7 +160,7 @@ export default function LanguageServers() {
             />
           </label>
           <details>
-            <summary>Server configuration</summary>
+            <DisclosureSummary>Server configuration</DisclosureSummary>
             <label>
               Initialization options
               <textarea

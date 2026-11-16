@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import manifest from "../lib/generated/file-icons.json";
 import { language } from "../lib/types";
 export type IconTheme = {
@@ -60,6 +75,8 @@ export default function FileIcon({
       <img
         className={light === dark ? "" : "file-icon-dark"}
         src={src(dark)}
+        loading="lazy"
+        decoding="async"
         width={size}
         height={size}
         alt=""
@@ -69,6 +86,8 @@ export default function FileIcon({
         <img
           className="file-icon-light"
           src={src(light)}
+          loading="lazy"
+          decoding="async"
           width={size}
           height={size}
           alt=""

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { useEffect, useState } from "react";
 import { Asterisk, ArrowUpRight, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -73,14 +88,14 @@ export default function About() {
         <dl>
           <div>
             <dt>Version</dt>
-            <dd>{info?.version ?? "—"}</dd>
+            <dd>{info?.version ?? "Unavailable"}</dd>
           </div>
           <div>
             <dt>Build</dt>
             <dd>
               {info
-                ? `${info.revision}${info.arch === "—" ? "" : ` — ${info.arch}`}`
-                : "—"}
+                ? `${info.revision}${info.arch === "—" ? "" : ` (${info.arch})`}`
+                : "Unavailable"}
             </dd>
           </div>
           <div>
@@ -89,11 +104,11 @@ export default function About() {
           </div>
           <div>
             <dt>Operating system</dt>
-            <dd>{info?.os ?? "—"}</dd>
+            <dd>{info?.os ?? "Unavailable"}</dd>
           </div>
           <div>
             <dt>OS build</dt>
-            <dd>{info?.osBuild ?? "—"}</dd>
+            <dd>{info?.osBuild ?? "Unavailable"}</dd>
           </div>
           <div>
             <dt>Updates</dt>
@@ -120,16 +135,18 @@ export default function About() {
         </button>
         {update?.status === "available" && update.url && (
           <button
-            className="setting-action"
+            className="setting-action primary"
+            aria-label="View release"
             onClick={() =>
               void openUrl(update.url!).catch(() =>
                 toast.error("Could not open release"),
               )
             }
           >
-            View release
+            Update to v{update.version}
             <ArrowUpRight size={13} />
           </button>
+
         )}
         <button
           className="setting-action"

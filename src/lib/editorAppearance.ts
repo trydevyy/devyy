@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { Prec, RangeSetBuilder, type Extension } from "@codemirror/state";
 import {
   EditorView,
@@ -54,6 +69,9 @@ export const editorSettingKeys: (keyof Settings)[] = [
   "autocomplete",
   "completionOnTyping",
   "completionDelay",
+  "aiCompletions",
+  "aiCompletionProvider",
+  "aiCompletionModel",
 ];
 class NumberMarker extends GutterMarker {
   constructor(readonly value: string) {
@@ -113,20 +131,40 @@ export function editorAppearance(s: Settings): Extension[] {
   const cursor: Record<string, string> =
     s.cursorStyle === "block"
       ? {
-          borderLeft: "none",
-          background: "var(--accent)",
-          width: ".6em",
-          opacity: ".5",
+          borderLeft: "none !important",
+          borderRight: "none !important",
+          borderTop: "none !important",
+          borderBottom: "none !important",
+          backgroundColor: "var(--accent) !important",
+          width: "0.6em !important",
+          opacity: "0.55 !important",
+          marginLeft: "0 !important",
+          boxShadow: "none !important",
         }
       : s.cursorStyle === "underline"
         ? {
-            borderLeft: "none",
-            borderBottom: "2px solid var(--accent)",
-            width: ".6em",
-            transform: "translateY(.8em)",
-            height: ".15em!important",
+            borderLeft: "none !important",
+            borderRight: "none !important",
+            borderTop: "none !important",
+            borderBottom: "none !important",
+            backgroundColor: "transparent !important",
+            width: "0.6em !important",
+            boxShadow: "inset 0 -2.5px 0 0 var(--accent) !important",
+            marginLeft: "0 !important",
+            transform: "none !important",
+            opacity: "1 !important",
           }
-        : { borderLeft: "1.5px solid var(--accent)" };
+        : {
+            borderLeft: "2px solid var(--accent) !important",
+            borderRight: "none !important",
+            borderTop: "none !important",
+            borderBottom: "none !important",
+            backgroundColor: "transparent !important",
+            width: "0 !important",
+            marginLeft: "-1px !important",
+            boxShadow: "none !important",
+            opacity: "1 !important",
+          };
   return [
     s.lineNumbers
       ? s.relativeLineNumbers
@@ -161,6 +199,8 @@ export function editorAppearance(s: Settings): Extension[] {
         fontVariantLigatures: s.fontLigatures ? "normal" : "none",
       },
       ".cm-content": {
+        caretColor:
+          s.cursorStyle === "line" ? "var(--accent)" : "transparent !important",
         paddingTop: `${s.editorPadding}px`,
         ...(s.scrollPastEnd ? {} : { paddingBottom: `${s.editorPadding}px` }),
         ...(s.rulerColumn
@@ -174,6 +214,8 @@ export function editorAppearance(s: Settings): Extension[] {
       },
       ".cm-gutters": { paddingLeft: `${s.editorPadding}px` },
       ".cm-cursor": cursor,
+      ".cm-cursor-primary": cursor,
+      ".cm-cursor-secondary": cursor,
     }),
   ];
 }

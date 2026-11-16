@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { useEffect, useRef, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers, keymap } from "@codemirror/view";
@@ -22,6 +37,7 @@ import {
   X,
 } from "lucide-react";
 import { searchKeymap } from "@codemirror/search";
+import { devyySearch } from "../lib/findPanel";
 import { loadLanguage } from "../lib/languages";
 import type { Settings } from "../lib/types";
 
@@ -32,7 +48,14 @@ export interface Comparison {
   modified: string;
   binary?: boolean;
   staged?: boolean;
-  source: "git" | "extension" | "ai";
+  source: "git" | "extension" | "ai" | "history";
+  proposalId?: string;
+  commitHash?: string;
+  parentIndex?: number;
+  workspaceRoot?: string;
+  create?: boolean;
+  originalLabel?: string;
+  modifiedLabel?: string;
 }
 export default function DiffEditor({
   document,
@@ -44,6 +67,8 @@ export default function DiffEditor({
   onRefresh,
   onStage,
   onApply,
+  onApplyAll,
+  onHistory,
 }: {
   document: Comparison;
   active: boolean;
@@ -54,6 +79,8 @@ export default function DiffEditor({
   onRefresh: () => void;
   onStage: () => void;
   onApply?: () => void;
+  onApplyAll?: () => void;
+  onHistory?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -82,6 +109,7 @@ export default function DiffEditor({
       .then((support) => {
         if (disposed || !host.current) return;
         const extensions = [
+          devyySearch(),
           lineNumbers(),
           keymap.of(searchKeymap),
           syntaxHighlighting(highlighting),
@@ -236,8 +264,24 @@ export default function DiffEditor({
             Unchanged lines
           </button>
           {document.source === "ai" && (
-            <button className="diff-action" onClick={onApply}>
-              Apply to editor
+            <>
+              <button className="diff-action" onClick={onApply}>
+                Apply to editor
+              </button>
+              {onApplyAll && (
+                <button
+                  className="diff-action"
+                  onClick={onApplyAll}
+                  title="Approve and apply all pending proposals"
+                >
+                  Approve all
+                </button>
+              )}
+            </>
+          )}
+          {document.source === "history" && onHistory && (
+            <button className="diff-action" onClick={onHistory}>
+              Back to commit graph
             </button>
           )}
           {document.source === "git" && (
@@ -275,18 +319,20 @@ export default function DiffEditor({
       {!inline && !document.binary && (
         <div className="diff-column-labels">
           <span>
-            {document.source === "git"
-              ? document.staged
-                ? "HEAD"
-                : "Index"
-              : "Original"}
+            {document.originalLabel ??
+              (document.source === "git"
+                ? document.staged
+                  ? "HEAD"
+                  : "Index"
+                : "Original")}
           </span>
           <span>
-            {document.source === "git"
-              ? document.staged
-                ? "Index"
-                : "Saved working tree"
-              : "Modified"}
+            {document.modifiedLabel ??
+              (document.source === "git"
+                ? document.staged
+                  ? "Index"
+                  : "Saved working tree"
+                : "Modified")}
           </span>
         </div>
       )}

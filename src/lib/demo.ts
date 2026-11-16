@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import type { FileEntry } from "./types";
 export const seed: Record<string, string> = {
   "src/main.rs": `//! Small tools. Big ideas.\n//! Your next great project starts right here.\n\nuse devyy_playground::{greet, Project};\nuse std::time::Instant;\n\nfn main() {\n    let started = Instant::now();\n\n    // A little less setup. A lot more possibility.\n    let project = Project::new("something wonderful");\n\n    println!("{}", greet("world"));\n    println!("Let's build {}.", project.name);\n\n    let ideas = [\n        "A tool you wish existed",\n        "That weekend side project",\n        "The next big little thing",\n    ];\n\n    for (index, idea) in ideas.iter().enumerate() {\n        println!("  {}. {}", index + 1, idea);\n    }\n\n    println!("\\nReady in {:?}. Make it yours.", started.elapsed());\n}\n`,

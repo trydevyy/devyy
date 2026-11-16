@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -125,7 +140,6 @@ for (const pkg of metadata.packages)
         `https://crates.io/crates/${pkg.name}/${pkg.version}`,
       files: licenseTexts(path.dirname(pkg.manifest_path)),
     });
-// The icon package is a build dependency whose artwork is shipped at runtime.
 const material = JSON.parse(read(path.join(themeRoot, "package.json")));
 packages.push({
   name: material.name,
@@ -135,13 +149,25 @@ packages.push({
   url: "https://github.com/material-extensions/vscode-material-icon-theme",
   files: licenseTexts(themeRoot),
 });
+const editorMarks = path.join(root, "public/ide-icons");
+if (fs.existsSync(editorMarks))
+  packages.push({
+    name: "Editor identification marks",
+    version: "Bundled assets",
+    ecosystem: "Artwork",
+    license: "Upstream licensing and trademark terms",
+    url: "https://github.com/microsoft/vscode",
+    files: licenseTexts(editorMarks),
+  });
 const ownFile = ["LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"].find((n) =>
   fs.existsSync(path.join(root, n)),
 );
 const own = {
   name: "Devyy",
   version: JSON.parse(read(path.join(root, "package.json"))).version,
-  license: ownFile ? "Project license" : "No license specified",
+  license:
+    JSON.parse(read(path.join(root, "package.json"))).license ??
+    (ownFile ? "Project license" : "No license specified"),
   files: ownFile ? licenseTexts(root) : [],
 };
 packages.sort(

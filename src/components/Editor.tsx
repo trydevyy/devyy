@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { transparentGutters } from "../lib/editorGutters";
 import { memo, useEffect, useRef } from "react";
 import {
   EditorState,
@@ -26,8 +42,13 @@ import {
   closeBracketsKeymap,
   completionKeymap,
   completeFromList,
+  completeAnyWord,
+  type CompletionContext,
+  type Completion,
+  type CompletionResult,
   snippetCompletion,
 } from "@codemirror/autocomplete";
+import { aiCompletion } from "../lib/aiCompletion";
 import { extensionSnippets } from "../lib/extensions";
 import { loadLanguage, languageId } from "../lib/languages";
 import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
@@ -35,7 +56,59 @@ import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
 import { extensionLanguageFeature } from "../lib/extensionHost";
 import { languageRequest } from "../lib/native";
+import { devyySearch } from "../lib/findPanel";
+import { closeSearchPanel } from "@codemirror/search";
 import { type LspDiagnostic, type Position, type Settings } from "../lib/types";
+import {
+  computeExtensionDecorations,
+  getExtensionDecorationHover,
+  onDecorationsChanged,
+  matchesDocPath,
+} from "../lib/extensionDecorations";
+import {
+  signatureHelpField,
+  triggerSignatureHelp,
+  closeSignatureHelp,
+} from "../lib/lspSignatureHelp";
+import {
+  inlayHintsField,
+  inlayHintsEffect,
+  fetchInlayHints,
+} from "../lib/lspInlayHints";
+import {
+  codeLensesField,
+  codeLensesEffect,
+  fetchCodeLenses,
+} from "../lib/lspCodeLenses";
+import {
+  semanticTokensField,
+  semanticTokensEffect,
+  fetchSemanticTokens,
+} from "../lib/lspSemanticTokens";
+import { Decoration } from "@codemirror/view";
+
+const extensionDecorationEffect = StateEffect.define<RangeSet<Decoration>>();
+const extensionDecorationField = StateField.define<RangeSet<Decoration>>({
+  create: () => RangeSet.empty,
+  update: (decorations, tr) => {
+    decorations = decorations.map(tr.changes);
+    for (const effect of tr.effects)
+      if (effect.is(extensionDecorationEffect)) decorations = effect.value;
+    return decorations;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+const extensionGutterEffect = StateEffect.define<RangeSet<GutterMarker>>();
+const extensionGutterField = StateField.define<RangeSet<GutterMarker>>({
+  create: () => RangeSet.empty,
+  update: (markers, tr) => {
+    markers = markers.map(tr.changes);
+    for (const effect of tr.effects)
+      if (effect.is(extensionGutterEffect)) markers = effect.value;
+    return markers;
+  },
+});
 
 class BreakpointMarker extends GutterMarker {
   toDOM() {
@@ -43,6 +116,82 @@ class BreakpointMarker extends GutterMarker {
     dot.className = "breakpoint-dot";
     return dot;
   }
+}
+
+function createHoverDOM(rawText: string): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "hover-doc";
+
+  const codeBlockRegex = /```([^\n]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  const appendText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const parts = trimmed.split(/\n\s*---\s*\n/);
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) {
+        const hr = document.createElement("hr");
+        hr.className = "hover-divider";
+        container.appendChild(hr);
+      }
+      const p = document.createElement("div");
+      p.className = "hover-body";
+      const lines = parts[i].split("\n");
+      for (const line of lines) {
+        const lineEl = document.createElement("div");
+        lineEl.className = "hover-line";
+        const tokens = line.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+        for (const token of tokens) {
+          if (token.startsWith("`") && token.endsWith("`")) {
+            const code = document.createElement("code");
+            code.className = "hover-inline-code";
+            code.textContent = token.slice(1, -1);
+            lineEl.appendChild(code);
+          } else if (token.startsWith("**") && token.endsWith("**")) {
+            const strong = document.createElement("strong");
+            strong.textContent = token.slice(2, -2);
+            lineEl.appendChild(strong);
+          } else if (token) {
+            lineEl.appendChild(document.createTextNode(token));
+          }
+        }
+        p.appendChild(lineEl);
+      }
+      container.appendChild(p);
+    }
+  };
+
+  while ((match = codeBlockRegex.exec(rawText)) !== null) {
+    if (match.index > lastIndex) {
+      appendText(rawText.slice(lastIndex, match.index));
+    }
+    const lang = match[1] || "";
+    const code = match[2].trim();
+
+    const block = document.createElement("div");
+    block.className = "hover-signature";
+    if (lang) {
+      const badge = document.createElement("span");
+      badge.className = "hover-signature-badge";
+      badge.textContent = lang;
+      block.appendChild(badge);
+    }
+    const pre = document.createElement("pre");
+    pre.className = "hover-signature-code";
+    pre.textContent = code;
+    block.appendChild(pre);
+    container.appendChild(block);
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < rawText.length) {
+    appendText(rawText.slice(lastIndex));
+  }
+
+  return container;
 }
 const marker = new BreakpointMarker();
 const breakpointEffect = StateEffect.define<number[]>();
@@ -100,9 +249,26 @@ function offset(view: EditorView, pos: Position) {
 }
 interface CompletionItem {
   label: string;
+  range?:
+    | { start: Position; end: Position }
+    | {
+        inserting: { start: Position; end: Position };
+        replacing: { start: Position; end: Position };
+      };
   detail?: string;
   insertText?: string;
-  textEdit?: { newText: string };
+  insertTextFormat?: number;
+  textEditText?: string;
+  additionalTextEdits?: {
+    range: { start: Position; end: Position };
+    newText: string;
+  }[];
+  textEdit?: {
+    newText: string;
+    range?: { start: Position; end: Position };
+    insert?: { start: Position; end: Position };
+    replace?: { start: Position; end: Position };
+  };
   kind?: number;
 }
 const localComplete = completeFromList(
@@ -137,6 +303,169 @@ const localComplete = completeFromList(
     "println!",
   ].map((label) => ({ label, type: "keyword" })),
 );
+async function languageComplete(
+  ctx: CompletionContext,
+  source: "server" | "extension" = "server",
+): Promise<CompletionResult | null> {
+  const view = ctx.view;
+  if (!view) return null;
+  const word = ctx.matchBefore(/[\w!$]+/);
+  if (
+    !word &&
+    !ctx.explicit &&
+    !/[.:>]$/.test(ctx.state.sliceDoc(Math.max(0, ctx.pos - 1), ctx.pos))
+  )
+    return null;
+  const path = view.dom.closest<HTMLElement>("[data-path]")?.dataset.path;
+  if (!path) return null;
+  const position = toPosition(view, ctx.pos);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const work = async () => {
+      if (source === "server") {
+        const result = await languageRequest<
+          | CompletionItem[]
+          | {
+              items: CompletionItem[];
+              itemDefaults?: {
+                insertTextFormat?: number;
+                editRange?:
+                  | { start: Position; end: Position }
+                  | {
+                      insert: { start: Position; end: Position };
+                      replace: { start: Position; end: Position };
+                    };
+              };
+            }
+        >(path, "textDocument/completion", position, {
+          context: {
+            triggerKind: ctx.explicit ? 1 : word ? 1 : 2,
+            ...(!word && !ctx.explicit
+              ? { triggerCharacter: ctx.state.sliceDoc(ctx.pos - 1, ctx.pos) }
+              : {}),
+          },
+        }).catch(() => null);
+        if (Array.isArray(result)) return result;
+        const defaults = result?.itemDefaults;
+        return (result?.items ?? []).map((item) => ({
+          ...item,
+          insertTextFormat: item.insertTextFormat ?? defaults?.insertTextFormat,
+          textEdit:
+            item.textEdit ??
+            (defaults?.editRange
+              ? {
+                  newText: item.textEditText ?? item.insertText ?? item.label,
+                  ...("start" in defaults.editRange
+                    ? { range: defaults.editRange }
+                    : defaults.editRange),
+                }
+              : undefined),
+        }));
+      }
+      type Item = Omit<CompletionItem, "label" | "insertText"> & {
+        label: string | { label: string };
+        insertText?: string | { value: string };
+      };
+      const provided = await extensionLanguageFeature<
+        Item[] | { items: Item[] }
+      >("provideCompletionItems", path, position, undefined, {
+        triggerKind: ctx.explicit || word ? 0 : 1,
+        ...(!word && !ctx.explicit
+          ? { triggerCharacter: ctx.state.sliceDoc(ctx.pos - 1, ctx.pos) }
+          : {}),
+      }).catch(() => []);
+      return (provided ?? [])
+        .flatMap((value) =>
+          Array.isArray(value) ? value : (value.items ?? []),
+        )
+        .map((item) => ({
+          ...item,
+          label: typeof item.label === "string" ? item.label : item.label.label,
+          insertText:
+            typeof item.insertText === "string"
+              ? item.insertText
+              : item.insertText?.value,
+          insertTextFormat:
+            typeof item.insertText === "object" ? 2 : item.insertTextFormat,
+          kind: item.kind === undefined ? undefined : item.kind + 1,
+        }));
+    };
+    const items = await Promise.race([
+      work().catch(() => []),
+      new Promise<CompletionItem[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), 5000);
+      }),
+    ]);
+    if (ctx.aborted || !items.length) return null;
+    return {
+      from: word?.from ?? ctx.pos,
+      validFor: /^[\w!$]*$/,
+      options: items.map((item) => {
+        const text = item.textEdit?.newText ?? item.insertText ?? item.label;
+        const completion = {
+          label: item.label,
+          detail: item.detail,
+          type:
+            item.kind === 3
+              ? "function"
+              : item.kind === 6
+                ? "variable"
+                : "text",
+        };
+        const snippet =
+          item.insertTextFormat === 2
+            ? snippetCompletion(text, completion)
+            : undefined;
+        const range =
+          item.textEdit?.range ??
+          item.textEdit?.replace ??
+          item.textEdit?.insert ??
+          (item.range &&
+            ("replacing" in item.range ? item.range.replacing : item.range));
+        return {
+          ...completion,
+          apply: (
+            editor: EditorView,
+            choice: Completion,
+            from: number,
+            to: number,
+          ) => {
+            if (range) {
+              from = offset(editor, range.start);
+              to = offset(editor, range.end);
+            }
+            const additional = (item.additionalTextEdits ?? []).map((edit) => ({
+              from: offset(editor, edit.range.start),
+              to: offset(editor, edit.range.end),
+              insert: edit.newText,
+            }));
+            if (snippet && typeof snippet.apply === "function") {
+              if (additional.length) {
+                const changes = editor.state.changes(additional);
+                from = changes.mapPos(from, 1);
+                to = changes.mapPos(to, 1);
+                editor.dispatch({ changes, userEvent: "input.complete" });
+              }
+              snippet.apply(editor, choice, from, to);
+            } else {
+              const changes = editor.state.changes([
+                ...additional,
+                { from, to, insert: text },
+              ]);
+              editor.dispatch({
+                changes,
+                selection: { anchor: changes.mapPos(from, -1) + text.length },
+                userEvent: "input.complete",
+              });
+            }
+          },
+        };
+      }),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export interface EditorProps {
   path: string;
   value: string;
@@ -158,6 +487,7 @@ function Editor(props: EditorProps) {
   current.current = props;
   const config = useRef(new Compartment());
   const langConfig = useRef(new Compartment());
+  const accessConfig = useRef(new Compartment());
   function settingsExtensions(settings: Settings) {
     return [
       ...editorAppearance(settings),
@@ -165,85 +495,26 @@ function Editor(props: EditorProps) {
         ? autocompletion({
             activateOnTyping: settings.completionOnTyping,
             activateOnTypingDelay: settings.completionDelay,
+            updateSyncTime: 80,
             override: [
-              async (ctx) => {
-                const word = ctx.matchBefore(/[\w!]+/);
-                if (!word && !ctx.explicit) return null;
-                try {
-                  let result = await languageRequest<
-                    CompletionItem[] | { items: CompletionItem[] }
-                  >(
-                    current.current.path,
-                    "textDocument/completion",
-                    toPosition(ctx.view!, ctx.pos),
-                  );
-                  if (!result) {
-                    type Item = {
-                      label: string | { label: string };
-                      detail?: string;
-                      insertText?: string | { value: string };
-                      kind?: number;
-                      textEdit?: { newText: string };
-                    };
-                    const provided = await extensionLanguageFeature<
-                      Item[] | { items: Item[] }
-                    >(
-                      "provideCompletionItems",
-                      current.current.path,
-                      toPosition(ctx.view!, ctx.pos),
-                    );
-                    result = provided
-                      .flatMap((value) =>
-                        Array.isArray(value) ? value : value.items,
-                      )
-                      .map((item) => ({
-                        label:
-                          typeof item.label === "string"
-                            ? item.label
-                            : item.label.label,
-                        detail: item.detail,
-                        insertText:
-                          typeof item.insertText === "string"
-                            ? item.insertText
-                            : item.insertText?.value,
-                        kind:
-                          item.kind === undefined ? undefined : item.kind + 1,
-                        textEdit: item.textEdit,
-                      }));
-                  }
-                  if (result) {
-                    const items = Array.isArray(result) ? result : result.items;
-                    if (items.length)
-                      return {
-                        from: word?.from ?? ctx.pos,
-                        options: items.map((item) => ({
-                          label: item.label,
-                          detail: item.detail,
-                          apply:
-                            item.textEdit?.newText ??
-                            item.insertText ??
-                            item.label,
-                          type:
-                            item.kind === 3
-                              ? "function"
-                              : item.kind === 6
-                                ? "variable"
-                                : "text",
-                        })),
-                      };
-                  }
-                } catch {
-                  /* Local completion remains available when a server is busy. */
-                }
-                const local = await localComplete(ctx);
-                const snippets = snippetOptions.current;
-                return snippets.length
-                  ? {
-                      from: word?.from ?? ctx.pos,
-                      options: [...snippets, ...(local?.options ?? [])],
-                    }
-                  : local;
+              localComplete,
+              completeAnyWord,
+              languageComplete,
+              (ctx) => languageComplete(ctx, "extension"),
+              (ctx) => {
+                const word = ctx.matchBefore(/[\w!$]+/);
+                return {
+                  from: word?.from ?? ctx.pos,
+                  options: snippetOptions.current,
+                  validFor: /^[\w!$]*$/,
+                };
               },
+              (ctx) =>
+                aiCompletion(
+                  ctx,
+                  current.current.settings,
+                  current.current.path,
+                ).catch(() => null),
             ],
           })
         : [],
@@ -257,12 +528,27 @@ function Editor(props: EditorProps) {
     props.settings.reduceMotion;
   useEffect(() => {
     if (!host.current) return;
+    let lspTimer: ReturnType<typeof setTimeout> | undefined;
+    let lspRevision = 0;
+    let scheduleLsp = () => {};
     const view = new EditorView({
       parent: host.current,
       state: EditorState.create({
         doc: current.current.value,
         extensions: [
+          transparentGutters,
+          devyySearch(),
           breakpointField,
+          extensionDecorationField,
+          extensionGutterField,
+          signatureHelpField,
+          inlayHintsField,
+          codeLensesField,
+          semanticTokensField,
+          gutter({
+            class: "cm-extension-gutter",
+            markers: (view) => view.state.field(extensionGutterField),
+          }),
           gutter({
             class: "cm-breakpoint-gutter",
             renderEmptyElements: true,
@@ -287,17 +573,38 @@ function Editor(props: EditorProps) {
           syntaxHighlighting(highlighting),
           langConfig.current.of([]),
           extensionConfig.current.of([]),
-          EditorState.readOnly.of(!!current.current.readOnly),
+          accessConfig.current.of(
+            EditorState.readOnly.of(!!current.current.readOnly),
+          ),
           EditorState.lineSeparator.of(
             current.current.value.includes("\r\n") ? "\r\n" : "\n",
           ),
           keymap.of([
+            {
+              key: "Escape",
+              run: (view) => {
+                closeSignatureHelp(view);
+                return closeSearchPanel(view);
+              },
+            },
+            {
+              key: "Mod-Shift-Space",
+              run: (view) => {
+                void triggerSignatureHelp(view, current.current.path);
+                return true;
+              },
+            },
             ...closeBracketsKeymap,
             ...completionKeymap,
             ...defaultKeymap,
             indentWithTab,
           ]),
           hoverTooltip(async (view, pos) => {
+            const extHover = getExtensionDecorationHover(
+              view.state.doc,
+              current.current.path,
+              pos,
+            );
             try {
               let result = await languageRequest<{
                 contents:
@@ -318,23 +625,35 @@ function Editor(props: EditorProps) {
                       toPosition(view, pos),
                     )
                   )[0] ?? null;
-              if (!result?.contents) return null;
-              const c = result.contents;
-              const text = Array.isArray(c)
-                ? c.map((x) => (typeof x === "string" ? x : x.value)).join("\n")
-                : typeof c === "string"
+
+              const c = result?.contents;
+              const textParts: string[] = [];
+              if (extHover) textParts.push(extHover.text);
+              if (c) {
+                const lspText = Array.isArray(c)
                   ? c
-                  : c.value;
+                      .map((x) => (typeof x === "string" ? x : x.value))
+                      .join("\n")
+                  : typeof c === "string"
+                    ? c
+                    : c.value;
+                if (lspText) textParts.push(lspText);
+              }
+              const text = textParts.join("\n\n---\n\n");
+              if (!text) return null;
               return {
-                pos,
-                create: () => {
-                  const dom = document.createElement("pre");
-                  dom.className = "hover-doc";
-                  dom.textContent = text;
-                  return { dom };
-                },
+                pos: extHover ? extHover.from : pos,
+                end: extHover ? extHover.to : undefined,
+                create: () => ({ dom: createHoverDOM(text) }),
               };
             } catch {
+              if (extHover) {
+                return {
+                  pos: extHover.from,
+                  end: extHover.to,
+                  create: () => ({ dom: createHoverDOM(extHover.text) }),
+                };
+              }
               return null;
             }
           }),
@@ -342,11 +661,20 @@ function Editor(props: EditorProps) {
           EditorView.updateListener.of((update) => {
             if (update.focusChanged && update.view.hasFocus)
               current.current.onView(current.current.path, update.view);
-            if (update.docChanged)
+            if (update.docChanged) {
+              ++lspRevision;
+              scheduleLsp();
               current.current.onChange(
                 current.current.path,
                 update.state.sliceDoc(),
               );
+              update.changes.iterChanges((_fromA, _toA, _fromB, _toB, text) => {
+                const s = text.toString();
+                if (s.includes("(") || s.includes(",")) {
+                  void triggerSignatureHelp(update.view, current.current.path);
+                }
+              });
+            }
             if (
               update.viewportChanged &&
               !update.selectionSet &&
@@ -439,9 +767,85 @@ function Editor(props: EditorProps) {
     };
     refresh();
     window.addEventListener("devyy-extensions-changed", refresh);
+
+    const updateDecorations = () => {
+      if (editor.current !== view) return;
+      const res = computeExtensionDecorations(
+        view.state.doc,
+        current.current.path,
+      );
+      view.dispatch({
+        effects: [
+          extensionDecorationEffect.of(res.decorations),
+          extensionGutterEffect.of(res.gutterMarkers),
+        ],
+      });
+    };
+    updateDecorations();
+    const unlistenDecorations = onDecorationsChanged((path) => {
+      if (!path || matchesDocPath(current.current.path, path)) {
+        updateDecorations();
+      }
+    });
+
+    const updateLspDecorations = async () => {
+      if (editor.current !== view) return;
+      const revision = ++lspRevision,
+        doc = view.state.doc;
+      const [hints, lenses, tokens] = await Promise.all([
+        fetchInlayHints(view, current.current.path),
+        fetchCodeLenses(view, current.current.path),
+        fetchSemanticTokens(view, current.current.path),
+      ]);
+      if (
+        editor.current === view &&
+        revision === lspRevision &&
+        view.state.doc === doc
+      ) {
+        view.dispatch({
+          effects: [
+            inlayHintsEffect.of(hints),
+            codeLensesEffect.of(lenses),
+            semanticTokensEffect.of(tokens),
+          ],
+        });
+      }
+    };
+    scheduleLsp = () => {
+      clearTimeout(lspTimer);
+      lspTimer = setTimeout(() => void updateLspDecorations(), 300);
+    };
+    const connected = (event: Event) => {
+      if (
+        (event as CustomEvent<{ path: string }>).detail.path ===
+        current.current.path
+      )
+        scheduleLsp();
+    };
+    const providerChanged = (event: Event) => {
+      if (
+        [
+          "languageProvider",
+          "languageProviderChanged",
+          "languageProviderRemoved",
+        ].includes((event as CustomEvent<{ event: string }>).detail.event)
+      )
+        scheduleLsp();
+    };
+    window.addEventListener("devyy-document-connected", connected);
+    window.addEventListener("devyy-extension-event", providerChanged);
+    window.addEventListener("devyy-language-servers-changed", scheduleLsp);
+    void updateLspDecorations();
+
     current.current.onView(current.current.path, view);
     return () => {
+      ++lspRevision;
+      clearTimeout(lspTimer);
+      window.removeEventListener("devyy-document-connected", connected);
+      window.removeEventListener("devyy-extension-event", providerChanged);
+      window.removeEventListener("devyy-language-servers-changed", scheduleLsp);
       window.removeEventListener("devyy-extensions-changed", refresh);
+      unlistenDecorations();
       current.current.onView(current.current.path, null);
       view.destroy();
       editor.current = null;
@@ -453,8 +857,22 @@ function Editor(props: EditorProps) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: props.value },
       });
+      const res = computeExtensionDecorations(view.state.doc, props.path);
+      view.dispatch({
+        effects: [
+          extensionDecorationEffect.of(res.decorations),
+          extensionGutterEffect.of(res.gutterMarkers),
+        ],
+      });
     }
   }, [props.value]);
+  useEffect(() => {
+    editor.current?.dispatch({
+      effects: accessConfig.current.reconfigure(
+        EditorState.readOnly.of(!!props.readOnly),
+      ),
+    });
+  }, [props.readOnly]);
   useEffect(() => {
     editor.current?.dispatch({
       effects: config.current.reconfigure(settingsExtensions(props.settings)),

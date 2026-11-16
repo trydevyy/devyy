@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 export const commandInfo = [
   ["files", "Go to file", "Navigation", "Mod+P"],
   ["quick-open", "Quick open", "Navigation", "Mod+K"],
@@ -14,6 +29,9 @@ export const commandInfo = [
   ["global", "Search across workspace", "Navigation", "Mod+Shift+F"],
   ["goto", "Go to line", "Navigation", "Mod+L"],
   ["definition", "Go to definition", "Editor", "F12"],
+  ["references", "Find all references", "Editor", "Shift+F12"],
+  ["rename", "Rename symbol", "Editor", "F2"],
+  ["signature-help", "Trigger parameter hints", "Editor", "Mod+Shift+Space"],
   ["markdown-preview", "Toggle Markdown preview", "Editor", "Mod+Shift+V"],
   [
     "markdown-preview-beside",
@@ -49,6 +67,7 @@ export const commandInfo = [
   ["ai-settings", "AI provider settings", "AI", ""],
   ["setup", "Set up devyy", "Settings", ""],
   ["about", "About devyy", "Settings", ""],
+  ["reload", "Reload window", "Window", "Mod+Alt+R"],
 ] as const;
 export type CommandId = (typeof commandInfo)[number][0];
 export const defaultBindings = Object.fromEntries(
@@ -84,7 +103,6 @@ export function eventBinding(
   )
     return "";
   let key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-  // Keyboard codes keep punctuation shortcuts stable when Shift/Option changes the character.
   const punctuation: Record<string, string> = {
     Backquote: "`",
     Backslash: "\\",

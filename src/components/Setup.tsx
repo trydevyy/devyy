@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import ModalBackdrop from "./ui/ModalBackdrop";
 import { useState } from "react";
 import {
   ArrowLeft,
@@ -10,17 +26,24 @@ import {
   Palette,
   Puzzle,
   Sun,
+  Github,
 } from "lucide-react";
+import AIProviders from "./AIProviders";
+import { Bot } from "lucide-react";
 import type { Settings } from "../lib/types";
 import AccentPicker from "./AccentPicker";
 import EditorPreview from "./EditorPreview";
 import ExtensionManager from "./ExtensionManager";
 import SettingsImport from "./SettingsImport";
+import GitHubSettings from "./GitHubSettings";
+import CompletionSettings from "./CompletionSettings";
 const steps = [
   { name: "Appearance", icon: Palette },
   { name: "Editor", icon: Code2 },
   { name: "Import", icon: Download },
   { name: "Extensions", icon: Puzzle },
+  { name: "AI providers", icon: Bot },
+  { name: "Git & GitHub", icon: Github },
 ];
 export default function Setup({
   settings,
@@ -34,9 +57,9 @@ export default function Setup({
   const [step, setStep] = useState(0);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   return (
-    <div className="setup-backdrop">
+    <ModalBackdrop className="setup-backdrop">
       <section
-        className="setup-dialog"
+        className={`setup-dialog ${step === 4 ? "setup-providers" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Set up devyy"
@@ -97,6 +120,8 @@ export default function Setup({
                   "Make room for your code.",
                   "Pick up where you left off.",
                   "Add the tools you use.",
+                  "Connect your AI providers.",
+                  "Connect your repositories.",
                 ][step]
               }
             </h2>
@@ -107,6 +132,8 @@ export default function Setup({
                   "Set the type and spacing that feel right to you.",
                   "Import compatible preferences from an editor on this machine.",
                   "Browse Open VSX for languages, syntax, snippets, and themes.",
+                  "Sign in or connect an API endpoint. You can change these later.",
+                  "Install Git, sign in to GitHub, and choose your commit identity.",
                 ][step]
               }
             </p>
@@ -190,6 +217,11 @@ export default function Setup({
             {step === 1 && (
               <>
                 <EditorPreview settings={settings} />
+                <CompletionSettings
+                  settings={settings}
+                  onChange={onChange}
+                  setup
+                />
                 <div className="setup-option">
                   <span>
                     <strong>Text size</strong>
@@ -270,6 +302,8 @@ export default function Setup({
               />
             )}
             {step === 3 && <ExtensionManager suggested={suggestions} />}
+            {step === 4 && <AIProviders />}
+            {step === 5 && <GitHubSettings />}
           </div>
           <footer>
             <button
@@ -281,14 +315,20 @@ export default function Setup({
             </button>
             <button
               className="primary"
-              onClick={() => (step === 3 ? onFinish() : setStep((s) => s + 1))}
+              onClick={() =>
+                step === steps.length - 1 ? onFinish() : setStep((s) => s + 1)
+              }
             >
-              {step === 3 ? "Start coding" : "Continue"}
-              {step === 3 ? <Check size={14} /> : <ArrowRight size={14} />}
+              {step === steps.length - 1 ? "Start coding" : "Continue"}
+              {step === steps.length - 1 ? (
+                <Check size={14} />
+              ) : (
+                <ArrowRight size={14} />
+              )}
             </button>
           </footer>
         </div>
       </section>
-    </div>
+    </ModalBackdrop>
   );
 }

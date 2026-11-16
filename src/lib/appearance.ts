@@ -1,8 +1,24 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { invoke, native } from "./native";
 import type { Settings } from "./types";
 import { useExtensions } from "./extensions";
 import { accentColor, onAccent } from "./palette";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 function mediaPreference(query: string) {
   return {
@@ -37,6 +53,26 @@ export function useAppearance(
   const callback = useRef(onError);
   callback.current = onError;
   const vibrancy = settings.vibrancy && !reducedTransparency;
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--ui-text-scale", String(settings.uiTextSize / 13));
+    root.style.fontSize = `${settings.uiTextSize}px`;
+    root.style.setProperty(
+      "--preview-ui-scale",
+      native ? "1" : String(settings.uiScale / 100),
+    );
+    if (!native && settings.uiScale !== 100)
+      root.style.setProperty("zoom", String(settings.uiScale / 100));
+    else root.style.removeProperty("zoom");
+    if (native)
+      void getCurrentWebview()
+        .setZoom(settings.uiScale / 100)
+        .then(() => window.dispatchEvent(new Event("resize")))
+        .catch((error) =>
+          callback.current(`Could not change interface scale: ${error}`),
+        );
+    window.dispatchEvent(new Event("resize"));
+  }, [settings.uiScale, settings.uiTextSize]);
   useEffect(() => {
     const root = document.documentElement;
     const color = accentColor(settings, settings.theme === "midnight");

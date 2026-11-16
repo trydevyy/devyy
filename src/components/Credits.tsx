@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, Search } from "lucide-react";
@@ -30,7 +46,7 @@ function Entry({
       className={`credit-entry${project ? " credit-project" : ""}`}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary>
+      <DisclosureSummary>
         {project && <DevyyLogo size={22} />}
         <span>
           <strong>{entry.name}</strong>
@@ -40,7 +56,7 @@ function Entry({
           </small>
         </span>
         <code>{entry.license}</code>
-      </summary>
+      </DisclosureSummary>
       {expanded && (
         <div className="credit-content">
           {entry.url && /^https:\/\//.test(entry.url) && (

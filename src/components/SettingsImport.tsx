@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import IDEIcon from "./IDEIcon";
 import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
@@ -50,8 +66,7 @@ export default function SettingsImport({
     <div className="settings-import">
       <p className="settings-note">
         Bring over compatible appearance, editor, saving, terminal, and keyboard
-        preferences. Review the changes before applying them. Your other editor
-        stays untouched.
+        preferences. Review and apply the settings you want to keep.
       </p>
       {busy ? (
         <p className="import-progress">
@@ -75,7 +90,7 @@ export default function SettingsImport({
                   .finally(() => setBusy(false));
               }}
             >
-              <FileCode2 size={19} />
+              <IDEIcon id={source.id} />
               <span>
                 <strong>{source.name}</strong>
                 <small>{source.path}</small>

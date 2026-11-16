@@ -1,3 +1,21 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import DisclosureSummary from "./ui/DisclosureSummary";
+import Select from "./ui/Select";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import {
   Bug,
@@ -10,6 +28,7 @@ import {
   Square,
   ChevronRight,
   RefreshCw,
+  FolderOpen,
 } from "lucide-react";
 import { invoke, listen, native, workspaceRelativePath } from "../lib/native";
 import { readLocal, type Workspace } from "../lib/types";
@@ -63,7 +82,7 @@ export default function Debugger({
     [frames, setFrames] = useState<Frame[]>([]),
     [selected, setSelected] = useState<number | null>(null),
     [variables, setVariables] = useState<Variable[]>([]),
-    [state, setState] = useState("Ready when you are.");
+    [state, setState] = useState("Ready");
   const refs = useRef({
     workspace,
     breakpoints,
@@ -84,6 +103,11 @@ export default function Debugger({
     onSave,
     running,
   };
+  useEffect(() => {
+    setSelected(null);
+    setFrames([]);
+    setVariables([]);
+  }, [workspace.root]);
   async function request<T>(command: string, args: unknown = {}): Promise<T> {
     return invoke("debug_request", { command, arguments: args });
   }
@@ -144,7 +168,7 @@ export default function Debugger({
             }
             if (!id) return;
             setThread(id);
-            setState(`Paused — ${payload.body?.reason ?? "breakpoint"}`);
+            setState(`Paused (${payload.body?.reason ?? "breakpoint"})`);
             const result = await request<{ stackFrames: Frame[] }>(
               "stackTrace",
               { threadId: id, startFrame: 0, levels: 30 },
@@ -223,6 +247,7 @@ export default function Debugger({
       });
     } catch (e) {
       setRunning(false);
+      setState("Could not start. Check the program and debugger.");
       onSession({ running: false, path: null, line: null });
       onError(e);
       void invoke("debug_stop").catch(() => {});
@@ -246,18 +271,18 @@ export default function Debugger({
     }
   }
   return (
-    <div className="debugger">
-      <div className="section-label">
+    <section className="debugger" aria-label="Debugger">
+      <div className="debug-heading">
         <span>
-          <Bug size={12} /> DEBUGGER
+          <Bug size={16} /> Debug session
         </span>
-        <span className={running ? "connected-dot" : "neutral-dot"} />
+        <small>{running ? "Active" : "Ready"}</small>
       </div>
-      <div className="debug-config">
+      <div className="debug-config run-command-card">
         <label className="field-label" htmlFor="debug-adapter">
-          ADAPTER
+          Debugger
         </label>
-        <select
+        <Select
           id="debug-adapter"
           disabled={running}
           value={kind}
@@ -267,11 +292,11 @@ export default function Debugger({
             localStorage.setItem("devyy.debug.kind", JSON.stringify(k));
           }}
         >
-          <option value="lldb">LLDB — Rust / C / C++</option>
-          <option value="python">Python — debugpy</option>
-        </select>
+          <option value="lldb">Rust / C / C++ (LLDB)</option>
+          <option value="python">Python (debugpy)</option>
+        </Select>
         <label className="field-label" htmlFor="debug-program">
-          {kind === "python" ? "SCRIPT PATH" : "COMPILED BINARY PATH"}
+          {kind === "python" ? "Python script" : "Program to debug"}
         </label>
         <input
           id="debug-program"
@@ -289,17 +314,52 @@ export default function Debugger({
             );
           }}
         />
+        <button
+          className="setting-action debug-browse"
+          type="button"
+          disabled={running || !native || workspace.root === "demo"}
+          onClick={() =>
+            void (async () => {
+              try {
+                const selected = await openFileDialog({
+                  title:
+                    kind === "python"
+                      ? "Choose a Python script"
+                      : "Choose a compiled program",
+                  defaultPath: workspace.root,
+                  multiple: false,
+                  directory: false,
+                });
+                if (typeof selected !== "string") return;
+                const path = workspaceRelativePath(selected, workspace.root);
+                if (path === null) {
+                  onError("Choose a program inside the current workspace.");
+                  return;
+                }
+                setProgram(path);
+                localStorage.setItem(
+                  "devyy.debug.program",
+                  JSON.stringify(path),
+                );
+              } catch (error) {
+                onError(error);
+              }
+            })()
+          }
+        >
+          <FolderOpen size={12} /> Choose file
+        </button>
         <small>
           Relative to this workspace.{" "}
           {kind === "lldb"
-            ? "Build with debug symbols first."
-            : "Install with pip install debugpy."}
+            ? "Build with debug symbols. Requires lldb-dap on your PATH."
+            : "Requires python -m pip install debugpy."}
         </small>
       </div>
       <div className="debug-controls">
         <button
           className="primary"
-          disabled={busy || (!running && !program)}
+          disabled={busy || (running ? thread === null : !program.trim())}
           title={running ? "Continue" : "Start debugging"}
           aria-label={running ? "Continue" : "Start debugging"}
           onClick={() => (running ? void control("continue") : void start())}
@@ -309,6 +369,7 @@ export default function Debugger({
           ) : (
             <Play size={14} />
           )}
+          <span>{running ? "Continue" : "Start debugging"}</span>
         </button>
         <button
           title="Pause"
@@ -328,6 +389,7 @@ export default function Debugger({
           }
         >
           <Pause size={15} />
+          <span>Pause</span>
         </button>
         <button
           title="Step over"
@@ -336,6 +398,7 @@ export default function Debugger({
           onClick={() => void control("next")}
         >
           <CornerDownRight size={16} />
+          <span>Over</span>
         </button>
         <button
           title="Step into"
@@ -344,6 +407,7 @@ export default function Debugger({
           onClick={() => void control("stepIn")}
         >
           <ArrowDownToLine size={16} />
+          <span>Into</span>
         </button>
         <button
           title="Step out"
@@ -352,6 +416,7 @@ export default function Debugger({
           onClick={() => void control("stepOut")}
         >
           <ArrowUpFromLine size={16} />
+          <span>Out</span>
         </button>
         <button
           title="Stop debugging"
@@ -360,67 +425,79 @@ export default function Debugger({
           onClick={() => void control("disconnect")}
         >
           <Square size={13} />
+          <span>Stop</span>
         </button>
       </div>
       <p className="debug-state">
-        <span className={running ? "alive-dot" : "neutral-dot"} />
+        {running ? <Play size={12} /> : <Square size={12} />}
         {state}
       </p>
-      {!!frames.length && (
-        <>
-          <div className="section-label">
-            <span>CALL STACK</span>
-          </div>
-          <div className="debug-stack">
-            {frames.map((frame) => (
-              <button
-                className={selected === frame.id ? "selected" : ""}
-                key={frame.id}
-                onClick={() => void inspect(frame).catch(onError)}
-              >
-                <ChevronRight size={11} />
-                <span>{frame.name}</span>
-                <small>:{frame.line}</small>
-              </button>
-            ))}
-          </div>
-          <div className="section-label">
-            <span>VARIABLES — LOCALS</span>
-          </div>
-          <div className="debug-variables">
-            {variables.map((v, i) => (
-              <VariableRow
-                key={`${v.name}:${i}`}
-                variable={v}
-                request={request}
-                onError={onError}
-              />
-            ))}
-          </div>
-        </>
-      )}
-      <div className="section-label">
-        <span>BREAKPOINTS</span>
-        <small>{Object.values(breakpoints).flat().length}</small>
-      </div>
-      {Object.entries(breakpoints).flatMap(([path, lines]) =>
-        lines.map((line) => (
-          <button
-            className="breakpoint-row"
-            key={`${path}:${line}`}
-            onClick={() => onNavigate(path, line)}
-          >
-            <Circle size={8} fill="currentColor" />
-            <span>{path}</span>
-            <small>:{line}</small>
-          </button>
-        )),
-      )}
-      <p className="muted tiny">
-        Click the gutter beside a line number to toggle a breakpoint. Install{" "}
-        <code>lldb-dap</code> or <code>debugpy</code> on your PATH.
-      </p>
-    </div>
+      <details className="debug-section" open>
+        <DisclosureSummary>
+          Call stack <small>{frames.length}</small>
+        </DisclosureSummary>
+        {!frames.length && (
+          <p className="debug-empty">
+            {running
+              ? "Pause execution to inspect the call stack."
+              : "Start a session to inspect execution."}
+          </p>
+        )}
+        {!!frames.length && (
+          <>
+            <div className="debug-stack">
+              {frames.map((frame) => (
+                <button
+                  className={selected === frame.id ? "selected" : ""}
+                  key={frame.id}
+                  onClick={() => void inspect(frame).catch(onError)}
+                >
+                  <ChevronRight size={11} />
+                  <span>{frame.name}</span>
+                  <small>:{frame.line}</small>
+                </button>
+              ))}
+            </div>
+            <div className="section-label">
+              <span>Local variables</span>
+            </div>
+            <div className="debug-variables">
+              {variables.map((v, i) => (
+                <VariableRow
+                  key={`${v.name}:${i}`}
+                  variable={v}
+                  request={request}
+                  onError={onError}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </details>
+      <details className="debug-section" open>
+        <DisclosureSummary>
+          Breakpoints <small>{Object.values(breakpoints).flat().length}</small>
+        </DisclosureSummary>
+        {Object.entries(breakpoints).flatMap(([path, lines]) =>
+          lines.map((line) => (
+            <button
+              className="breakpoint-row"
+              key={`${path}:${line}`}
+              onClick={() => onNavigate(path, line)}
+            >
+              <Circle size={8} fill="currentColor" />
+              <span>{path}</span>
+              <small>:{line}</small>
+            </button>
+          )),
+        )}
+        {!Object.values(breakpoints).some((lines) => lines.length) && (
+          <p className="debug-empty">
+            Click beside a line number in the editor to add a breakpoint.
+          </p>
+        )}
+      </details>
+    </section>
   );
 }
 function VariableRow({

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 export interface FileEntry {
   path: string;
   name: string;
@@ -12,6 +27,8 @@ export interface Workspace {
 export interface Tab {
   path: string;
   extensionUri?: string;
+  webviewId?: string;
+  previewKind?: import("./filePreview").FilePreviewKind;
   languageId?: string;
   readOnly?: boolean;
   content: string;
@@ -45,6 +62,13 @@ export interface Settings {
   extensionTheme: string;
   followSystemTheme: boolean;
   fontSize: number;
+  uiScale: number;
+  uiTextSize: number;
+  aiCompletions: boolean;
+  aiPanelOnDrag: boolean;
+  confirmDelete: boolean;
+  aiCompletionProvider: string;
+  aiCompletionModel: string;
   overlayTransparency: number;
   glassBlur: number;
   animationSpeed: "snappy" | "smooth" | "instant";
@@ -110,6 +134,13 @@ export const defaults: Settings = {
   extensionTheme: "",
   followSystemTheme: false,
   fontSize: 14,
+  uiScale: 100,
+  uiTextSize: 13,
+  aiCompletions: false,
+  aiPanelOnDrag: true,
+  confirmDelete: true,
+  aiCompletionProvider: "",
+  aiCompletionModel: "",
   overlayTransparency: 26,
   glassBlur: 24,
   animationSpeed: "snappy",
@@ -191,6 +222,9 @@ export function normalizeSettings(value: unknown): Settings {
     "highlightMatches",
     "scrollPastEnd",
     "autocomplete",
+    "aiCompletions",
+    "aiPanelOnDrag",
+    "confirmDelete",
     "completionOnTyping",
     "terminalCopyOnSelect",
     "wordWrap",
@@ -214,6 +248,8 @@ export function normalizeSettings(value: unknown): Settings {
     ["autoSaveDelay", 500, 5000],
     ["terminalLineHeight", 1, 2],
     ["fontSize", 10, 28],
+    ["uiScale", 80, 150],
+    ["uiTextSize", 11, 18],
     ["lineHeight", 1.2, 2.4],
     ["tabSize", 1, 8],
     ["windowTransparency", 0, 90],
@@ -225,6 +261,8 @@ export function normalizeSettings(value: unknown): Settings {
       result[key] = Math.max(min, Math.min(max, s[key] as number));
   result.tabSize = Math.round(result.tabSize);
   result.rulerColumn = Math.round(result.rulerColumn);
+  for (const key of ["aiCompletionProvider", "aiCompletionModel"] as const)
+    if (typeof s[key] === "string" && s[key].length < 256) result[key] = s[key];
   for (const [key, values] of [
     ["animationSpeed", ["snappy", "smooth", "instant"]],
     ["renderWhitespace", ["none", "trailing", "all"]],
@@ -259,4 +297,23 @@ export function normalizeSettings(value: unknown): Settings {
       Object.entries(s.bindings).filter(([, v]) => validBinding(v)),
     ) as Record<string, string>;
   return result;
+}
+
+export const BUILTIN_OUTPUT_SERVICES = [
+  "Devyy",
+  "Debugger",
+  "Extension Host",
+  "Language Servers",
+  "Tasks",
+  "Git",
+] as const;
+
+export type BuiltinOutputService = (typeof BUILTIN_OUTPUT_SERVICES)[number];
+
+export interface OutputEntry {
+  id: string;
+  timestamp: string;
+  source: string;
+  text: string;
+  level?: "info" | "warn" | "error" | "debug" | "trace";
 }

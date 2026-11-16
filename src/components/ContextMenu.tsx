@@ -1,5 +1,21 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
+import { restoreFocus } from "../lib/focus";
 import {
   createContext,
   useCallback,
@@ -53,6 +69,7 @@ function actionIcon(label: string) {
 }
 export interface MenuItem {
   label: string;
+  description?: string;
   action?: () => void;
   shortcut?: string;
   disabled?: boolean;
@@ -105,7 +122,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   }, []);
   function close() {
     setMenu(null);
-    restore.current?.focus({ preventScroll: true });
+    restoreFocus(restore.current);
   }
   useLayoutEffect(() => {
     if (!menu || !ref.current) return;
@@ -284,7 +301,14 @@ function MenuEntries({
                   <Icon size={13} strokeWidth={1.6} />
                 )}
               </span>
-              <span>{item.label}</span>
+              <span
+                className={
+                  item.description ? "menu-item-description" : undefined
+                }
+              >
+                {item.label}
+                {item.description && <small>{item.description}</small>}
+              </span>
               {item.shortcut && <kbd>{item.shortcut}</kbd>}
               {!!submenu && <ChevronRight size={12} />}
             </button>
