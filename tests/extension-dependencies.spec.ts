@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 test("bundle installation waits for dependencies, shows their progress, and repairs without reinstalling the parent", async ({
@@ -106,7 +121,7 @@ test("bundle installation waits for dependencies, shows their progress, and repa
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
     });
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+Shift+x`);
   const row = page
     .locator(".extension-row")
@@ -128,7 +143,7 @@ test("bundle installation waits for dependencies, shows their progress, and repa
     (window as unknown as { finishDependency: () => void }).finishDependency(),
   );
   await page.getByRole("tab", { name: "Installed 3", exact: true }).click();
-  await expect(row).toContainText("Running in the Devyy extension host");
+  await expect(row.locator(".extension-runtime-note")).toHaveText("Running");
   expect(
     await page.evaluate(
       () =>

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 test("extension icons, native views, trees, commands and sandboxed webviews use the editor bridge", async ({
@@ -166,7 +181,7 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
   });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+Shift+x`);
   const settings = page.getByRole("dialog", {
     name: "Preferences",
@@ -213,13 +228,19 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
   await expect(
     page.getByRole("dialog", { name: "Go to file", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Search", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(
     frame.getByRole("textbox", { name: "Keep state", exact: true }),
   ).toHaveValue("Preserved across shortcuts");
-  await frame.getByRole("button", { name: "Send message" }).click();
+  await expect(
+    frame.getByRole("textbox", { name: "Keep state", exact: true }),
+  ).toBeFocused();
+  await frame.getByRole("button", { name: "Send message" }).press("Enter");
   await expect(frame.locator("#reply")).toHaveText("Message received");
-  await frame.getByRole("button", { name: "Send burst" }).click();
+  await frame.getByRole("button", { name: "Send burst" }).press("Enter");
   await expect
     .poll(() =>
       page.evaluate(
@@ -229,9 +250,9 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
       ),
     )
     .toEqual([0, 1, 2]);
-  await frame.getByRole("button", { name: "Send binary" }).click();
+  await frame.getByRole("button", { name: "Send binary" }).press("Enter");
   await expect(frame.locator("body")).toHaveAttribute("data-binary", "true");
-  await frame.getByRole("button", { name: "Ask for input" }).click();
+  await frame.getByRole("button", { name: "Ask for input" }).press("Enter");
   const inputPrompt = page.getByRole("dialog", { name: "Choose session name" });
   await inputPrompt
     .getByRole("textbox", { name: "Choose session name" })
@@ -284,9 +305,19 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
   ).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
   await page.keyboard.press("Enter");
   await expect(panel).toBeVisible();
+  await expect(frame.locator("body")).toHaveClass(/vscode-light/);
+  await frame
+    .getByRole("button", { name: "Send message", exact: true })
+    .press("Enter");
+  await expect(frame.locator("#reply")).toHaveText("Message received");
   await frame
     .getByRole("heading", { name: "Fixture panel" })
-    .click({ button: "right" });
+    .dispatchEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+    });
   await page
     .getByRole("menuitem", { name: "Fixture actions", exact: true })
     .click();
@@ -338,12 +369,73 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
       ),
     )
     .toBe(true);
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: {
+          event: "progressStart",
+          payload: {
+            id: "fixture.progress",
+            title: "Index project",
+            extension: "fixture.runtime",
+            cancellable: true,
+          },
+        },
+      }),
+    ),
+  );
+  const progress = page.getByRole("progressbar", {
+    name: "Index project",
+    exact: true,
+  });
+  await expect(progress).toBeVisible();
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: {
+          event: "progressReport",
+          payload: {
+            id: "fixture.progress",
+            message: "Reading files",
+            increment: 35,
+          },
+        },
+      }),
+    ),
+  );
+  await expect(progress).toHaveAttribute("aria-valuenow", "35");
+  await page
+    .getByRole("button", { name: "Cancel Index project", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            runtimeRequests: { method: string; params: { id?: string } }[];
+          }
+        ).runtimeRequests.some(
+          (request) =>
+            request.method === "cancelProgress" &&
+            request.params.id === "fixture.progress",
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: { event: "progressEnd", payload: { id: "fixture.progress" } },
+      }),
+    ),
+  );
+  await expect(progress).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 test("chrome suppresses selection and overscroll while documents, output and controls remain usable", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const selection = (selector: string) =>
     page
       .locator(selector)
