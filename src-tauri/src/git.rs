@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use crate::workspace::{resolve, root, Workspace};
 use serde::Serialize;
 use std::path::{Component, Path};
@@ -529,7 +544,6 @@ fn submodule_action(
     if action == "add" {
         let path = path.ok_or("Enter a submodule path")?;
         validate_path(path)?;
-        // Resolve the nearest existing ancestor, including paths with several new directories.
         let mut ancestor = base.join(path);
         while !ancestor.exists() {
             ancestor = ancestor
@@ -632,6 +646,28 @@ pub async fn git_submodule_action(
     .await
 }
 
+#[tauri::command]
+pub async fn git_init(state: State<'_, Workspace>) -> Result<(), String> {
+    let base = root(&state)?;
+    background(move || {
+        git(&base, &["init"])?;
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_pull(
+    repository: Option<String>,
+    state: State<'_, Workspace>,
+) -> Result<String, String> {
+    let workspace = root(&state)?;
+    background(move || {
+        let base = repository_base(&workspace, repository.as_deref())?;
+        git(&base, &["pull", "--ff-only"])
+    })
+    .await
+}
 #[tauri::command]
 pub async fn git_status(
     repository: Option<String>,
@@ -803,6 +839,271 @@ pub async fn git_switch_branch(
     })
     .await
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphCommit {
+    hash: String,
+    short: String,
+    parents: Vec<String>,
+    author: String,
+    email: String,
+    date: String,
+    subject: String,
+    refs: Vec<String>,
+    body: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphPage {
+    commits: Vec<GraphCommit>,
+    has_more: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    path: String,
+    old_path: Option<String>,
+    status: String,
+}
+fn checked_commit(base: &Path, hash: &str) -> Result<String, String> {
+    if !matches!(hash.len(), 40 | 64) || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Expected a full commit hash".into());
+    }
+    Ok(git(
+        base,
+        &["rev-parse", "--verify", &format!("{hash}^{{commit}}")],
+    )?
+    .trim()
+    .into())
+}
+fn commit_parents(base: &Path, hash: &str) -> Result<Vec<String>, String> {
+    Ok(git(base, &["show", "-s", "--format=%P", hash])?
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect())
+}
+fn decode_graph(raw: &str) -> Vec<GraphCommit> {
+    let fields: Vec<_> = raw.split('\0').collect();
+    fields
+        .chunks(9)
+        .filter(|r| r.len() == 9)
+        .map(|r| GraphCommit {
+            hash: r[0].trim_start_matches('\n').into(),
+            short: r[1].into(),
+            parents: r[2].split_whitespace().map(str::to_owned).collect(),
+            author: r[3].into(),
+            email: r[4].into(),
+            date: r[5].into(),
+            subject: r[6].into(),
+            refs: r[7]
+                .split(", ")
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            body: r[8].chars().take(16000).collect(),
+        })
+        .collect()
+}
+fn graph_detail(base: &Path, hash: &str) -> Result<GraphCommit, String> {
+    let hash = checked_commit(base, hash)?;
+    let raw = git(
+        base,
+        &[
+            "show",
+            "-s",
+            "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x00%B%x00",
+            &hash,
+        ],
+    )?;
+    decode_graph(&raw)
+        .into_iter()
+        .next()
+        .ok_or("Commit details unavailable".into())
+}
+#[tauri::command]
+pub async fn git_commit_details(
+    repository: Option<String>,
+    hash: String,
+    state: State<'_, Workspace>,
+) -> Result<GraphCommit, String> {
+    let workspace = root(&state)?;
+    background(move || graph_detail(&repository_base(&workspace, repository.as_deref())?, &hash))
+        .await
+}
+fn graph_page(base: &Path, offset: usize, limit: usize) -> Result<GraphPage, String> {
+    if offset > 100_000 || limit == 0 || limit > 200 {
+        return Err("Invalid history page".into());
+    }
+    let raw = git(
+        base,
+        &[
+            "log",
+            "--all",
+            "--topo-order",
+            &format!("--skip={offset}"),
+            &format!("--max-count={}", limit + 1),
+            "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x00%B%x00",
+        ],
+    )?;
+    let mut commits = decode_graph(&raw);
+    let has_more = commits.len() > limit;
+    commits.truncate(limit);
+    Ok(GraphPage { commits, has_more })
+}
+fn commit_files(base: &Path, hash: &str, parent: usize) -> Result<Vec<CommitFile>, String> {
+    let hash = checked_commit(base, hash)?;
+    let parents = commit_parents(base, &hash)?;
+    if parent >= parents.len().max(1) {
+        return Err("Unknown merge parent".into());
+    }
+    let mut args = vec![
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "-r",
+        "--name-status",
+        "-z",
+        "-M",
+    ];
+    if let Some(parent) = parents.get(parent) {
+        args.push(parent);
+    }
+    args.extend([&hash, "--", "."]);
+    let raw = git(base, &args)?;
+    let prefix = prefix(base)?;
+    let mut records = raw.split('\0').filter(|r| !r.is_empty());
+    let mut files = Vec::new();
+    while let Some(status) = records.next() {
+        let first = records.next().ok_or("Invalid commit file listing")?;
+        let (old_path, path) = if status.starts_with(['R', 'C']) {
+            (Some(first), records.next().ok_or("Invalid rename listing")?)
+        } else {
+            (None, first)
+        };
+        let Some(path) = path.strip_prefix(&prefix) else {
+            continue;
+        };
+        validate_path(path)?;
+        files.push(CommitFile {
+            path: path.into(),
+            old_path: old_path
+                .and_then(|p| p.strip_prefix(&prefix))
+                .map(str::to_owned),
+            status: status.chars().take(1).collect(),
+        });
+        if files.len() >= 10000 {
+            return Err("Commit contains too many files to display".into());
+        }
+    }
+    Ok(files)
+}
+fn historical_blob(base: &Path, hash: &str, path: &str) -> Result<Vec<u8>, String> {
+    let spec = format!("{hash}:{}{path}", prefix(base)?);
+    if git(base, &["cat-file", "-t", &spec]).is_ok_and(|kind| kind.trim() == "commit") {
+        return Ok(format!(
+            "Subproject commit {}\n",
+            git(base, &["rev-parse", &spec])?.trim()
+        )
+        .into_bytes());
+    }
+    read_blob(base, &spec)
+}
+fn historical_diff(
+    base: &Path,
+    hash: &str,
+    path: &str,
+    parent: usize,
+) -> Result<DiffFiles, String> {
+    validate_path(path)?;
+    let hash = checked_commit(base, hash)?;
+    let files = commit_files(base, &hash, parent)?;
+    let file = files
+        .iter()
+        .find(|f| f.path == path)
+        .ok_or("This file is not part of the selected commit")?;
+    let parents = commit_parents(base, &hash)?;
+    let original = if let Some(parent) = parents.get(parent) {
+        historical_blob(base, parent, file.old_path.as_deref().unwrap_or(path))?
+    } else {
+        Vec::new()
+    };
+    let modified = historical_blob(base, &hash, path)?;
+    let binary = original.contains(&0)
+        || modified.contains(&0)
+        || std::str::from_utf8(&original).is_err()
+        || std::str::from_utf8(&modified).is_err();
+    Ok(DiffFiles {
+        path: path.into(),
+        original: String::from_utf8_lossy(&original).into(),
+        modified: String::from_utf8_lossy(&modified).into(),
+        binary,
+        staged: false,
+        old_path: file.old_path.clone(),
+    })
+}
+#[tauri::command]
+pub async fn git_graph(
+    repository: Option<String>,
+    offset: usize,
+    limit: usize,
+    state: State<'_, Workspace>,
+) -> Result<GraphPage, String> {
+    let workspace = root(&state)?;
+    background(move || {
+        graph_page(
+            &repository_base(&workspace, repository.as_deref())?,
+            offset,
+            limit,
+        )
+    })
+    .await
+}
+#[tauri::command]
+pub async fn git_commit_files(
+    repository: Option<String>,
+    hash: String,
+    parent: usize,
+    state: State<'_, Workspace>,
+) -> Result<Vec<CommitFile>, String> {
+    let workspace = root(&state)?;
+    background(move || {
+        let mut files = commit_files(
+            &repository_base(&workspace, repository.as_deref())?,
+            &hash,
+            parent,
+        )?;
+        for file in &mut files {
+            file.path = workspace_path(repository.as_deref(), &file.path);
+            file.old_path = file
+                .old_path
+                .as_deref()
+                .map(|p| workspace_path(repository.as_deref(), p));
+        }
+        Ok(files)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn git_commit_diff(
+    repository: Option<String>,
+    hash: String,
+    path: String,
+    parent: usize,
+    state: State<'_, Workspace>,
+) -> Result<DiffFiles, String> {
+    let workspace = root(&state)?;
+    background(move || {
+        let mut diff = historical_diff(
+            &repository_base(&workspace, repository.as_deref())?,
+            &hash,
+            local_path(repository.as_deref(), &path)?,
+            parent,
+        )?;
+        diff.path = path;
+        Ok(diff)
+    })
+    .await
+}
 #[tauri::command]
 pub async fn git_history(
     repository: Option<String>,
@@ -858,294 +1159,8 @@ pub async fn git_commit(
     .await
 }
 
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn repository() -> tempfile::TempDir {
-        let temp = tempfile::tempdir().unwrap();
-        let base = temp.path();
-        for args in [
-            vec!["init", "-b", "main"],
-            vec!["config", "user.name", "Devyy test"],
-            vec!["config", "user.email", "test@devyy.local"],
-            vec!["config", "commit.gpgsign", "false"],
-            vec!["config", "core.hooksPath", "disabled-hooks"],
-        ] {
-            git(base, &args).unwrap();
-        }
-        temp
-    }
-    fn commit_file(base: &Path, path: &str, content: &str) {
-        std::fs::write(base.join(path), content).unwrap();
-        git(base, &["add", "--", path]).unwrap();
-        git(base, &["commit", "-m", content]).unwrap();
-    }
-    fn add_module(base: &Path, source: &Path, path: &str) {
-        git(
-            base,
-            &[
-                "-c",
-                "protocol.file.allow=always",
-                "submodule",
-                "add",
-                "--",
-                source.to_str().unwrap(),
-                path,
-            ],
-        )
-        .unwrap();
-    }
-    #[test]
-    fn remote_branches_track_and_local_branches_rename_delete_and_fast_forward() {
-        let temp = repository();
-        let base = temp.path();
-        commit_file(base, "file.txt", "initial");
-        git(base, &["remote", "add", "origin", base.to_str().unwrap()]).unwrap();
-        git(base, &["update-ref", "refs/remotes/origin/topic", "HEAD"]).unwrap();
-        git(
-            base,
-            &[
-                "symbolic-ref",
-                "refs/remotes/origin/HEAD",
-                "refs/remotes/origin/topic",
-            ],
-        )
-        .unwrap();
-        let details = branches(base).unwrap();
-        assert_eq!(details.len(), 2); // Symbolic remote HEAD must not be offered as a branch.
-        assert!(details
-            .iter()
-            .any(|item| item.remote && item.name == "origin/topic"));
-        switch_branch(base, "refs/remotes/origin/topic", false, None).unwrap();
-        assert_eq!(status(base).unwrap().branch, "topic");
-        assert_eq!(
-            status(base).unwrap().upstream.as_deref(),
-            Some("origin/topic")
-        );
-        switch_branch(base, "main", false, None).unwrap();
-        switch_branch(base, "refs/remotes/origin/topic", false, None).unwrap();
-        branch_action(base, "rename", "refs/heads/topic", Some("renamed")).unwrap();
-        assert_eq!(status(base).unwrap().branch, "renamed");
-        commit_file(base, "file.txt", "new commit");
-        switch_branch(base, "main", false, None).unwrap();
-        assert!(branch_action(base, "delete", "refs/heads/renamed", None).is_err());
-        branch_action(base, "merge", "refs/heads/renamed", None).unwrap();
-        // The tracked upstream must also contain the branch before safe deletion.
-        git(
-            base,
-            &[
-                "update-ref",
-                "refs/remotes/origin/topic",
-                "refs/heads/renamed",
-            ],
-        )
-        .unwrap();
-        branch_action(base, "delete", "refs/heads/renamed", None).unwrap();
-        assert!(!branches(base)
-            .unwrap()
-            .iter()
-            .any(|item| item.name == "renamed"));
-        assert!(switch_branch(base, "--force", true, None).is_err());
-        assert!(branch_action(base, "delete", "refs/heads/main", None).is_err());
-    }
-    #[test]
-    fn branch_switching_preserves_dirty_files_and_refuses_overwrites_and_divergent_updates() {
-        let temp = repository();
-        let base = temp.path();
-        commit_file(base, "file.txt", "initial");
-        switch_branch(base, "feature", true, None).unwrap();
-        commit_file(base, "file.txt", "feature");
-        switch_branch(base, "main", false, None).unwrap();
-        std::fs::write(base.join("file.txt"), "unsaved work").unwrap();
-        assert!(switch_branch(base, "feature", false, None).is_err());
-        assert_eq!(
-            std::fs::read_to_string(base.join("file.txt")).unwrap(),
-            "unsaved work"
-        );
-        commit_file(base, "file.txt", "divergent");
-        assert!(branch_action(base, "merge", "refs/heads/feature", None).is_err());
-        assert_eq!(
-            std::fs::read_to_string(base.join("file.txt")).unwrap(),
-            "divergent"
-        );
-        switch_branch(base, "from-feature", true, Some("refs/heads/feature")).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(base.join("file.txt")).unwrap(),
-            "feature"
-        );
-    }
-    #[test]
-    fn branch_lists_mark_other_worktrees_and_refuse_deleting_them() {
-        let temp = repository();
-        let other = tempfile::tempdir().unwrap();
-        let base = temp.path();
-        commit_file(base, "file.txt", "initial");
-        git(
-            base,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                "other",
-                other.path().join("tree").to_str().unwrap(),
-            ],
-        )
-        .unwrap();
-        let details = branches(base).unwrap();
-        assert!(details
-            .iter()
-            .any(|item| item.name == "other" && item.worktree.is_some()));
-        assert!(branch_action(base, "delete", "refs/heads/other", None).is_err());
-    }
-    #[test]
-    fn submodules_support_spaces_dirty_status_initialization_and_scoped_operations() {
-        let source = repository();
-        commit_file(source.path(), "lib.rs", "initial library");
-        let temp = repository();
-        let canonical = temp.path().canonicalize().unwrap();
-        let base = canonical.as_path();
-        commit_file(base, "root.txt", "root");
-        add_module(base, source.path(), "packages/shared library");
-        git(base, &["commit", "-am", "Add module"]).unwrap();
-        let entries = submodules(base).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "packages/shared library");
-        assert!(entries[0].initialized);
-        assert!(!entries[0].dirty);
-        assert_eq!(
-            entries[0].head.as_deref(),
-            Some(entries[0].expected.as_str())
-        );
-        let child = repository_base(base, Some(&entries[0].path)).unwrap();
-        std::fs::write(child.join("lib.rs"), "modified library").unwrap();
-        assert!(submodules(base).unwrap()[0].dirty);
-        let local = local_path(Some(&entries[0].path), "packages/shared library/lib.rs").unwrap();
-        stage(&child, local, false).unwrap();
-        assert_eq!(status(&child).unwrap().changes[0].index, "M");
-        assert_eq!(status(base).unwrap().changes[0].index, " ");
-        assert_eq!(
-            diff_files(&child, local, true).unwrap().modified,
-            "modified library"
-        );
-        assert!(local_path(Some(&entries[0].path), "root.txt").is_err());
-        assert!(repository_base(base, Some("../outside")).is_err());
-        // Discard only in this temporary fixture, then test the cached initialization path.
-        git(&child, &["reset", "--hard", "HEAD"]).unwrap();
-        git(
-            base,
-            &["submodule", "deinit", "--", "packages/shared library"],
-        )
-        .unwrap();
-        assert!(!submodules(base).unwrap()[0].initialized);
-        assert!(repository_base(base, Some("packages/shared library")).is_err());
-        submodule_action(base, "update", Some("packages/shared library"), None).unwrap();
-        assert!(submodules(base).unwrap()[0].initialized);
-        submodule_action(base, "sync", Some("packages/shared library"), None).unwrap();
-        assert!(submodule_action(base, "update", Some("root.txt"), None).is_err());
-        let diff = diff_files(base, "packages/shared library", false).unwrap();
-        assert!(diff.modified.starts_with("Subproject commit "));
-        #[cfg(unix)]
-        {
-            std::fs::remove_dir_all(&child).unwrap();
-            std::os::unix::fs::symlink(source.path(), &child).unwrap();
-            assert!(diff_files(base, "packages/shared library", false).is_err());
-            assert!(!submodules(base).unwrap()[0].initialized);
-        }
-    }
-    #[test]
-    fn nested_submodules_are_discovered_and_targeted_through_their_parent_repository() {
-        let leaf = repository();
-        commit_file(leaf.path(), "leaf.txt", "leaf");
-        let middle = repository();
-        commit_file(middle.path(), "middle.txt", "middle");
-        add_module(middle.path(), leaf.path(), "inner library");
-        git(middle.path(), &["commit", "-am", "Nested module"]).unwrap();
-        let parent = repository();
-        let canonical = parent.path().canonicalize().unwrap();
-        let base = canonical.as_path();
-        commit_file(base, "parent.txt", "parent");
-        add_module(base, middle.path(), "modules/middle");
-        git(
-            base,
-            &[
-                "-c",
-                "protocol.file.allow=always",
-                "submodule",
-                "update",
-                "--init",
-                "--recursive",
-            ],
-        )
-        .unwrap();
-        let entries = submodules(base).unwrap();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].parent, "modules/middle");
-        assert_eq!(entries[1].path, "modules/middle/inner library");
-        submodule_action(base, "sync", Some("modules/middle/inner library"), None).unwrap();
-        submodule_action(base, "update", Some("modules/middle/inner library"), None).unwrap();
-        assert!(submodule_action(
-            base,
-            "add",
-            Some("../escape"),
-            Some("https://example.com/repo.git")
-        )
-        .is_err());
-        assert!(submodule_action(base, "add", Some("safe"), Some("--bad-option")).is_err());
-    }
-    #[test]
-    fn visual_diffs_keep_head_index_and_worktree_separate() {
-        let temp = repository();
-        let canonical = temp.path().canonicalize().unwrap();
-        let base = canonical.as_path();
-        std::fs::write(base.join("file name.rs"), "base\n").unwrap();
-        stage(base, "file name.rs", false).unwrap();
-        git(base, &["commit", "-m", "Initial"]).unwrap();
-        std::fs::write(base.join("file name.rs"), "staged\n").unwrap();
-        stage(base, "file name.rs", false).unwrap();
-        std::fs::write(base.join("file name.rs"), "working\n").unwrap();
-        let staged = diff_files(base, "file name.rs", true).unwrap();
-        assert_eq!(staged.original, "base\n");
-        assert_eq!(staged.modified, "staged\n");
-        let working = diff_files(base, "file name.rs", false).unwrap();
-        assert_eq!(working.original, "staged\n");
-        assert_eq!(working.modified, "working\n");
-        let state = status(base).unwrap();
-        assert_eq!(state.changes[0].index, "M");
-        assert_eq!(state.changes[0].worktree, "M");
-        assert!(diff_files(base, "../outside", false).is_err());
-        assert!(stage(base, "../outside", false).is_err());
-    }
-    #[test]
-    fn visual_diffs_handle_unborn_renamed_deleted_binary_and_untracked_files() {
-        let temp = repository();
-        let canonical = temp.path().canonicalize().unwrap();
-        let base = canonical.as_path();
-        std::fs::write(base.join("before.txt"), "original\n").unwrap();
-        stage(base, "before.txt", false).unwrap();
-        assert!(diff_files(base, "before.txt", true)
-            .unwrap()
-            .original
-            .is_empty());
-        git(base, &["commit", "-m", "Initial"]).unwrap();
-        git(base, &["mv", "before.txt", "after.txt"]).unwrap();
-        let renamed = diff_files(base, "after.txt", true).unwrap();
-        assert_eq!(renamed.old_path.as_deref(), Some("before.txt"));
-        assert_eq!(renamed.original, "original\n");
-        std::fs::remove_file(base.join("after.txt")).unwrap();
-        let deleted = diff_files(base, "after.txt", false).unwrap();
-        assert_eq!(deleted.original, "original\n");
-        assert!(deleted.modified.is_empty());
-        std::fs::write(base.join("new.txt"), "new\n").unwrap();
-        let new = diff_files(base, "new.txt", false).unwrap();
-        assert!(new.original.is_empty());
-        assert_eq!(new.modified, "new\n");
-        std::fs::write(base.join("binary.bin"), [0, 1, 2]).unwrap();
-        assert!(diff_files(base, "binary.bin", false).unwrap().binary);
-        stage(base, "after.txt", true).unwrap();
-        assert!(status(base)
-            .unwrap()
-            .changes
-            .iter()
-            .all(|change| change.index.trim().is_empty() || change.index == "?"));
-    }
-}
+mod tests;
+#[cfg(test)]
+mod graph_tests;
