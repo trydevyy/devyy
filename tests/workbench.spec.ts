@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { chooseOption } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 async function menuLayout(page: Page, label: string) {
@@ -24,7 +40,7 @@ async function drag(page: Page, label: string, dx: number, dy: number) {
 test("focus fills the editor and header layout controls remain independent", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("button", { name: "Toggle focus mode", exact: true })
     .click();
@@ -69,7 +85,7 @@ test("focus fills the editor and header layout controls remain independent", asy
 test("pane resizing follows drag, persists, clamps and supports keyboard reset", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(
     page.getByRole("separator", { name: "Resize sidebar" }),
   ).toBeVisible();
@@ -116,7 +132,7 @@ test("pane resizing follows drag, persists, clamps and supports keyboard reset",
 test("independent transparency persists and solid mode overrides both surfaces", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await page
     .getByRole("slider", { name: "Window transparency", exact: true })
@@ -164,7 +180,7 @@ test("independent transparency persists and solid mode overrides both surfaces",
 test("custom shortcuts record, resolve conflicts, dispatch and survive restart", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(
     page.getByRole("tab", { name: "main.rs", exact: true }),
   ).toBeVisible();
@@ -224,14 +240,14 @@ test("custom shortcuts record, resolve conflicts, dispatch and survive restart",
 test("custom context menus handle keyboard navigation, tab actions and viewport edges", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("button", { name: "main.rs", exact: true })
     .click({ button: "right" });
   await expect(page.getByRole("menu")).toBeVisible();
   await page.keyboard.press("End");
   await expect(
-    page.getByRole("menuitem", { name: "Delete", exact: true }),
+    page.getByRole("menuitem", { name: "Delete file", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
@@ -258,7 +274,7 @@ test("custom context menus handle keyboard navigation, tab actions and viewport 
 test("browser context menus are suppressed across chrome and inputs without blocking custom menus", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const isCancelled = (selector: string) =>
     page
       .locator(selector)
@@ -414,8 +430,11 @@ test("terminal sessions keep their processes through switching, splits, resizing
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.locator(".project-title").click();
+  await page
+    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .click();
   const state = () =>
     page.evaluate(
       () =>
@@ -463,7 +482,6 @@ test("terminal sessions keep their processes through switching, splits, resizing
     "2",
   ]);
   await expect.poll(async () => (await state()).created.length).toBe(3);
-  // Selecting a standalone terminal must preserve the inactive pair and both processes.
   await page.getByRole("tab", { name: "Terminal 2", exact: true }).click();
   await expect(page.locator(".terminal-instance.visible")).toHaveCount(1);
   await expect(
@@ -539,7 +557,6 @@ test("terminal sessions keep their processes through switching, splits, resizing
     b.emit("devyy-command", "sidebar");
   });
   await expect(page.locator(".sidebar")).not.toBeVisible();
-  // A one-off profile launches the selected shell without replacing an existing process.
   await page
     .getByRole("button", { name: "Choose terminal profile", exact: true })
     .click();
@@ -548,9 +565,10 @@ test("terminal sessions keep their processes through switching, splits, resizing
   expect((await state()).profiles.at(-1)).toBe("/bin/bash");
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("tab", { name: "Terminal", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: "Default shell", exact: true })
-    .selectOption("/bin/zsh");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Default shell", exact: true }),
+    "/bin/zsh",
+  );
   await page
     .getByRole("slider", { name: "Terminal line height", exact: true })
     .press("End");
@@ -561,7 +579,6 @@ test("terminal sessions keep their processes through switching, splits, resizing
   await page.getByRole("button", { name: "New terminal", exact: true }).click();
   await expect.poll(async () => (await state()).created.length).toBe(6);
   expect((await state()).profiles.at(-1)).toBe("/bin/zsh");
-  // View tabs and session tabs share a single toolbar at full and compact widths.
   const views = page.getByRole("tablist", {
     name: "Developer views",
     exact: true,
@@ -619,4 +636,103 @@ test("terminal sessions keep their processes through switching, splits, resizing
     .click();
   await page.screenshot({ path: "artifacts/devyy-workbench.png" });
   expect(errors).toEqual([]);
+});
+
+test("settings category navigation shows the selected controls", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/?playground=1");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("tab", { name: "Editor", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Editor preview", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Custom accent color", exact: true }),
+  ).toBeVisible();
+});
+
+test("output panel supports service filtering, extension channels, text filtering, and buffer controls", async ({
+  page,
+}) => {
+  await page.goto("/?playground=1");
+  const views = page.getByRole("tablist", {
+    name: "Developer views",
+    exact: true,
+  });
+  await views.getByRole("tab", { name: "output", exact: true }).click();
+  await expect(page.locator(".panel-output-slot")).toBeVisible();
+  const select = page.locator(".output-service-select");
+  await expect(select).toBeVisible();
+  const filterInput = page.getByRole("textbox", { name: "Filter output text" });
+  await expect(filterInput).toBeVisible();
+  const logPre = page.locator(".output-log");
+  await expect(logPre).toBeVisible();
+
+  await expect(logPre).toContainText("devyy is ready");
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: {
+          event: "outputChannelCreated",
+          payload: { name: "Prettier" },
+        },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: {
+          event: "output",
+          payload: {
+            name: "Prettier",
+            text: "Formatted 12 files successfully in 45ms",
+            level: "info",
+          },
+        },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("devyy-extension-event", {
+        detail: {
+          event: "output",
+          payload: {
+            name: "Debugger",
+            text: "Connected to lldb target process 1234",
+            level: "debug",
+          },
+        },
+      }),
+    );
+  });
+
+  await expect(logPre).toContainText("Formatted 12 files successfully");
+  await expect(logPre).toContainText("Connected to lldb target process");
+
+  await filterInput.fill("Prettier");
+  await expect(logPre).toContainText("Formatted 12 files successfully");
+  await expect(logPre).not.toContainText("Connected to lldb target process");
+  await expect(page.locator(".output-line-badge")).toContainText("1 line");
+
+  await page.getByRole("button", { name: "Clear text filter" }).click();
+  await expect(filterInput).toHaveValue("");
+  await expect(logPre).toContainText("Connected to lldb target process");
+
+  await chooseOption(select, "Prettier");
+  await expect(logPre).toContainText("Formatted 12 files successfully");
+  await expect(logPre).not.toContainText("Connected to lldb target process");
+
+  await page.getByRole("button", { name: "Clear Prettier output" }).click();
+  await expect(logPre).toContainText("Output is clear.");
+
+  await chooseOption(select, "all");
+  await expect(logPre).toContainText("Connected to lldb target process");
+  await expect(logPre).not.toContainText("Formatted 12 files successfully");
+
+  await expect(
+    page.getByRole("button", { name: "Toggle auto-scroll" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy output" })).toBeVisible();
 });

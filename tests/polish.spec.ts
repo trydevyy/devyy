@@ -1,10 +1,26 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { chooseOption } from "./controls";
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 test("glass overlays share transparency, blur and solid accessibility fallbacks", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+,`);
   const glass = async (selector: string) =>
     page.locator(selector).evaluate((el) => {
@@ -24,9 +40,10 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
       background: "rgba(27, 28, 30, 0.25)",
       blur: "blur(40px) saturate(1.15)",
     });
-  await page
-    .getByRole("combobox", { name: "Interface motion", exact: true })
-    .selectOption("instant");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Interface motion", exact: true }),
+    "instant",
+  );
   expect(
     await page
       .locator(".settings-modal")
@@ -75,13 +92,13 @@ test("glass overlays share transparency, blur and solid accessibility fallbacks"
   });
   await page.keyboard.press("Escape");
   await page.reload();
-  await page.keyboard.press(`${mod}+,`);
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(
     page.getByRole("slider", { name: "Menu transparency", exact: true }),
   ).toHaveValue("75");
   await expect(
     page.getByRole("combobox", { name: "Interface motion", exact: true }),
-  ).toHaveValue("instant");
+  ).toHaveAttribute("data-value", "instant");
 });
 
 test("live editor preferences change the editor and preserve text and undo history", async ({
@@ -89,7 +106,7 @@ test("live editor preferences change the editor and preserve text and undo histo
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const editor = page.locator(".editor-document.visible .cm-content").first();
   await editor.click();
   await page.keyboard.press(`${mod}+End`);
@@ -109,18 +126,22 @@ test("live editor preferences change the editor and preserve text and undo histo
   await page
     .getByRole("switch", { name: "Active line highlight", exact: true })
     .click();
-  await page
-    .getByRole("combobox", { name: "Visible whitespace", exact: true })
-    .selectOption("all");
-  await page
-    .getByRole("combobox", { name: "Cursor shape", exact: true })
-    .selectOption("block");
-  await page
-    .getByRole("combobox", { name: "Column ruler", exact: true })
-    .selectOption("80");
-  await page
-    .getByRole("combobox", { name: "Cursor blink", exact: true })
-    .selectOption("0");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Visible whitespace", exact: true }),
+    "all",
+  );
+  await chooseOption(
+    page.getByRole("combobox", { name: "Cursor shape", exact: true }),
+    "block",
+  );
+  await chooseOption(
+    page.getByRole("combobox", { name: "Column ruler", exact: true }),
+    "80",
+  );
+  await chooseOption(
+    page.getByRole("combobox", { name: "Cursor blink", exact: true }),
+    "0",
+  );
   await page.keyboard.press("Escape");
   await expect(editor).toContainText("preference history");
   const root = page.locator(".editor-document.visible").first();
@@ -170,7 +191,7 @@ test("About devyy is available from Settings and commands with usable details", 
   context,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+Shift+p`);
   await page
     .getByRole("textbox", { name: "Search", exact: true })

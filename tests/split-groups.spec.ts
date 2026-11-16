@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -6,13 +21,12 @@ test("file pairs survive standalone navigation, keep independent editors, and se
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const main = page.locator('.editor-document[data-path="src/main.rs"]');
   const lib = page.locator('.editor-document[data-path="src/lib.rs"]');
   await main.locator(".cm-content").click();
   await page.keyboard.press(`${mod}+End`);
   await page.keyboard.insertText("\n// kept undo history");
-  // The context action pairs the target with the currently selected file.
   await page
     .getByRole("tab", { name: "lib.rs", exact: true })
     .click({ button: "right" });
@@ -30,7 +44,6 @@ test("file pairs survive standalone navigation, keep independent editors, and se
   await expect(lib.locator(".cm-content")).toContainText("pub struct Project");
   expect(await main.boundingBox()).not.toEqual(await lib.boundingBox());
   await expect(page.locator(".cm-editor")).toHaveCount(3);
-  // Both panes can be focused without changing the pair or their positions.
   await main.locator(".cm-content").click();
   await expect(
     page.getByRole("tab", { name: "main.rs", exact: true }),
@@ -67,7 +80,7 @@ test("file pairs survive standalone navigation, keep independent editors, and se
 test("explorer split action retains two distinct files when opening another file and closing a member", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .locator(".tree-file")
     .filter({ hasText: /^Cargo\.toml$/ })
@@ -106,7 +119,7 @@ test("explorer split action retains two distinct files when opening another file
 test("terminal groups persist independently and separating tabs keeps sessions alive", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("button", { name: "Split terminal", exact: true })
     .click();
@@ -149,7 +162,7 @@ test("terminal groups persist independently and separating tabs keeps sessions a
 test("multiple file groups coexist and re-pairing a member preserves former partners", async ({
   page,
 }, testInfo) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("tab", { name: "lib.rs", exact: true })
     .click({ button: "right" });
@@ -213,7 +226,7 @@ test("multiple file groups coexist and re-pairing a member preserves former part
 test("file shortcuts and close-to-right follow the displayed group order", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("tab", { name: "README.md", exact: true })
     .click({ button: "right" });
@@ -279,7 +292,7 @@ test("file shortcuts and close-to-right follow the displayed group order", async
 test("file groups and Markdown previews retain independent widths", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page
     .getByRole("tab", { name: "lib.rs", exact: true })
     .click({ button: "right" });
@@ -315,7 +328,7 @@ test("file groups and Markdown previews retain independent widths", async ({
 test("terminal tabs reorder entire groups, support boundary keys, and close with the middle button", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const tabs = page.getByRole("tablist", {
     name: "Terminal sessions",
     exact: true,
@@ -356,7 +369,7 @@ test("terminal tabs reorder entire groups, support boundary keys, and close with
 test("bursts of extension terminal creation and disposal preserve surviving sessions", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(
     page.getByRole("tab", { name: "Terminal 1", exact: true }),
   ).toBeVisible();

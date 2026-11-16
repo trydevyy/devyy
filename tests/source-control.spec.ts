@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { chooseOption } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 async function repository(page: Page, includeSubmodules = false) {
@@ -145,6 +161,42 @@ async function repository(page: Page, includeSubmodules = false) {
                 subject: "Build the workbench",
               },
             ];
+          if (command === "git_graph")
+            return {
+              hasMore: false,
+              commits: [
+                {
+                  hash: "a".repeat(40),
+                  short: "aaaaaaa",
+                  parents: ["b".repeat(40), "c".repeat(40)],
+                  author: "Graph author",
+                  email: "author@example.test",
+                  date: "2026-11-13T10:00:00Z",
+                  subject: "Merge workbench",
+                  refs: ["HEAD -> main"],
+                  body: "Merge workbench\n\nDetailed merge message",
+                },
+                {
+                  hash: "b".repeat(40),
+                  short: "bbbbbbb",
+                  parents: [],
+                  author: "Graph author",
+                  email: "author@example.test",
+                  date: "2026-11-12T10:00:00Z",
+                  subject: "Initial workbench",
+                  refs: [],
+                  body: "Initial workbench",
+                },
+              ],
+            };
+          if (command === "git_commit_files")
+            return [{ path: "main.rs", status: "M" }];
+          if (command === "git_commit_diff")
+            return {
+              original: "fn historical_before() {}\n",
+              modified: "fn historical_after() {}\n",
+              binary: false,
+            };
           if (command === "git_diff_files")
             return {
               original: args.staged
@@ -210,14 +262,17 @@ async function repository(page: Page, includeSubmodules = false) {
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
     });
   }, includeSubmodules);
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.locator(".project-title").click();
+  await page
+    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Source control", exact: true })
     .click();
   await expect(
     page.getByRole("combobox", { name: "Current Git branch", exact: true }),
-  ).toHaveValue("main");
+  ).toHaveAttribute("data-value", "main");
 }
 
 test("source control opens highlighted visual diffs and preserves editor buffers", async ({
@@ -229,6 +284,8 @@ test("source control opens highlighted visual diffs and preserves editor buffers
   const content = page.locator(
     '.editor-document[data-path="main.rs"] .cm-content',
   );
+  await expect(page.locator(".devyy")).toHaveAttribute("aria-busy", "false");
+  await expect(content).not.toHaveAttribute("aria-readonly", "true");
   await content.click();
   await page.keyboard.press(`${mod}+End`);
   await page.keyboard.insertText("// unsaved buffer\n");
@@ -236,7 +293,6 @@ test("source control opens highlighted visual diffs and preserves editor buffers
     name: "Working tree changes",
     exact: true,
   });
-  // Semantic sections without an explicit role are exposed as named regions.
   await working.getByTitle("main.rs", { exact: true }).click();
   const diff = page.getByRole("region", {
     name: "Diff: main.rs (Working tree)",
@@ -308,20 +364,24 @@ test("staged and working changes have independent actions, history, and branch c
     .getByRole("button", { name: "Unstage all changes", exact: true })
     .click();
   await expect(working.locator(".change-row")).toHaveCount(2);
-  await page
-    .getByRole("button", { name: "Commit history", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "History", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Commit history", exact: true }),
   ).toContainText("Build the workbench");
-  await page
-    .getByRole("combobox", { name: "Current Git branch", exact: true })
-    .selectOption("feature");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Current Git branch", exact: true }),
+    "feature",
+  );
   await expect(
     page.getByRole("combobox", { name: "Current Git branch", exact: true }),
-  ).toHaveValue("feature");
+  ).toHaveAttribute("data-value", "feature");
+  await page.getByRole("tab", { name: /^Changes/ }).click();
   await page
     .getByRole("button", { name: "Discard changes to main.rs", exact: true })
+    .click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Discard changes", exact: true })
     .click();
   await expect(working.getByTitle("main.rs", { exact: true })).toHaveCount(0);
   const calls = await page.evaluate(() =>
@@ -338,6 +398,7 @@ test("branch manager lists remote branches, creates from a ref, renames, fetches
   page,
 }, testInfo) => {
   await repository(page);
+  await page.getByRole("tab", { name: "Repositories", exact: true }).click();
   await page.getByRole("button", { name: "Branches", exact: true }).click();
   const panel = page.getByRole("region", { name: "Branches", exact: true });
   await expect(
@@ -363,7 +424,7 @@ test("branch manager lists remote branches, creates from a ref, renames, fetches
     .click();
   await expect(
     page.getByRole("combobox", { name: "Current Git branch" }),
-  ).toHaveValue("release-work");
+  ).toHaveAttribute("data-value", "release-work");
   await panel.getByRole("textbox", { name: "Search branches" }).fill("");
   await panel
     .getByRole("button", { name: "Actions for branch release-work" })
@@ -381,21 +442,26 @@ test("branch manager lists remote branches, creates from a ref, renames, fetches
     .click();
   await expect(
     page.getByRole("combobox", { name: "Current Git branch" }),
-  ).toHaveValue("release-renamed");
+  ).toHaveAttribute("data-value", "release-renamed");
   await page
     .getByRole("button", { name: "Fetch all remotes", exact: true })
     .click();
   await expect(
     page.getByRole("button", { name: "Fetch all remotes", exact: true }),
   ).toBeEnabled();
-  await page
-    .getByRole("combobox", { name: "Current Git branch" })
-    .selectOption("main");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Current Git branch" }),
+    "main",
+  );
   await panel
     .getByRole("button", { name: "Actions for branch release-renamed" })
     .click();
   await page
     .getByRole("menuitem", { name: "Delete branch", exact: true })
+    .click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Delete branch", exact: true })
     .click();
   await expect(
     panel.getByRole("button", {
@@ -427,12 +493,13 @@ test("branch manager lists remote branches, creates from a ref, renames, fetches
         call.command === "git_branch_action" && call.args.action === "fetch",
     ),
   ).toBe(true);
-  await page
-    .getByRole("combobox", { name: "Current Git branch" })
-    .selectOption("refs/remotes/origin/release");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Current Git branch" }),
+    "refs/remotes/origin/release",
+  );
   await expect(
     page.getByRole("combobox", { name: "Current Git branch" }),
-  ).toHaveValue("release");
+  ).toHaveAttribute("data-value", "release");
 });
 
 test("submodule repositories isolate changes and commit drafts, initialize and accept new modules", async ({
@@ -447,10 +514,10 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
   });
   await expect(selector).toBeVisible();
   await page
-    .getByRole("textbox", { name: "Commit message" })
+    .getByRole("textbox", { name: "Commit message", exact: true })
     .fill("Parent draft");
-  await selector.selectOption("packages/shared");
-  await expect(selector).toHaveValue("packages/shared");
+  await chooseOption(selector, "packages/shared");
+  await expect(selector).toHaveAttribute("data-value", "packages/shared");
   const working = page.getByRole("region", {
     name: "Working tree changes",
     exact: true,
@@ -460,25 +527,27 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
   ).toBeVisible();
   await expect(working.getByTitle("main.rs", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("textbox", { name: "Commit message" }),
+    page.getByRole("textbox", { name: "Commit message", exact: true }),
   ).toHaveValue("");
   await page
-    .getByRole("textbox", { name: "Commit message" })
+    .getByRole("textbox", { name: "Commit message", exact: true })
     .fill("Module commit");
-  await page
+  await working
     .getByRole("button", { name: "Stage packages/shared/lib.rs", exact: true })
     .click();
   await page
+    .getByRole("tabpanel", { name: "Changes" })
     .getByRole("button", { name: "Commit staged changes", exact: true })
     .click();
   await expect(
     page.getByText("Working tree clean", { exact: true }),
   ).toBeVisible();
-  await selector.selectOption("");
+  await chooseOption(selector, "");
   await expect(
-    page.getByRole("textbox", { name: "Commit message" }),
+    page.getByRole("textbox", { name: "Commit message", exact: true }),
   ).toHaveValue("Parent draft");
   await expect(working.getByTitle("main.rs", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Repositories", exact: true }).click();
   await page
     .getByRole("button", {
       name: "Initialize submodule packages/lazy",
@@ -539,4 +608,96 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
     ),
   ).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test("commit graph selects merge parents and opens historical files in a read-only diff", async ({
+  page,
+}) => {
+  await repository(page);
+  await page.getByRole("tab", { name: "History", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open commit graph", exact: true })
+    .click();
+  const graph = page.getByRole("dialog", { name: "Commit graph", exact: true });
+  await expect(
+    graph.getByRole("region", { name: "Commit details" }),
+  ).toContainText("Detailed merge message");
+  await chooseOption(
+    graph.getByRole("combobox", { name: "Commit parent" }),
+    "1",
+  );
+  await expect(graph.getByRole("button", { name: /main.rs/ })).toBeVisible();
+  await page.screenshot({ path: "artifacts/devyy-commit-graph.png" });
+  await graph.getByRole("button", { name: /main.rs/ }).click();
+  const diff = page.getByRole("region", {
+    name: "Diff: main.rs (aaaaaaaa)",
+    exact: true,
+  });
+  await expect(diff.locator(".cm-merge-a")).toContainText("historical_before");
+  await expect(diff.locator(".cm-merge-b")).toContainText("historical_after");
+  await expect(
+    diff.getByRole("button", { name: "Stage file", exact: true }),
+  ).toHaveCount(0);
+  await expect(diff.locator(".diff-column-labels")).toContainText("cccccccccc");
+  await diff
+    .getByRole("button", { name: "Back to commit graph", exact: true })
+    .click();
+  await expect(
+    graph.getByRole("option", {
+      name: "Merge workbench (aaaaaaa)",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    graph.getByRole("combobox", { name: "Commit parent" }),
+  ).toHaveAttribute("data-value", "1");
+  const calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          gitCalls: { command: string; args: Record<string, unknown> }[];
+        }
+      ).gitCalls,
+  );
+  expect(
+    calls.some(
+      (call) => call.command === "git_commit_diff" && call.args.parent === 1,
+    ),
+  ).toBe(true);
+});
+
+test("commit graph supports keyboard selection and labels an initial commit's empty base", async ({
+  page,
+}) => {
+  await repository(page);
+  await page.getByRole("tab", { name: "History", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open commit graph", exact: true })
+    .click();
+  const graph = page.getByRole("dialog", { name: "Commit graph", exact: true });
+  const merge = graph.getByRole("option", {
+    name: "Merge workbench (aaaaaaa)",
+    exact: true,
+  });
+  const initial = graph.getByRole("option", {
+    name: "Initial workbench (bbbbbbb)",
+    exact: true,
+  });
+  await merge.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(initial).toBeFocused();
+  await expect(initial).toHaveAttribute("aria-selected", "true");
+  await expect(
+    graph.getByRole("combobox", { name: "Commit parent" }),
+  ).toContainText("Empty tree");
+  await page.keyboard.press("Home");
+  await expect(merge).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(initial).toBeFocused();
+  await graph.getByRole("button", { name: /main.rs/ }).click();
+  const diff = page.getByRole("region", {
+    name: "Diff: main.rs (bbbbbbbb)",
+    exact: true,
+  });
+  await expect(diff.locator(".diff-column-labels")).toContainText("Empty tree");
 });

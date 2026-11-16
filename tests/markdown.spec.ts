@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 const markdown =
@@ -20,7 +35,7 @@ test("Markdown previews render GFM and code, update live, and preserve source un
       ),
     markdown,
   );
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.getByRole("tab", { name: "README.md", exact: true }).click();
   const source = page
     .locator(".editor-document.visible .editor-source .cm-content")
@@ -98,14 +113,15 @@ test("Markdown previews render GFM and code, update live, and preserve source un
 test("compact search and Settings retain the workbench and remove decorative labels", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+p`);
   const palette = page.getByRole("dialog", { name: "Go to file", exact: true });
-  expect((await palette.boundingBox())!.width).toBeLessThanOrEqual(560);
+  expect((await palette.boundingBox())!.width).toBeGreaterThanOrEqual(680);
+  expect((await palette.boundingBox())!.width).toBeLessThanOrEqual(740);
   await expect(palette).not.toContainText("YOUR WORKSPACE");
   expect(
     (await palette.getByRole("option").first().boundingBox())!.height,
-  ).toBeLessThan(43);
+  ).toBeLessThanOrEqual(48);
   await page.screenshot({ path: "artifacts/devyy-search.png" });
   await page.keyboard.press("Escape");
   await page.keyboard.press(`${mod}+,`);
@@ -172,12 +188,12 @@ test("native About reports metadata and handles available, failed and current up
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
     });
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("tab", { name: "About devyy", exact: true }).click();
   const about = page.getByRole("region", { name: "About devyy", exact: true });
   await expect(about).toContainText("26.1 (25B78)");
-  await expect(about).toContainText("test-build — aarch64");
+  await expect(about).toContainText("test-build (aarch64)");
   await expect(about.getByRole("status")).toContainText("0.2.0 is available");
   await expect(
     about.getByRole("button", { name: "View release", exact: true }),
@@ -228,7 +244,7 @@ test("Markdown renders embedded HTML with working details and safe links and ima
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="24"><rect width="64" height="24" fill="gray"/></svg>',
     }),
   );
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.getByRole("tab", { name: "README.md", exact: true }).click();
   await page
     .getByRole("button", { name: "Markdown preview", exact: true })

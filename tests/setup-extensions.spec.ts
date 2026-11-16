@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { chooseOption } from "./controls";
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -13,7 +29,7 @@ test("first-run setup applies appearance and editor choices, completes once, and
       sessionStorage.setItem("setup-test-started", "true");
     }
   });
-  await page.goto("/");
+  await page.goto("/?playground=1");
   const setup = page.getByRole("dialog", { name: "Set up devyy", exact: true });
   await expect(setup).toBeVisible();
   await setup.getByRole("button", { name: "Blue accent", exact: true }).click();
@@ -38,6 +54,14 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(setup).toContainText("Available in the desktop app");
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    setup.getByRole("navigation", { name: "AI providers", exact: true }),
+  ).toBeVisible();
+  await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    setup.getByRole("region", { name: "GitHub and Git" }),
+  ).toBeVisible();
   await setup
     .getByRole("button", { name: "Start coding", exact: true })
     .click();
@@ -212,7 +236,7 @@ test("Open VSX install activates grammar, snippets and theme and can disable the
   await nativeFixture(page);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+Shift+x`);
   const settings = page.getByRole("dialog", {
     name: "Preferences",
@@ -247,9 +271,13 @@ test("Open VSX install activates grammar, snippets and theme and can disable the
   await expect(editor).toContainText("hello name");
   await page.keyboard.press(`${mod}+,`);
   await settings.getByRole("tab", { name: "Appearance", exact: true }).click();
-  await settings
-    .getByRole("combobox", { name: "Extension color theme", exact: true })
-    .selectOption({ label: "Fixture Dark" });
+  await chooseOption(
+    settings.getByRole("combobox", {
+      name: "Extension color theme",
+      exact: true,
+    }),
+    { label: "Fixture Dark" },
+  );
   await expect(page.locator("html")).toHaveCSS("--syntax-keyword", "#ff3355");
   await settings.getByRole("tab", { name: "Extensions", exact: true }).click();
   await settings.getByRole("tab", { name: "Installed 1", exact: true }).click();
@@ -264,7 +292,7 @@ test("native settings import previews changes and custom LSP configuration prese
   page,
 }) => {
   await nativeFixture(page);
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+,`);
   const settings = page.getByRole("dialog", {
     name: "Preferences",
