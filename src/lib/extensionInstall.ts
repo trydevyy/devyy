@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { useSyncExternalStore } from "react";
 import { invoke, listen } from "./native";
 import { refreshExtensions, type InstalledExtension } from "./extensions";
@@ -10,7 +25,6 @@ export interface ExtensionInstallProgress {
   downloaded: number;
   total: number | null;
 }
-// Module lifetime keeps the operation and its listener alive when Settings closes.
 let active: ExtensionInstallProgress | null = null;
 let listening: Promise<void> | undefined;
 const subscribers = new Set<() => void>();
@@ -94,7 +108,6 @@ async function installBundle(id: string, localPath?: string, repair = false) {
     active = { ...active, id: root.id.toLowerCase() };
     await installExtensionDependencies(root, installed, async (packageId) => {
       if (!active) throw new Error("Extension installation was interrupted.");
-      // Each package has its own request token; late events from a previous download are ignored.
       active = {
         id: root.id.toLowerCase(),
         packageId,
@@ -114,7 +127,6 @@ async function installBundle(id: string, localPath?: string, repair = false) {
     await refreshExtensions(true);
     changed = false;
   } catch (error) {
-    // A failed bundle may have installed individual packages. Show their real state without hiding the original failure.
     if (changed) await refreshExtensions(true).catch(() => {});
     throw error;
   } finally {

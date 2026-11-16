@@ -1,13 +1,32 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { AnimatePresence, useIsPresent } from "motion/react";
+import ModalBackdrop from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { X } from "lucide-react";
+import { LoaderCircle, X } from "lucide-react";
 import { toast } from "sonner";
 import { hostRequest, type HostEvent } from "../lib/extensionHost";
 import { fileUri } from "../lib/extensionWorkbench";
 import { invoke, native } from "../lib/native";
+import ExtensionQuickInput from "./ExtensionQuickInput";
+import { restoreFocus } from "../lib/focus";
 export interface WorkbenchRequest {
   id: string;
   method: string;
@@ -61,6 +80,12 @@ export default function ExtensionServices({
   useEffect(() => {
     const listener = (event: Event) => {
       const message = (event as CustomEvent<HostEvent>).detail;
+      if (message.event === "cancelRequest") {
+        setPrompts((items) =>
+          items.filter((item) => item.id !== message.payload.id),
+        );
+        return;
+      }
       if (message.event !== "workbenchRequest") return;
       const request = message.payload as unknown as WorkbenchRequest;
       if (["inputBox", "quickPick", "message"].includes(request.method)) {
@@ -151,7 +176,9 @@ export default function ExtensionServices({
     let stop: (() => void) | undefined;
     const handle = (urls: string[]) => {
       for (const uri of urls)
-        if (uri.startsWith("devyy:"))
+        if (uri === "devyy://auth-complete" || uri === "devyy://auth-complete/")
+          continue;
+        else if (uri.startsWith("devyy:"))
           void hostRequest("handleUri", { uri }).catch((e) =>
             toast.error(String(e)),
           );
@@ -173,18 +200,151 @@ export default function ExtensionServices({
     };
   }, []);
   const prompt = prompts[0];
-  if (!prompt) return null;
   return (
-    <ExtensionPrompt
-      key={prompt.id}
-      prompt={prompt}
-      onFinish={(value) => {
-        setPrompts((items) => items.filter((item) => item.id !== prompt.id));
-        void respond(prompt, value).catch((e) => toast.error(String(e)));
-      }}
-    />
+    <>
+      <ExtensionQuickInput />
+      <AnimatePresence>
+        {prompt && (
+          <ExtensionPrompt
+            key={prompt.id}
+            prompt={prompt}
+            onFinish={(value) => {
+              setPrompts((items) =>
+                items.filter((item) => item.id !== prompt.id),
+              );
+              void respond(prompt, value).catch((e) => toast.error(String(e)));
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </>
   );
 }
+interface ProgressTask {
+  id: string;
+  extension: string;
+  title: string;
+  message?: string;
+  percent?: number;
+  cancellable?: boolean;
+  cancelling?: boolean;
+  language?: string;
+  token?: string | number;
+}
+export function ExtensionProgress() {
+  const [tasks, setTasks] = useState<ProgressTask[]>([]);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const { event: kind, payload } = (event as CustomEvent<HostEvent>).detail;
+      if (kind === "progressStart")
+        setTasks((old) => [
+          ...old.filter((task) => task.id !== payload.id),
+          payload as unknown as ProgressTask,
+        ]);
+      if (kind === "progressEnd")
+        setTasks((old) => old.filter((task) => task.id !== payload.id));
+      if (kind === "progressReport")
+        setTasks((old) =>
+          old.map((task) =>
+            task.id === payload.id
+              ? {
+                  ...task,
+                  message:
+                    typeof payload.message === "string"
+                      ? payload.message
+                      : task.message,
+                  percent:
+                    typeof payload.percent === "number"
+                      ? Math.max(0, Math.min(100, payload.percent))
+                      : typeof payload.increment === "number"
+                        ? Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              (task.percent ?? 0) + payload.increment,
+                            ),
+                          )
+                        : task.percent,
+                }
+              : task,
+          ),
+        );
+    };
+    const reset = () => setTasks([]);
+    window.addEventListener("devyy-extension-event", listener);
+    window.addEventListener("devyy-extension-host-reset", reset);
+    return () => {
+      window.removeEventListener("devyy-extension-event", listener);
+      window.removeEventListener("devyy-extension-host-reset", reset);
+    };
+  }, []);
+  if (!tasks.length) return null;
+  return (
+    <span className="extension-status-progress" aria-label="Extension progress">
+      {tasks.map((task) => (
+        <span
+          className="extension-status-task"
+          key={task.id}
+          title={[task.extension, task.title, task.message]
+            .filter(Boolean)
+            .join(": ")}
+        >
+          <span
+            role="progressbar"
+            aria-label={task.title}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={task.percent}
+          >
+            <LoaderCircle size={12} className="spinning" />
+            <span>
+              {task.title}
+              {task.message ? `: ${task.message}` : ""}
+            </span>
+            {task.percent !== undefined && (
+              <small>{Math.round(task.percent)}%</small>
+            )}
+          </span>
+          {task.cancellable && (
+            <button
+              aria-label={`Cancel ${task.title}`}
+              disabled={task.cancelling}
+              onClick={() => {
+                setTasks((old) =>
+                  old.map((item) =>
+                    item.id === task.id ? { ...item, cancelling: true } : item,
+                  ),
+                );
+                void (
+                  task.language
+                    ? invoke("lsp_request", {
+                        language: task.language,
+                        method: "window/workDoneProgress/cancel",
+                        params: { token: task.token },
+                        notification: true,
+                      })
+                    : hostRequest("cancelProgress", { id: task.id })
+                ).catch((error) => {
+                  toast.error(String(error));
+                  setTasks((old) =>
+                    old.map((item) =>
+                      item.id === task.id
+                        ? { ...item, cancelling: false }
+                        : item,
+                    ),
+                  );
+                });
+              }}
+            >
+              <X size={11} />
+            </button>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function ExtensionPrompt({
   prompt,
   onFinish,
@@ -192,6 +352,7 @@ function ExtensionPrompt({
   prompt: Prompt;
   onFinish: (value: unknown) => void;
 }) {
+  const present = useIsPresent();
   const options = prompt.params.options ?? {};
   const [value, setValue] = useState(options.value ?? "");
   const [selected, setSelected] = useState<number[]>(() =>
@@ -227,20 +388,24 @@ function ExtensionPrompt({
     else onFinish(index);
   };
   useEffect(() => {
+    if (!present) return;
     const previous = document.activeElement as HTMLElement | null;
     (
       root.current?.querySelector("input") ??
       root.current?.querySelector("button")
     )?.focus();
-    return () => previous?.focus();
-  }, []);
+    return () => restoreFocus(previous);
+  }, [present]);
   useEffect(() => {
     root.current
       ?.querySelector('[aria-selected="true"]')
       ?.scrollIntoView({ block: "nearest" });
   }, [active]);
   return (
-    <div className="modal-backdrop" onMouseDown={() => onFinish(null)}>
+    <ModalBackdrop
+      className="modal-backdrop"
+      onMouseDown={() => onFinish(null)}
+    >
       <form
         ref={root}
         className="input-modal extension-prompt"
@@ -385,6 +550,6 @@ function ExtensionPrompt({
               )}
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

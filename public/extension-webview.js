@@ -1,10 +1,28 @@
-/* Shared by the desktop workbench and native extension compatibility checks. */
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 (() => {
   function initialize({ state, theme, storage }, installStorage) {
     installStorage(storage);
     let acquired = false;
     let savedState = state;
     let shortcuts = [];
+    let focusTarget;
+    document.addEventListener("focusin", (event) => {
+      if (event.target instanceof HTMLElement) focusTarget = event.target;
+    });
     document.addEventListener(
       "keydown",
       (event) => {
@@ -77,7 +95,6 @@
     window.acquireVsCodeApi = () => {
       if (acquired) throw Error("API already acquired");
       acquired = true;
-      // Some module entrypoints await their host before DOMContentLoaded.
       queueMicrotask(announceReady);
       return Object.freeze({
         postMessage: (message) =>
@@ -92,6 +109,16 @@
     };
     window.addEventListener("message", (event) => {
       if (event.source !== parent) return;
+      if (event.data?.channel === "devyy-focus") {
+        if (focusTarget?.isConnected)
+          focusTarget.focus({ preventScroll: true });
+        else window.focus();
+        return;
+      }
+      if (event.data?.channel === "devyy-connect") {
+        announceReady();
+        return;
+      }
       if (
         event.data?.channel === "devyy-shortcuts" &&
         Array.isArray(event.data.bindings)
@@ -100,8 +127,6 @@
           (binding) => typeof binding === "string",
         );
       if (event.data?.channel === "devyy-host") {
-        // VS Code delivers host messages with the webview's own origin. Several
-        // extensions validate that origin before accepting an RPC response.
         window.dispatchEvent(
           new MessageEvent("message", {
             data: event.data.message,

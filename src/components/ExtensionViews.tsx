@@ -1,4 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { useEffect, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -17,7 +32,6 @@ import {
   extensionCommand,
   hostRequest,
   useExtensionHost,
-  type HostEvent,
   type NativeNode,
 } from "../lib/extensionHost";
 interface TreeNode {
@@ -56,11 +70,12 @@ function TreeBranch({
         if (disposed) return;
         setItems(result ?? []);
         setOpen(
-          new Set(
-            (result ?? [])
-              .filter((n) => n.collapsibleState === 2)
-              .map((n) => n.key),
-          ),
+          (previous) =>
+            new Set(
+              (result ?? [])
+                .filter((n) => previous.has(n.key) || n.collapsibleState === 2)
+                .map((n) => n.key),
+            ),
         );
       })
       .catch((error) => {
@@ -72,18 +87,7 @@ function TreeBranch({
     return () => {
       disposed = true;
     };
-  }, [id, parent, revision]);
-  useEffect(() => {
-    // Refresh roots only: their node handles invalidate all previous branches.
-    if (parent) return;
-    const listener = (event: Event) => {
-      const message = (event as CustomEvent<HostEvent>).detail;
-      if (message.event === "treeChanged" && message.payload.id === id)
-        setRevision((n) => n + 1);
-    };
-    window.addEventListener("devyy-extension-event", listener);
-    return () => window.removeEventListener("devyy-extension-event", listener);
-  }, [id, parent]);
+  }, [id, parent, revision, host.treeVersions[id]]);
   if (depth > 32)
     return (
       <p className="extension-view-note">This tree is too deeply nested.</p>
@@ -105,7 +109,7 @@ function TreeBranch({
     <div
       role={parent ? "group" : "tree"}
       aria-label={parent ? undefined : id}
-      key={revision}
+      key={`${revision}:${host.treeVersions[id] ?? 0}`}
     >
       {items.map((item) => (
         <div key={item.key}>
@@ -164,7 +168,7 @@ function TreeBranch({
         </div>
       ))}
       {!parent && !items.length && (
-        <p className="extension-view-note">No items to display.</p>
+        <p className="extension-view-note">Nothing to show yet.</p>
       )}
     </div>
   );
@@ -319,9 +323,6 @@ export default function ExtensionViews({ container }: { container: string }) {
     )
     .filter((view) => matchesContext(view.when, host.contexts));
   const natives = container === "devyy" ? host.views : [];
-  const run = useCallback((command: string) => {
-    void extensionCommand(command).catch((e) => toast.error(String(e)));
-  }, []);
   return (
     <div className="extension-views">
       {views.map((view) => (
@@ -349,19 +350,6 @@ export default function ExtensionViews({ container }: { container: string }) {
           </div>
         </section>
       ))}
-      {container === "devyy" &&
-        extensions
-          .filter((e) => e.enabled)
-          .flatMap((e) => e.contributes.commands ?? [])
-          .map((command) => (
-            <button
-              className="extension-command"
-              key={command.command}
-              onClick={() => run(command.command)}
-            >
-              {command.title}
-            </button>
-          ))}
     </div>
   );
 }

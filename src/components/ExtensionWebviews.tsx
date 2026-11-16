@@ -1,5 +1,20 @@
-import { isAIExtension, aiMainView } from "../lib/aiExtensions";
-import { useEffect, useMemo, useRef, useState } from "react";
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { aiMainView } from "../lib/aiExtensions";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -14,7 +29,6 @@ import { extensionMenuItems } from "../lib/extensionMenus";
 import { useExtensions } from "../lib/extensions";
 import { useContextMenu } from "./ContextMenu";
 import { invoke, native } from "../lib/native";
-// Supply VS Code's public design tokens while leaving extension CSS in control.
 const themeProperties: Record<string, string> = {};
 for (const [source, names] of Object.entries({
   "--ink": [
@@ -183,13 +197,14 @@ function Frame({
     });
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     let outgoing: Promise<unknown> = Promise.resolve();
     let disposed = false;
     const flush = () => {
-      if (!ready.current) return;
+      const target = frame.current?.contentWindow;
+      if (!ready.current || !target) return;
       for (const message of takeWebviewMessages(view.id))
-        frame.current?.contentWindow?.postMessage(
+        target.postMessage(
           {
             channel: "devyy-host",
             message: window.__DEVYY_EXTENSION_MESSAGES__.decode(message),
@@ -198,7 +213,6 @@ function Frame({
         );
     };
     const listener = (event: MessageEvent) => {
-      // Opaque iframe origins cannot be trusted by origin; bind to this frame.
       if (
         event.source !== frame.current?.contentWindow ||
         ![
@@ -328,7 +342,11 @@ function Frame({
       const message = (event as CustomEvent<HostEvent>).detail;
       if (message.event === "webviewMessage" && message.payload.id === view.id)
         flush();
-      if (message.event === "focusWebview" && message.payload.id === view.id)
+      if (
+        message.event === "focusWebview" &&
+        message.payload.id === view.id &&
+        !message.payload.preserveFocus
+      )
         frame.current?.focus();
     };
     const storageChanged = (event: Event) => {
@@ -358,9 +376,12 @@ function Frame({
       state: savedState.current,
       storage: { local: readStorage(), session: sessionStorage.current },
     });
-    // Theme changes use postMessage so running extension state is preserved.
   }, [view.html]);
   const sendTheme = () => {
+    frame.current?.contentWindow?.postMessage(
+      { channel: "devyy-connect" },
+      "*",
+    );
     frame.current?.contentWindow?.postMessage(
       { channel: "devyy-theme", theme, tokens },
       "*",
@@ -378,6 +399,11 @@ function Frame({
     );
   }, [shortcutSignature, url]);
   useEffect(sendTheme, [theme, tokens, url]);
+  useEffect(() => {
+    if (visible) {
+      sendTheme();
+    }
+  }, [visible]);
   useEffect(() => {
     if (!native) return;
     let cancelled = false;
@@ -426,33 +452,41 @@ export default function ExtensionWebviews({
   visible = true,
 }: {
   shortcuts?: string[];
-  placement?: "main" | "ai" | "view";
+  placement?: "main" | "ai" | "view" | "editor";
   owner?: string;
   viewId?: string;
   visible?: boolean;
 }) {
+  const matchesOwner = (viewExt: string, ownerExt?: string) =>
+    !ownerExt || viewExt.toLowerCase() === ownerExt.toLowerCase();
   const host = useExtensionHost();
   const webviews = host.webviews.filter((view) =>
     placement === "ai"
-      ? view.id === aiMainView(view.extension)
-      : placement === "view"
+      ? matchesOwner(view.extension, owner) &&
+        view.id === aiMainView(view.extension)
+      : placement === "view" || placement === "editor"
         ? view.id === viewId
-        : !isAIExtension(view.extension) && view.viewKind !== "view",
+        : view.viewKind !== "view",
   );
   const [selected, setSelected] = useState("");
   const active = !visible
     ? undefined
     : (webviews.find(
-        (view) => view.id === selected && (!owner || view.extension === owner),
+        (view) => view.id === selected && matchesOwner(view.extension, owner),
       ) ??
-      webviews.filter((view) => !owner || view.extension === owner).at(-1));
+      webviews.filter((view) => matchesOwner(view.extension, owner)).at(-1));
   useEffect(() => {
-    setSelected(webviews.at(-1)?.id ?? "");
-  }, [webviews.at(-1)?.id]);
+    const matching = webviews.filter((view) =>
+      matchesOwner(view.extension, owner),
+    );
+    if (matching.length > 0 && !matching.some((v) => v.id === selected)) {
+      setSelected(matching.at(-1)?.id ?? "");
+    }
+  }, [owner, webviews.map((v) => v.id).join(",")]);
   useEffect(() => {
     const focus = (event: Event) => {
       const message = (event as CustomEvent<HostEvent>).detail;
-      if (message.event === "focusWebview")
+      if (message.event === "focusWebview" && !message.payload.preserveFocus)
         setSelected(String(message.payload.id));
     };
     window.addEventListener("devyy-extension-event", focus);
@@ -460,7 +494,10 @@ export default function ExtensionWebviews({
   }, []);
   if (!active && placement === "main") return null;
   return (
-    <section className="extension-dock" aria-label="Extension panel">
+    <section
+      className={`extension-dock${placement === "editor" ? " extension-editor-panel" : ""}`}
+      aria-label="Extension panel"
+    >
       {placement === "main" && (
         <div className="extension-dock-header">
           <div
