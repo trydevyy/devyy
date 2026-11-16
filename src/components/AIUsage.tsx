@@ -1,3 +1,21 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import DisclosureSummary from "./ui/DisclosureSummary";
+import ModalBackdrop from "./ui/ModalBackdrop";
+import Select from "./ui/Select";
 import { useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -108,7 +126,6 @@ export default function AIUsage({
     setChecked(Date.now());
     setBusy(false);
   }
-  // Only the user-triggered refresh queries accounts; opening Usage also works offline.
   const content = (
     <div
       className={`ai-usage-dialog ${embedded ? "ai-usage-embedded" : ""}`}
@@ -130,7 +147,7 @@ export default function AIUsage({
         )}
         <strong>Usage</strong>
         <span className="ai-header-slash">/</span>
-        <select
+        <Select
           aria-label="Usage provider"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -141,7 +158,7 @@ export default function AIUsage({
               {p.name}
             </option>
           ))}
-        </select>
+        </Select>
         <div role="tablist" aria-label="Usage metrics">
           {["cost", "tokens", "limits"].map((metric) => (
             <button
@@ -233,19 +250,19 @@ export default function AIUsage({
                     ))
                   ) : (
                     <div className="ai-quota-unavailable">
-                      <strong>—</strong>
+                      <strong>Unavailable</strong>
                       <span>
                         {provider.kind === "claude"
                           ? "Remaining quota isn’t reported by Claude Code"
                           : ["chatgpt"].includes(provider.kind)
-                            ? "Refresh to check account limits"
+                            ? "Remaining plan quota isn’t reported to Devyy. View it in ChatGPT."
                             : "Account balance isn’t reported by this API"}
                       </span>
                     </div>
                   )}
                   {raw && !limits.length && (
                     <details className="ai-raw-limits">
-                      <summary>Request limits</summary>
+                      <DisclosureSummary>Request limits</DisclosureSummary>
                       <pre>{JSON.stringify(raw, null, 2)}</pre>
                     </details>
                   )}
@@ -302,6 +319,20 @@ export default function AIUsage({
                     <span>Requests</span>
                     <strong>{usage?.requests ?? 0}</strong>
                   </div>
+                  {!!usage?.cachedInputTokens && (
+                    <div>
+                      <span>Cached input (included)</span>
+                      <strong>
+                        {usage.cachedInputTokens.toLocaleString()}
+                      </strong>
+                    </div>
+                  )}
+                  {!!usage?.reasoningTokens && (
+                    <div>
+                      <span>Reasoning (included in output)</span>
+                      <strong>{usage.reasoningTokens.toLocaleString()}</strong>
+                    </div>
+                  )}
                   <div
                     className="ai-token-bar"
                     role="img"
@@ -316,20 +347,32 @@ export default function AIUsage({
                 </div>
               ) : (
                 <div className="ai-cost-card">
-                  <span>Reported usage cost</span>
+                  <span>
+                    {provider.kind === "chatgpt"
+                      ? "ChatGPT plan usage"
+                      : "Reported usage cost"}
+                  </span>
                   <strong>
-                    {usage?.costUSD !== undefined
-                      ? new Intl.NumberFormat(undefined, {
-                          style: "currency",
-                          currency: "USD",
-                          maximumFractionDigits: 4,
-                        }).format(usage.costUSD)
-                      : "—"}
+                    {provider.kind === "chatgpt"
+                      ? identity
+                        ? account?.planEnabled === false
+                          ? "Plan access off"
+                          : "Plan allowance"
+                        : "Not connected"
+                      : usage?.costUSD !== undefined
+                        ? new Intl.NumberFormat(undefined, {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 4,
+                          }).format(usage.costUSD)
+                        : "Unavailable"}
                   </strong>
                   <small>
-                    {usage?.costUSD !== undefined
-                      ? "Provider-reported cost, separate from subscription billing"
-                      : "Not reported by this provider"}
+                    {provider.kind === "chatgpt"
+                      ? "Authorized ChatGPT requests use your plan allowance. This connection does not report a dollar cost; token totals appear under Tokens."
+                      : usage?.costUSD !== undefined
+                        ? "Provider-reported cost, separate from subscription billing"
+                        : "Not reported by this provider"}
                   </small>
                 </div>
               )}
@@ -343,7 +386,7 @@ export default function AIUsage({
         })}
         {tab !== "limits" && (
           <p className="ai-usage-scope">
-            Current Devyy session
+            Recorded by Devyy on this device
             {checked
               ? ` / Checked ${new Date(checked).toLocaleTimeString()}`
               : ""}
@@ -355,14 +398,14 @@ export default function AIUsage({
   return embedded
     ? content
     : createPortal(
-        <div
+        <ModalBackdrop
           className="ai-modal-backdrop"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) onClose();
           }}
         >
           {content}
-        </div>,
+        </ModalBackdrop>,
         document.body,
       );
 }

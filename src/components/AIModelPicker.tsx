@@ -1,3 +1,23 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import {
+  effortLabel,
+  reasoningOptions,
+  supportedEffort,
+} from "../lib/aiReasoning";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -62,7 +82,13 @@ export default function AIModelPicker({
   const providers = state.providers.filter((p) => p.enabled !== false),
     provider = state.providers.find((p) => p.id === providerId),
     inspected = state.providers.find((p) => p.id === selected);
-  const current = state.models[providerId]?.find((m) => m.id === choice.model);
+  const current =
+    state.models[providerId]?.find(
+      (m) => m.id === (choice.model || provider?.model),
+    ) ??
+    (!choice.model
+      ? state.models[providerId]?.find((m) => m.isDefault)
+      : undefined);
   const display =
     current?.name && current.name !== current.id
       ? current.name
@@ -87,10 +113,29 @@ export default function AIModelPicker({
           .includes(query.toLowerCase()) &&
         (!onlyFavorites || stars.includes(`${m.provider.id}:${m.id}`)),
     );
-  const inspectedModel = state.models[selected]?.find(
-    (m) =>
-      m.id ===
-      (selected === providerId ? choice.model : state.choices[selected]?.model),
+  const reasoningOwner = onlyFavorites ? providerId : selected;
+  const inspectedChoice =
+    reasoningOwner === providerId
+      ? choice
+      : (state.choices[reasoningOwner] ?? {
+          model: inspected?.model ?? "",
+          effort: "",
+        });
+  const inspectedModel = onlyFavorites
+    ? current
+    : (state.models[selected]?.find(
+        (m) => m.id === (inspectedChoice.model || inspected?.model),
+      ) ??
+      (!inspectedChoice.model
+        ? state.models[selected]?.find((m) => m.isDefault)
+        : undefined));
+  const efforts = reasoningOptions(inspectedModel);
+  const selectedEffort = supportedEffort(
+    inspectedModel,
+    inspectedChoice.effort,
+  );
+  const activeEffort = reasoningOptions(current).find(
+    (o) => o.id === supportedEffort(current, choice.effort),
   );
   const discovery = useRef(0);
   async function refresh(force = false) {
@@ -124,8 +169,13 @@ export default function AIModelPicker({
   useEffect(() => {
     if (open) void refresh();
   }, [open, selected, onlyFavorites]);
+  useEffect(() => {
+    if (choice.effort && state.loaded && !state.models[providerId])
+      void discoverAIModels(providerId).catch(() => {});
+  }, [providerId, choice.effort, state.loaded]);
   function choose(id: string, effort = "", keepOpen = false, owner = selected) {
-    const next = { model: id, effort };
+    const model = state.models[owner]?.find((m) => m.id === id);
+    const next = { model: id, effort: supportedEffort(model, effort) };
     if (chatId && providerId !== owner) setChatProvider(chatId, owner);
     chooseAIModel(owner, next, chatId);
     onChoose(owner, next);
@@ -155,7 +205,7 @@ export default function AIModelPicker({
       >
         <AIProviderIcon kind={provider?.kind ?? "custom"} size={14} />
         <span>{display}</span>
-        {choice.effort && <small>{choice.effort}</small>}
+        {activeEffort && <small>{activeEffort.label}</small>}
         <ChevronDown size={11} />
       </button>
       <AnimatePresence>
@@ -257,6 +307,7 @@ export default function AIModelPicker({
                     !onlyFavorites &&
                     (inspected?.kind === "codex" ||
                       inspected?.kind === "claude" ||
+                      inspected?.kind === "cli" ||
                       !!inspected?.model) && (
                       <button
                         role="option"
@@ -290,9 +341,13 @@ export default function AIModelPicker({
                         onClick={() =>
                           choose(
                             model.id,
-                            model.reasoningEfforts?.includes(choice.effort)
-                              ? choice.effort
-                              : "",
+                            supportedEffort(
+                              model,
+                              model.provider.id === providerId
+                                ? choice.effort
+                                : (state.choices[model.provider.id]?.effort ??
+                                    ""),
+                            ),
                             false,
                             model.provider.id,
                           )
@@ -313,12 +368,16 @@ export default function AIModelPicker({
                               ? "GPT"
                               : model.provider.kind === "claude"
                                 ? "CC"
-                                : model.provider.kind === "openai" ||
-                                    model.provider.kind === "anthropic"
-                                  ? "API"
-                                  : model.provider.name
-                                      .slice(0, 2)
-                                      .toUpperCase()}
+                                : model.provider.kind === "antigravity"
+                                  ? "AG"
+                                  : model.provider.kind === "opencode"
+                                    ? "OC"
+                                    : model.provider.kind === "openai" ||
+                                        model.provider.kind === "anthropic"
+                                      ? "API"
+                                      : model.provider.name
+                                          .slice(0, 2)
+                                          .toUpperCase()}
                           </small>
                         </span>
                         <span>
@@ -387,31 +446,45 @@ export default function AIModelPicker({
                   </button>
                 </footer>
               </div>
-              {!onlyFavorites && !!inspectedModel?.reasoningEfforts?.length && (
+              {!!efforts.length && !!inspectedModel && (
                 <section
                   className="ai-reasoning-picker"
                   aria-label="Reasoning effort"
                 >
-                  <header>Reasoning</header>
+                  <header>
+                    {inspectedModel.reasoningLabel || "Reasoning"}
+                  </header>
                   <div role="radiogroup" aria-label="Reasoning effort">
                     <button
                       role="radio"
-                      aria-checked={!choice.effort}
-                      onClick={() => choose(inspectedModel.id, "", true)}
+                      aria-checked={!selectedEffort}
+                      onClick={() =>
+                        choose(inspectedModel.id, "", true, reasoningOwner)
+                      }
                     >
-                      Default{!choice.effort && <Check size={12} />}
+                      Default
+                      {inspectedModel.defaultEffort
+                        ? ` (${efforts.find((o) => o.id === inspectedModel.defaultEffort)?.label ?? effortLabel(inspectedModel.defaultEffort)})`
+                        : ""}
+                      {!selectedEffort && <Check size={12} />}
                     </button>
-                    {inspectedModel.reasoningEfforts.map((effort) => (
+                    {efforts.map((effort) => (
                       <button
-                        key={effort}
+                        key={effort.id}
                         role="radio"
-                        aria-checked={choice.effort === effort}
-                        onClick={() => choose(inspectedModel.id, effort, true)}
+                        aria-checked={selectedEffort === effort.id}
+                        title={effort.description}
+                        onClick={() =>
+                          choose(
+                            inspectedModel.id,
+                            effort.id,
+                            true,
+                            reasoningOwner,
+                          )
+                        }
                       >
-                        {effort === "xhigh"
-                          ? "Extra high"
-                          : effort.charAt(0).toUpperCase() + effort.slice(1)}
-                        {choice.effort === effort && <Check size={12} />}
+                        {effort.label}
+                        {selectedEffort === effort.id && <Check size={12} />}
                       </button>
                     ))}
                   </div>
