@@ -1,3 +1,19 @@
+// Copyright (C) 2026 Devyy contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import { chooseOption } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 async function fixture(
@@ -41,8 +57,28 @@ async function fixture(
           executable: "",
           hasKey: false,
         },
+        {
+          id: "antigravity",
+          name: "Antigravity",
+          kind: "antigravity",
+          endpoint: "",
+          model: "gemini-3.8-flash-high",
+          executable: "",
+          hasKey: false,
+        },
+        {
+          id: "opencode",
+          name: "OpenCode",
+          kind: "opencode",
+          endpoint: "",
+          model: "claude-3-7-sonnet",
+          executable: "",
+          hasKey: false,
+        },
       ];
       let runtimeInstalled = !missingRuntime;
+      let workspaceAccess = "attached";
+      let defaultRust = false;
       let accountIndex = 0,
         chatgptConnected = false;
       const savedAccounts: {
@@ -61,6 +97,44 @@ async function fixture(
         isTauri: true,
         aiFixture: {
           calls,
+          agent() {
+            emit("devyy-ai", {
+              requestId,
+              kind: "tool",
+              data: {
+                id: "read-1",
+                name: "read_file",
+                path: "src/main.rs",
+                status: "complete",
+              },
+            });
+            emit("devyy-ai", {
+              requestId,
+              kind: "proposal",
+              data: {
+                id: "edit-main",
+                path: "src/main.rs",
+                original: "fn main() {}\n",
+                modified: 'fn main() { println!("agent edit"); }\n',
+                workspace: "/fixture",
+                create: false,
+                status: "pending",
+              },
+            });
+            emit("devyy-ai", {
+              requestId,
+              kind: "proposal",
+              data: {
+                id: "create-file",
+                path: "src/new.rs",
+                original: "",
+                modified: "pub fn proposed() {}\n",
+                workspace: "/fixture",
+                create: true,
+                status: "pending",
+              },
+            });
+          },
           terminal(text: string) {
             for (let id = 101; id <= terminalSerial; id++)
               emit("terminal-output", {
@@ -138,11 +212,57 @@ async function fixture(
             }
             if (command === "set_appearance") return { material: "solid" };
             if (command === "plugin:dialog|open") return "/fixture";
-            if (command === "open_workspace")
+            if (command === "take_open_targets") return [];
+            if (command === "ai_workspace_access") {
+              if (typeof args.mode === "string") {
+                workspaceAccess = args.mode;
+                if (resolveChat) {
+                  emit("devyy-ai", {
+                    requestId,
+                    kind: "cancelled",
+                    data: null,
+                  });
+                  resolveChat();
+                  resolveChat = undefined;
+                }
+              }
+              return workspaceAccess;
+            }
+            if (command === "default_app_status")
+              return [
+                {
+                  extension: "rs",
+                  mime: "text/x-rust",
+                  handler: defaultRust ? "xyz.devyy.editor" : "other.editor",
+                  isDefault: defaultRust,
+                },
+              ];
+            if (command === "set_default_app") {
+              defaultRust = true;
+              return { changed: true, openedSettings: false };
+            }
+            if (command === "detect_ide_settings")
+              return [
+                {
+                  id: "vscode",
+                  name: "Visual Studio Code",
+                  path: "/Code/User/settings.json",
+                  kind: "vscode",
+                },
+                {
+                  id: "cursor",
+                  name: "Cursor",
+                  path: "/Cursor/User/settings.json",
+                  kind: "vscode",
+                },
+              ];
+            if (command === "write_file") return "2";
+            if (command === "open_workspace" || command === "refresh_workspace")
               return {
                 root: "/fixture",
                 name: "fixture",
                 files: [
+                  { path: "src", name: "src", directory: true },
                   { path: "src/main.rs", name: "main.rs", directory: false },
                   { path: "src/lib.rs", name: "lib.rs", directory: false },
                 ],
@@ -329,13 +449,14 @@ async function fixture(
     },
     { extension, oauth, missingRuntime },
   );
-  await page.goto("/");
+  await page.goto("/?playground=1");
 }
 async function control(
   page: Page,
   action:
     | "delta"
     | "reasoning"
+    | "agent"
     | "finish"
     | "usage"
     | "extension"
@@ -361,6 +482,39 @@ async function start(page: Page) {
     page.getByRole("textbox", { name: "Message Devyy AI" }),
   ).toBeVisible();
 }
+test("native startup shows home and opens real projects with a compact AI gutter", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/");
+  await expect(page.locator(".welcome")).toBeVisible();
+  await expect(page.locator(".sidebar")).not.toBeVisible();
+  await expect(page.locator(".bottom-panel")).not.toBeVisible();
+  await expect(page.locator(".editor-document")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: /Open a project/ })
+    .last()
+    .click();
+  await expect(page.locator(".sidebar")).toBeVisible();
+  await expect(
+    page.locator(".editor-document.visible .cm-content"),
+  ).toContainText("fn main()");
+  await start(page);
+  await expect.poll(async () =>
+    page
+      .locator(".ai-workspace")
+      .evaluate((element) => getComputedStyle(element).paddingLeft),
+  ).toBe("8px");
+  const handle = page.getByRole("separator", {
+    name: "Resize AI sidebar",
+    exact: true,
+  });
+  expect((await handle.boundingBox())!.width).toBe(8);
+  const editor = (await page.locator(".editor-surface").boundingBox())!;
+  const composer = (await page.locator(".ai-composer").boundingBox())!;
+  expect(composer.x - editor.x - editor.width).toBeLessThanOrEqual(14);
+});
+
 test("streams native chat, attaches explicit file context, reviews changes, and preserves conversations", async ({
   page,
 }) => {
@@ -472,7 +626,7 @@ test("provider settings save keys through native IPC, discover models, and show 
   await expect(card.getByText("Provider saved", { exact: true })).toBeVisible();
   await expect(card.getByLabel("API key", { exact: true })).toHaveValue("");
   await card
-    .getByRole("button", { name: "Discover models", exact: true })
+    .getByRole("button", { name: "Refresh models", exact: true })
     .click();
   await expect(card.getByText("2 models available")).toBeVisible();
   await page.getByRole("tab", { name: /^ChatGPT/ }).click();
@@ -531,7 +685,7 @@ test("opens Codex extension views in the same right workspace and keeps the file
 test("AI shortcut focuses the composer and sidebar resizing uses its left edge", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?playground=1");
   await expect(
     page.getByRole("button", { name: "Toggle AI workspace", exact: true }),
   ).toBeVisible();
@@ -695,7 +849,14 @@ test("context picker combines files, problems, selection, output, and device tex
     const label = element.querySelector("strong")!.getBoundingClientRect();
     return { width: icon.width, gap: label.x - icon.right };
   });
-  expect(Math.round(spacing.width)).toBe(18);
+  await expect
+    .poll(() =>
+      file
+        .locator(".material-file-icon")
+        .first()
+        .evaluate((el) => Math.round(el.getBoundingClientRect().width)),
+    )
+    .toBe(18);
   expect(spacing.gap).toBeLessThanOrEqual(12);
   await file.click();
   await picker.getByRole("checkbox", { name: /^Problems/ }).click();
@@ -800,7 +961,6 @@ test("terminal splits drag both fresh output buffers into chat without closing e
     .toBeGreaterThanOrEqual(2);
   await control(page, "terminal", "Build output");
   await start(page);
-  // xterm's selection bridge observes its parsed buffer, after the write queue drains.
   await expect(page.locator(".xterm-screen")).toHaveCount(2);
   await page
     .getByRole("button", { name: "Separate terminal group", exact: true })
@@ -879,9 +1039,7 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     );
   await page.screenshot({ path: "artifacts/devyy-ai-usage.png" });
   await page.getByRole("tab", { name: "cost", exact: true }).click();
-  await expect(
-    page.getByText("Not reported by this provider", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Plan allowance", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "tokens", exact: true }).click();
   await expect(page.getByText("Requests", { exact: true })).toBeVisible();
 });
@@ -1021,7 +1179,7 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
   await expect(
     provider.locator(".ai-connection-card").getByText("person1@example.test"),
   ).toBeVisible();
-  await provider.getByLabel("Saved accounts").selectOption("oaiapp_fixture_0");
+  await chooseOption(provider.getByLabel("Saved accounts"), "oaiapp_fixture_0");
   await expect(
     provider.locator(".ai-connection-card").getByText("person0@example.test"),
   ).toBeVisible();
@@ -1090,7 +1248,7 @@ test("header toggles the AI workspace and provider Usage navigates within Settin
     "border-bottom-width",
     "0px",
   );
-  await expect(page.locator(".ai-workspace")).toHaveCSS("padding-left", "32px");
+  await expect(page.locator(".ai-workspace")).toHaveCSS("padding-left", "8px");
   await page
     .getByRole("button", { name: "AI provider settings", exact: true })
     .click();
@@ -1138,10 +1296,12 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   ).toBeVisible();
   await control(page, "reasoning", "Checking the attached constraints. ");
   await control(page, "reasoning", "Comparing the available approaches.");
-  const thinking = page.locator(".ai-reasoning");
+  const thinking = page.locator(".ai-thoughts");
   await expect(thinking).toHaveCount(1);
-  await expect(thinking).not.toHaveAttribute("open");
-  await thinking.locator("summary").click();
+  await expect(
+    thinking.getByRole("button", { name: "Thinking summary" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await thinking.getByRole("button", { name: "Thinking summary" }).click();
   await expect(thinking).toContainText(
     "Checking the attached constraints. Comparing the available approaches.",
   );
@@ -1150,7 +1310,9 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   ).not.toContainText("Comparing the available approaches.");
   await control(page, "delta", "Here is the answer.");
   await control(page, "finish");
-  await expect(thinking.locator("summary")).toHaveText("Thinking summary");
+  await expect(
+    thinking.getByRole("button", { name: "Thinking summary" }),
+  ).toHaveText("Thoughts");
   await expect
     .poll(() =>
       page.evaluate(
@@ -1164,6 +1326,28 @@ test("thinking summaries stream separately, collapse, and persist with the reply
       "Checking the attached constraints. Comparing the available approaches.",
     );
   await page.screenshot({ path: "artifacts/devyy-ai-thinking.png" });
+});
+
+test("streaming preserves mounted code blocks while appending the answer", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Show a short example");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toBeVisible();
+  await control(page, "delta", "```rust\nfn main() {}\n```\n\n");
+  const block = page.locator(".ai-code-block").first();
+  await expect(block).toContainText("fn main()");
+  await block.evaluate((node) => node.setAttribute("data-mounted", "original"));
+  await control(page, "delta", "This example has no side effects.");
+  await expect(page.locator(".ai-markdown")).toContainText("no side effects");
+  await expect(block).toHaveAttribute("data-mounted", "original");
+  await control(page, "finish");
 });
 
 test("missing Claude runtime installs through Devyy before sign-in", async ({
@@ -1364,4 +1548,499 @@ test("reduced motion keeps settings navigation immediate and returns keyboard fo
   await expect(detail).toBeVisible();
   await expect(usage).toBeFocused();
   await expect(page.getByRole("dialog", { name: "Preferences" })).toBeVisible();
+});
+
+test("workspace access requires consent and agent proposals are reviewed before edits or saves", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.keyboard.press(`${mod}+o`);
+  await expect(page.locator(".code-editor .cm-content:visible")).toContainText(
+    "fn main()",
+  );
+  await start(page);
+  const access = page.getByRole("combobox", { name: "Agent workspace access" });
+  await expect(access).toHaveAttribute("data-value", "attached");
+  await chooseOption(access, "full");
+  const consent = page.getByRole("dialog", {
+    name: "Workspace access",
+    exact: true,
+  });
+  await expect(consent).toContainText("including ignored files");
+  await consent.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(access).toHaveAttribute("data-value", "attached");
+  await chooseOption(access, "full");
+  await consent
+    .getByRole("button", { name: "Allow full workspace access", exact: true })
+    .click();
+  await expect(access).toHaveAttribute("data-value", "full");
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Inspect the workspace and propose a focused edit");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toBeVisible();
+  await control(page, "agent");
+  await control(
+    page,
+    "delta",
+    "I inspected main.rs and staged two proposals for review.",
+  );
+  await control(page, "finish");
+  await page.screenshot({ path: "artifacts/devyy-ai-agent.png" });
+  const proposal = page
+    .locator(".ai-proposal")
+    .filter({ hasText: "src/main.rs" });
+  await expect(
+    page.getByRole("button", { name: "Apply to editor", exact: true }),
+  ).toBeVisible();
+  await proposal.getByRole("button", { name: "Review diff" }).click();
+  await page
+    .getByRole("button", { name: "Apply to editor", exact: true })
+    .click();
+  await expect(page.locator(".code-editor .cm-content:visible")).toContainText(
+    "agent edit",
+  );
+  const created = page
+    .locator(".ai-proposal")
+    .filter({ hasText: "src/new.rs" });
+  await created.getByRole("button", { name: "Review diff" }).click();
+  await page
+    .getByRole("button", { name: "Apply to editor", exact: true })
+    .click();
+  await expect(page.locator(".code-editor .cm-content:visible")).toContainText(
+    "pub fn proposed()",
+  );
+  let calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          aiFixture: {
+            calls: { command: string; args: Record<string, unknown> }[];
+          };
+        }
+      ).aiFixture.calls,
+  );
+  expect(
+    calls.some((c) => ["write_file", "create_file"].includes(c.command)),
+  ).toBe(false);
+  await page.keyboard.press(`${mod}+s`);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            aiFixture: {
+              calls: { command: string; args: Record<string, unknown> }[];
+            };
+          }
+        ).aiFixture.calls.some(
+          (c) =>
+            c.command === "write_file" &&
+            c.args.path === "src/new.rs" &&
+            c.args.expected === "devyy:new",
+        ),
+      ),
+    )
+    .toBe(true);
+  await chooseOption(access, "attached");
+  await expect(access).toHaveAttribute("data-value", "attached");
+});
+
+test("workspace shell and first document appear while indexing and services remain pending", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (command, args) =>
+      ["lsp_stop", "debug_stop", "refresh_workspace"].includes(command)
+        ? new Promise(() => {})
+        : invoke(command, args);
+  });
+  await page.keyboard.press(`${mod}+o`);
+  await expect(page.locator(".code-editor .cm-content")).toContainText(
+    "fn main()",
+    { timeout: 4000 },
+  );
+  await expect(page.locator(".opening-indicator")).toHaveCount(0);
+  const content = page.locator(".code-editor .cm-content");
+  await expect(page.locator(".devyy")).toHaveAttribute("aria-busy", "false");
+  await expect(content).not.toHaveAttribute("aria-readonly", "true");
+  await content.click();
+  await page.keyboard.press(`${mod}+End`);
+  await page.keyboard.insertText("\n// editing before services finish");
+  await expect(content).toContainText("editing before services finish");
+  await page
+    .getByRole("button", { name: "lib.rs", exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole("tab", { name: /lib.rs/ }).first()).toBeVisible();
+});
+
+test("default-app settings use native associations and imported editors show their marks", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Default applications", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Use Devyy", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Default", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("tab", { name: "Setup & import", exact: true }).click();
+  const icons = page.locator(".import-sources .ide-import-icon");
+  await expect(icons).toHaveCount(2);
+  expect(
+    await icons.evaluateAll((images) =>
+      images.every(
+        (img) =>
+          (img as HTMLImageElement).complete &&
+          (img as HTMLImageElement).naturalWidth > 0,
+      ),
+    ),
+  ).toBe(true);
+});
+
+test("Antigravity and OpenCode providers display real logos, models, and CLI notices", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^Antigravity/ }).click();
+  const agDetail = page.getByRole("region", {
+    name: "Antigravity",
+    exact: true,
+  });
+  await expect(agDetail).toBeVisible();
+  await expect(
+    agDetail.getByRole("button", { name: "Sign in with Google", exact: true }),
+  ).toBeVisible();
+  const agIcon = agDetail.locator('img[src="/providers/antigravity.png"]');
+  await expect(agIcon.first()).toBeVisible();
+  await agDetail
+    .getByRole("button", { name: "Refresh models", exact: true })
+    .click();
+  await expect(agDetail.getByLabel("Model", { exact: true })).toHaveValue(
+    "fixture-model",
+  );
+
+  await page.getByRole("tab", { name: /^OpenCode/ }).click();
+  const ocDetail = page.getByRole("region", {
+    name: "OpenCode",
+    exact: true,
+  });
+  await expect(ocDetail).toBeVisible();
+  await expect(
+    ocDetail.getByRole("button", { name: "Connect an account", exact: true }),
+  ).toBeVisible();
+  const ocIcon = ocDetail.locator('img[src="/providers/opencode.png"]');
+  await expect(ocIcon.first()).toBeVisible();
+  await ocDetail
+    .getByRole("button", { name: "Refresh models", exact: true })
+    .click();
+  await expect(ocDetail.getByLabel("Model", { exact: true })).toHaveValue(
+    "fixture-model",
+  );
+});
+
+test("Google and OpenCode sign-in open provider-owned sessions and clean up on close", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  for (const [name, label, expectedArgs] of [
+    ["Antigravity", "Sign in with Google", ["acp", "--login"]],
+    ["OpenCode", "Connect an account", ["auth", "login"]],
+  ] as const) {
+    await page.getByRole("tab", { name: new RegExp("^" + name) }).click();
+    const detail = page.getByRole("region", { name, exact: true });
+    await detail.getByRole("button", { name: label, exact: true }).click();
+    await expect(
+      detail.getByRole("region", { name: name + " sign-in" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as any).aiFixture.calls
+              .filter((c: any) => c.command === "terminal_create")
+              .at(-1)?.args.options,
+        ),
+      )
+      .toMatchObject({ shellPath: "/fixture/cli", shellArgs: expectedArgs });
+    await detail
+      .getByRole("button", { name: "Close sign-in session", exact: true })
+      .click();
+    await expect(
+      detail.getByRole("region", { name: name + " sign-in" }),
+    ).toHaveCount(0);
+  }
+});
+
+test("model and access controls share a row", async ({ page }) => {
+  await fixture(page);
+  await start(page);
+  const controls = page.locator(".ai-chat-controls");
+  await expect(controls).toBeVisible();
+  const model = await controls.locator(".ai-model-control").boundingBox();
+  const access = await controls.locator(".ai-access-control").boundingBox();
+  expect(
+    Math.abs(model!.y + model!.height / 2 - (access!.y + access!.height / 2)),
+  ).toBeLessThan(4);
+});
+
+test("reasoning follows model capabilities and preserves provider-specific option names", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (command: string, args: any) =>
+      command === "ai_models"
+        ? Promise.resolve([
+            {
+              id: "adaptive",
+              name: "Adaptive model",
+              reasoningLabel: "Thinking",
+              defaultEffort: "adaptive",
+              reasoningOptions: [
+                { id: "adaptive", label: "Automatic" },
+                { id: "budget_8k", label: "Extended thinking" },
+              ],
+            },
+            { id: "simple", name: "Simple model" },
+          ])
+        : invoke(command, args);
+  });
+  await start(page);
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await page.getByRole("option", { name: /^Adaptive model/ }).click();
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await expect(
+    page.getByRole("radio", { name: "Default (Automatic)", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("radio", { name: "High", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("radio", { name: "Extended thinking", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Choose AI model" }),
+  ).toContainText("Extended thinking");
+  await page
+    .getByRole("button", { name: "Favorite Adaptive model", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Favorite models", exact: true })
+    .click();
+  await expect(
+    page.getByRole("radio", { name: "Extended thinking", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await page
+    .getByRole("button", { name: "Models from Local test model", exact: true })
+    .click();
+  await page.getByRole("option", { name: /^Simple model/ }).click();
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await expect(
+    page.getByRole("radiogroup", { name: "Reasoning effort" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Choose AI model" }),
+  ).not.toContainText("Extended thinking");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Use simple model");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).aiFixture.calls.find(
+            (c: any) => c.command === "ai_chat",
+          )?.args.request,
+      ),
+    )
+    .toMatchObject({ model: "simple", effort: null });
+});
+
+test("live answers reveal new words without remounting existing text or changing code blocks", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Explain streaming");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toBeVisible();
+  await control(page, "delta", "Hello **streaming**");
+  await expect(page.locator(".ai-markdown").last()).toContainText(
+    "Hello streaming",
+  );
+  const firstWord = await page
+    .locator(".ai-stream-word")
+    .first()
+    .elementHandle();
+  await control(page, "delta", " world.\n\n```rust\nfn main() {}\n```\n");
+  await expect(page.locator(".ai-code-block code")).toHaveText("fn main() {}");
+  expect(await firstWord!.evaluate((el) => el.isConnected)).toBe(true);
+  await expect(page.locator(".ai-code-block .ai-stream-word")).toHaveCount(0);
+  await control(page, "finish");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toHaveCount(0);
+});
+
+test("right-click problems in problems tab explains or fixes with Devyy AI", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.keyboard.press(`${mod}+o`);
+  await start(page);
+  await control(page, "problems");
+  const tab = page.getByRole("tab", { name: /^problems/i });
+  await tab.click();
+  const problem = page.locator(".problems-list button").first();
+  await expect(problem).toBeVisible();
+  await problem.click({ button: "right" });
+  const explain = page.getByRole("menuitem", { name: "Explain with Devyy AI" });
+  await expect(explain).toBeVisible();
+  const fix = page.getByRole("menuitem", { name: "Fix with Devyy AI" });
+  await expect(fix).toBeVisible();
+  await explain.click();
+  await expect(
+    page.getByRole("textbox", { name: "Message Devyy AI" }),
+  ).toHaveValue(/Explain this diagnostic/);
+  await expect(page.locator(".ai-attachment-chip")).toBeVisible();
+});
+
+test("composer supports Cmd+A select all and message queuing while running", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  const composer = page.getByRole("textbox", { name: "Message Devyy AI" });
+  await composer.fill("Initial long query for the agent");
+  await composer.press(`${mod}+a`);
+  const selectionLen = await composer.evaluate(
+    (el: HTMLTextAreaElement) => el.selectionEnd - el.selectionStart,
+  );
+  expect(selectionLen).toBe("Initial long query for the agent".length);
+
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Stop AI response" }),
+  ).toBeVisible();
+
+  await composer.fill("Queued second prompt");
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator(".ai-queued-messages")).toBeVisible();
+  await expect(page.locator(".ai-queued-text")).toHaveText(
+    "Queued second prompt",
+  );
+
+  await control(page, "delta", "First reply done");
+  await control(page, "finish");
+
+  await expect(page.locator(".ai-queued-messages")).toHaveCount(0);
+});
+
+test("changing a provider default updates conversations that still use the old default", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  const provider = page.getByRole("region", {
+    name: "Local test model",
+    exact: true,
+  });
+  await provider.getByLabel("Model", { exact: true }).fill("another-model");
+  await provider
+    .getByRole("button", { name: "Save provider", exact: true })
+    .click();
+  await expect(
+    provider.getByText("Provider saved", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Close preferences", exact: true })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Message Devyy AI" })
+    .fill("Use the configured default");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).aiFixture.calls
+            .filter((c: any) => c.command === "ai_chat")
+            .at(-1)?.args.request.model,
+      ),
+    )
+    .toBe("another-model");
+});
+
+test("composer input box has corner drag thumb and dropping context keeps AI workspace open", async ({
+  page,
+}) => {
+  await fixture(page);
+  await start(page);
+  const cornerThumb = page.locator(".ai-composer-corner-thumb");
+  await expect(cornerThumb).toBeVisible();
+  await expect(cornerThumb.locator("path")).toHaveAttribute(
+    "stroke-linecap",
+    "round",
+  );
+  const composerBox = page.getByRole("textbox", { name: "Message Devyy AI" });
+  const initialHeight = await composerBox.evaluate(
+    (el) => el.getBoundingClientRect().height,
+  );
+  expect(initialHeight).toBeLessThanOrEqual(55);
+
+  await page.keyboard.press(`${mod}+o`);
+  await control(page, "problems");
+  const tab = page.getByRole("tab", { name: /^problems/i });
+  await tab.click();
+  const diagnostic = page
+    .locator(".problems-list")
+    .getByRole("button", { name: /Fixture type mismatch/ });
+  await expect(diagnostic).toBeVisible();
+
+  await diagnostic.dragTo(
+    page.getByRole("textbox", { name: "Message Devyy AI" }),
+  );
+
+  await expect(page.locator(".ai-workspace")).not.toHaveClass(/ai-workspace-hidden/);
+  await expect(page.locator(".ai-attachment-chip")).toContainText(
+    "Problem: main.rs",
+  );
 });
