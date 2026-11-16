@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+payload/
+*.tsbuildinfo
+.dmg-tools/
+public/third-party-licenses.json
