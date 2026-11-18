@@ -215,6 +215,50 @@ export default forwardRef<
           callback.current.onError,
         );
     });
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type === "keydown") {
+        const isPaste =
+          ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") ||
+          (event.shiftKey && event.key === "Insert");
+        if (isPaste) {
+          event.preventDefault();
+          void navigator.clipboard
+            .readText()
+            .then((text) => {
+              if (text) {
+                term.paste(text);
+              }
+            })
+            .catch(callback.current.onError);
+          return false;
+        }
+
+        const isCopy =
+          (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") ||
+          ((event.ctrlKey || event.metaKey) &&
+            event.key.toLowerCase() === "c" &&
+            term.hasSelection());
+        if (isCopy) {
+          const text = term.getSelection();
+          if (text) {
+            event.preventDefault();
+            void navigator.clipboard
+              .writeText(text)
+              .catch(callback.current.onError);
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+    const handlePaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text");
+      if (text) {
+        e.preventDefault();
+        term.paste(text);
+      }
+    };
+    host.current.addEventListener("paste", handlePaste);
     const selection = term.onSelectionChange(() => {
       const text = term.getSelection();
       if (copySelection.current && text)
@@ -250,6 +294,7 @@ export default forwardRef<
       cancelAnimationFrame(frame);
       drainListeners();
       observer.disconnect();
+      host.current?.removeEventListener("paste", handlePaste);
       requestFit.current = () => {};
       input.dispose();
       selection.dispose();

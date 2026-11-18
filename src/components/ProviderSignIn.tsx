@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useMemo, useState } from "react";
-import { ExternalLink } from "lucide-react";
-import Terminal from "./Terminal";
+import { useMemo, useRef, useState } from "react";
+import { Clipboard, ExternalLink } from "lucide-react";
+import Terminal, { type TerminalHandle } from "./Terminal";
 import type { AIProvider } from "../lib/ai";
 
 export default function ProviderSignIn({
@@ -32,6 +32,7 @@ export default function ProviderSignIn({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [exited, setExited] = useState(false);
+  const terminalRef = useRef<TerminalHandle>(null);
   const google = provider.kind === "antigravity";
   const options = useMemo(
     () => ({
@@ -41,6 +42,19 @@ export default function ProviderSignIn({
     }),
     [executable, google, provider.name],
   );
+
+  const pasteClipboard = () => {
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (text) {
+          terminalRef.current?.paste(text);
+          terminalRef.current?.focus();
+        }
+      })
+      .catch((err) => setError(String(err)));
+  };
+
   return (
     <div className="provider-sign-in">
       <div className="ai-provider-account-row">
@@ -70,13 +84,32 @@ export default function ProviderSignIn({
           className="provider-sign-in-session"
           aria-label={`${provider.name} sign-in`}
         >
-          <p>
-            {exited
-              ? "Sign-in session closed. Refresh models to check the connection."
-              : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
-          </p>
-          <div className="provider-sign-in-terminal">
+          <div className="provider-sign-in-header">
+            <p>
+              {exited
+                ? "Sign-in session closed. Refresh models to check the connection."
+                : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
+            </p>
+            {!exited && (
+              <button
+                type="button"
+                className="setting-action provider-sign-in-paste"
+                onClick={pasteClipboard}
+                title="Paste from clipboard (Ctrl+V / right click)"
+              >
+                <Clipboard size={12} /> Paste
+              </button>
+            )}
+          </div>
+          <div
+            className="provider-sign-in-terminal"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              pasteClipboard();
+            }}
+          >
             <Terminal
+              ref={terminalRef}
               root="provider-sign-in"
               extensionOptions={options}
               profile=""

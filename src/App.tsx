@@ -55,6 +55,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowUpRight,
   Asterisk,
+  Blocks,
   Copy,
   Eye,
   Columns2,
@@ -77,6 +78,7 @@ import {
   PanelLeft,
   PanelsTopLeft,
   Play,
+  Radio,
   Search,
   Settings2,
   SplitSquareHorizontal,
@@ -87,6 +89,8 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
+import PortsPanel from "./components/PortsPanel";
 import { useAppearance } from "./lib/appearance";
 import type { GitBranchAction, GitSubmoduleAction } from "./lib/git";
 import SourceControl from "./components/SourceControl";
@@ -344,9 +348,10 @@ export default function App() {
   const [section, setSection] = useState<Section>("files"),
     [sidebar, setSidebar] = useState(playground),
     [panel, setPanel] = useState(playground),
-    [panelTab, setPanelTab] = useState<"terminal" | "problems" | "output">(
-      "terminal",
-    );
+    [panelTab, setPanelTab] = useState<
+      "terminal" | "problems" | "output" | "ports"
+    >("terminal"),
+    [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [fileSplits, setFileSplits] = useState<SplitGroup<string>[]>([]);
   const fileSplit = fileSplits.find(
     (group) =>
@@ -2095,6 +2100,30 @@ export default function App() {
             uri: fileUri(root.replace(/[\\/]$/, "") + "/" + path),
             text: target.content,
           }).catch(() => {});
+          // Sync saved changes back to remote SSH server if running in a remote workspace
+          void (async () => {
+            try {
+              const metaDoc = await invoke<{ content: string; modified: string }>("read_file", {
+                path: ".devyy-remote.json",
+              });
+              if (metaDoc && metaDoc.content) {
+                const meta = JSON.parse(metaDoc.content);
+                if (meta.host && meta.user) {
+                  await invoke("ssh_sync_file", {
+                    host: meta.host,
+                    user: meta.user,
+                    sshPort: meta.sshPort || 22,
+                    remotePath: meta.remotePath || "/root",
+                    localFile: root.replace(/[\\/]$/, "") + "/" + path,
+                    relativePath: path,
+                    password: meta.password || null,
+                  });
+                }
+              }
+            } catch {
+              // Not a remote workspace or sync error
+            }
+          })();
         }
         if (root === wsRef.current.root) {
           setTabs((old) =>
@@ -4059,10 +4088,10 @@ export default function App() {
     { id: "search" as const, icon: Search, label: "Search" },
     { id: "git" as const, icon: GitBranch, label: "Source control" },
     { id: "run" as const, icon: Play, label: "Run & build" },
-    { id: "remote" as const, icon: PanelsTopLeft, label: "Remote Explorer" },
+    { id: "remote" as const, icon: Radio, label: "Remote Explorer" },
     {
       id: "tools" as const,
-      icon: PanelsTopLeft,
+      icon: Blocks,
       label: "Extensions & languages",
     },
   ];
@@ -4370,48 +4399,74 @@ export default function App() {
             <span>devyy</span>
           </button>
           <span className="title-divider" />
-          <button
-            className="project-title"
-            aria-label="Choose workspace"
-            aria-haspopup="menu"
-            onClick={(event) =>
-              openMenu(
-                {
-                  ...event,
-                  clientX: 0,
-                  clientY: 0,
-                  currentTarget: event.currentTarget,
-                  preventDefault: () => event.preventDefault(),
-                  stopPropagation: () => event.stopPropagation(),
-                },
-                [
-                  ...recent.slice(0, 8).map((path) => ({
-                    label: path.split(/[\\/]/).pop() || path,
-                    description: path,
-                    checked: workspace.root === path,
-                    action: () => {
-                      void openFolder(path);
-                    },
-                  })),
-                  {
-                    label: "Open another folder…",
-                    separator: recent.length > 0,
-                    action: () => {
-                      void openFolder();
-                    },
-                  },
-                ],
-              )
-            }
+          <Popover.Root
+            open={workspaceMenuOpen}
+            onOpenChange={setWorkspaceMenuOpen}
           >
-            {workspace.root === "demo" && !playground ? (
-              <FolderOpen size={14} />
-            ) : (
-              <ProjectBadge name={workspace.name} logo={workspace.logo} />
-            )}
-            {workspace.name}
-            <ChevronsUpDown size={12} />
-          </button>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                className="project-title"
+                aria-label="Choose workspace"
+                aria-haspopup="menu"
+                aria-expanded={workspaceMenuOpen}
+              >
+                {workspace.root === "demo" && !playground ? (
+                  <FolderOpen size={14} />
+                ) : (
+                  <ProjectBadge name={workspace.name} logo={workspace.logo} />
+                )}
+                <span>{workspace.name}</span>
+                <ChevronsUpDown size={12} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                className="header-popover-content"
+                side="bottom"
+                align="start"
+                sideOffset={6}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
+                {recent.slice(0, 8).map((path) => (
+                  <button
+                    key={path}
+                    type="button"
+                    className="header-menu-item"
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false);
+                      void openFolder(path);
+                    }}
+                  >
+                    <span className="header-menu-check-slot">
+                      {workspace.root === path && (
+                        <Check size={13} className="header-menu-checked" />
+                      )}
+                    </span>
+                    <span className="header-menu-item-label">
+                      {path.split(/[\\/]/).pop() || path}
+                      <small className="header-menu-description">{path}</small>
+                    </span>
+                  </button>
+                ))}
+                {recent.length > 0 && <div className="header-menu-separator" />}
+                <button
+                  type="button"
+                  className="header-menu-item"
+                  onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    void openFolder();
+                  }}
+                >
+                  <span className="header-menu-check-slot" />
+                  <span className="header-menu-item-label">
+                    Open another folder…
+                  </span>
+                </button>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+          <span className="title-divider" />
           <DesktopMenuBar
             onMenu={openMenu}
             menus={[
@@ -4911,7 +4966,17 @@ export default function App() {
               )}
             </div>
           )}
-          {section === "remote" && <div className="sidebar-content"><RemoteExplorer onAccount={()=>{setSettingsPage("account");setSettingsOpen(true);}}/></div>}
+          {section === "remote" && (
+            <div className="sidebar-content">
+              <RemoteExplorer
+                onAccount={() => {
+                  setSettingsPage("account");
+                  setSettingsOpen(true);
+                }}
+                onOpenFolder={(path) => void openFolder(path)}
+              />
+            </div>
+          )}
           {section === "git" && !!git && (
             <div className="sidebar-content">
               {workspace.root === "demo" && !playground ? (
@@ -5505,7 +5570,7 @@ export default function App() {
                   role="tablist"
                   aria-label="Developer views"
                 >
-                  {(["terminal", "problems", "output"] as const).map((name) => (
+                  {(["terminal", "problems", "output", "ports"] as const).map((name) => (
                     <button
                       key={name}
                       className={panelTab === name ? "active" : ""}
@@ -5521,17 +5586,18 @@ export default function App() {
                             "terminal",
                             "problems",
                             "output",
+                            "ports",
                           ] as const,
                           index = names.indexOf(name);
                         const next =
                           e.key === "ArrowRight"
-                            ? (index + 1) % 3
+                            ? (index + 1) % names.length
                             : e.key === "ArrowLeft"
-                              ? (index + 2) % 3
+                              ? (index + names.length - 1) % names.length
                               : e.key === "Home"
                                 ? 0
                                 : e.key === "End"
-                                  ? 2
+                                  ? names.length - 1
                                   : -1;
                         if (next < 0) return;
                         e.preventDefault();
@@ -5559,6 +5625,8 @@ export default function App() {
                         <TerminalSquare size={13} />
                       ) : name === "problems" ? (
                         <CircleAlert size={13} />
+                      ) : name === "ports" ? (
+                        <Radio size={13} />
                       ) : (
                         <Code2 size={13} />
                       )}
@@ -5856,6 +5924,19 @@ export default function App() {
                     {formattedOutputText || "Output is clear."}
                   </pre>
                 </div>
+              </div>
+              <div
+                className={`panel-view ${panelTab === "ports" ? "visible" : ""}`}
+                id="panel-ports"
+                role="tabpanel"
+                aria-labelledby="panel-tab-ports"
+              >
+                <PortsPanel
+                  onOpenAccount={() => {
+                    setSettingsPage("account");
+                    setSettingsOpen(true);
+                  }}
+                />
               </div>
             </section>
             {settings.showStatusbar && (
