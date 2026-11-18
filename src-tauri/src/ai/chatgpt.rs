@@ -464,11 +464,7 @@ async fn callback(listener: &TcpListener, attempt: &Attempt) -> Result<(String, 
                         == vec![("state".into(), attempt.state.as_str().into())]
                 });
         let nonce = uuid::Uuid::new_v4().simple().to_string();
-        let body = include_str!("auth-result.html")
-            .replace("__TITLE__", if result.is_ok() { "Authorization received" } else { "Let’s try that again" })
-            .replace("__MESSAGE__", if result.is_ok() { "Your browser has securely sent authorization to Devyy. Return to the app to finish connecting your ChatGPT account." } else { "Authorization couldn’t be completed. Return to Devyy to start a new sign-in." })
-            .replace("__ICON__", if result.is_ok() { "m5 12 4 4L19 6" } else { "M12 5v8m0 5h.01" })
-            .replace("__NONCE__", &nonce);
+        let body = render_auth_page(result.is_ok(), &nonce, None);
         let status = if result.is_ok() {
             "200 OK"
         } else {
@@ -484,6 +480,92 @@ async fn callback(listener: &TcpListener, attempt: &Attempt) -> Result<(String, 
             return result;
         }
     }
+}
+
+pub fn render_auth_page(
+    is_ok: bool,
+    nonce: &str,
+    custom_partials_dir: Option<&std::path::Path>,
+) -> String {
+    let default_base = include_str!("auth-result.html");
+    let default_head = include_str!("auth_partials/head.html");
+    let default_styles = include_str!("auth_partials/styles.html");
+    let default_brand = include_str!("auth_partials/brand.html");
+    let default_content = include_str!("auth_partials/content.html");
+    let default_footer = include_str!("auth_partials/footer.html");
+
+    let load_partial = |name: &str, default: &str| -> String {
+        if let Some(dir) = custom_partials_dir {
+            let path = dir.join(format!("{name}.html"));
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                return content;
+            }
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let path = std::path::PathBuf::from(appdata)
+                .join("devyy")
+                .join("auth_partials")
+                .join(format!("{name}.html"));
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                return content;
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let path = std::path::PathBuf::from(home)
+                .join(".config")
+                .join("devyy")
+                .join("auth_partials")
+                .join(format!("{name}.html"));
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                return content;
+            }
+        }
+        default.to_string()
+    };
+
+    let head = load_partial("head", default_head);
+    let styles = load_partial("styles", default_styles);
+    let brand = load_partial("brand", default_brand);
+    let content = load_partial("content", default_content);
+    let footer = load_partial("footer", default_footer);
+
+    let base = if let Some(dir) = custom_partials_dir {
+        let path = dir.join("auth-result.html");
+        std::fs::read_to_string(&path).unwrap_or_else(|_| default_base.to_string())
+    } else {
+        default_base.to_string()
+    };
+
+    let title = if is_ok {
+        "Authorization received"
+    } else {
+        "Let’s try that again"
+    };
+    let message = if is_ok {
+        "Your browser has securely sent authorization to Devyy. Return to the app to finish connecting your ChatGPT account."
+    } else {
+        "Authorization couldn’t be completed. Return to Devyy to start a new sign-in."
+    };
+    let icon = if is_ok {
+        "m5 12 4 4L19 6"
+    } else {
+        "M12 5v8m0 5h.01"
+    };
+
+    base.replace("{{> head}}", &head)
+        .replace("{{> styles}}", &styles)
+        .replace("{{> brand}}", &brand)
+        .replace("{{> content}}", &content)
+        .replace("{{> footer}}", &footer)
+        .replace("__PARTIAL_HEAD__", &head)
+        .replace("__PARTIAL_STYLES__", &styles)
+        .replace("__PARTIAL_BRAND__", &brand)
+        .replace("__PARTIAL_CONTENT__", &content)
+        .replace("__PARTIAL_FOOTER__", &footer)
+        .replace("__TITLE__", title)
+        .replace("__MESSAGE__", message)
+        .replace("__ICON__", icon)
+        .replace("__NONCE__", nonce)
 }
 fn status(vault: &Vault) -> Value {
     let selected = vault
@@ -1211,5 +1293,23 @@ mod tests {
         assert_eq!(body["stream"], true);
         assert_eq!(body["reasoning"]["effort"], "high");
         assert!(body.get("messages").is_none());
+    }
+    #[test]
+    fn auth_page_renders_with_partials_and_custom_override() {
+        let html = render_auth_page(true, "test-nonce", None);
+        assert!(html.contains("Authorization received"));
+        assert!(html.contains("devyy://auth-complete"));
+        assert!(html.contains("nonce=\"test-nonce\""));
+        assert!(html.contains("<style>"));
+        assert!(html.contains("devyy"));
+
+        let err_html = render_auth_page(false, "test-nonce", None);
+        assert!(err_html.contains("Let’s try that again"));
+
+        let tmp = tempfile::tempdir().unwrap();
+        let custom_brand = tmp.path().join("brand.html");
+        std::fs::write(&custom_brand, "<div class=\"custom-brand\">CUSTOM_BRAND</div>").unwrap();
+        let custom_html = render_auth_page(true, "test-nonce", Some(tmp.path()));
+        assert!(custom_html.contains("CUSTOM_BRAND"));
     }
 }

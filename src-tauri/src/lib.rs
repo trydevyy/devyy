@@ -106,6 +106,8 @@ pub fn run() {
             remote::remote_stop,
             remote::ssh_forward,
             remote::port_forward,
+            remote::ssh_fetch_workspace,
+            remote::ssh_sync_file,
             github::github_status,
             github::github_login,
             github::github_git_identity,
