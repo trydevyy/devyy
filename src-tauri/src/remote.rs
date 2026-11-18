@@ -51,7 +51,37 @@ pub struct SshOptions {
     ssh_port: u16,
     local_port: u16,
     remote_port: u16,
+    #[serde(default)]
+    password: Option<String>,
 }
+
+async fn create_askpass_script(_password: &str) -> Result<std::path::PathBuf, String> {
+    let script_id = uuid::Uuid::new_v4();
+    #[cfg(windows)]
+    let script_path = std::env::temp_dir().join(format!("devyy-askpass-{}.cmd", script_id));
+    #[cfg(not(windows))]
+    let script_path = std::env::temp_dir().join(format!("devyy-askpass-{}.sh", script_id));
+
+    #[cfg(windows)]
+    tokio::fs::write(&script_path, b"@echo off\r\necho %DEVYY_SSH_PASS%\r\n")
+        .await
+        .map_err(|e| format!("Could not create askpass script: {}", e))?;
+
+    #[cfg(not(windows))]
+    {
+        tokio::fs::write(&script_path, b"#!/bin/sh\nprintf '%s\\n' \"$DEVYY_SSH_PASS\"\n")
+            .await
+            .map_err(|e| format!("Could not create askpass script: {}", e))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    Ok(script_path)
+}
+
 fn valid_host(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 253
@@ -103,37 +133,94 @@ pub async fn ssh_forward(app: tauri::AppHandle, options: SshOptions) -> Result<S
         "127.0.0.1:{}:127.0.0.1:{}",
         options.local_port, options.remote_port
     );
-    let mut child = tokio::process::Command::new(executable)
-        .args([
-            "-N",
-            "-T",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ExitOnForwardFailure=yes",
-            "-o",
-            "StrictHostKeyChecking=yes",
-            "-o",
-            "ServerAliveInterval=20",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-p",
-            &options.ssh_port.to_string(),
-            "-L",
-            &bind,
-            "--",
-            &format!("{}@{}", options.user, options.host),
-        ])
+
+    let has_password = options
+        .password
+        .as_ref()
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+
+    let mut temp_askpass_path: Option<std::path::PathBuf> = None;
+    if has_password {
+        if let Some(ref pass) = options.password {
+            temp_askpass_path = Some(create_askpass_script(pass).await?);
+        }
+    }
+
+    let mut cmd = tokio::process::Command::new(executable);
+    let mut args = vec![
+        "-N".to_string(),
+        "-T".to_string(),
+        "-o".to_string(),
+        if has_password {
+            "BatchMode=no".to_string()
+        } else {
+            "BatchMode=yes".to_string()
+        },
+        "-o".to_string(),
+        "ExitOnForwardFailure=yes".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=20".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
+    ];
+
+    if has_password {
+        args.push("-o".to_string());
+        args.push("NumberOfPasswordPrompts=1".to_string());
+        if let Some(ref pass) = options.password {
+            cmd.env("DEVYY_SSH_PASS", pass);
+        }
+        if let Some(ref path) = temp_askpass_path {
+            cmd.env("SSH_ASKPASS", path);
+            cmd.env("SSH_ASKPASS_REQUIRE", "force");
+            cmd.env("DISPLAY", ":0");
+        }
+    }
+
+    args.push("-p".to_string());
+    args.push(options.ssh_port.to_string());
+    args.push("-L".to_string());
+    args.push(bind);
+    args.push("--".to_string());
+    args.push(format!("{}@{}", options.user, options.host));
+
+    let mut child = cmd
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| e.to_string())?;
-    tokio::time::sleep(Duration::from_millis(350)).await;
-    if let Some(_) = child.try_wait().map_err(|e| e.to_string())? {
+
+    // Poll for up to 1500ms to detect quick connection or authentication failures
+    let mut exited = false;
+    for _ in 0..15 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Some(_) = child.try_wait().map_err(|e| e.to_string())? {
+            exited = true;
+            break;
+        }
+    }
+
+    if let Some(ref path) = temp_askpass_path {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    if exited {
         let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
-        return Err(format!("SSH could not connect: {}. Use your terminal to accept the host key or unlock your SSH agent first.",String::from_utf8_lossy(&output.stderr).chars().take(800).collect::<String>()));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let trimmed = stderr.trim();
+        if trimmed.contains("Permission denied") {
+            return Err(format!("AUTH_PASSWORD_REQUIRED: {}", trimmed));
+        }
+        return Err(format!(
+            "SSH could not connect: {}. Use your terminal to accept the host key or unlock your SSH agent first.",
+            trimmed.chars().take(800).collect::<String>()
+        ));
     }
     let (cancel, mut rx) = watch::channel(false);
     app.state::<Remotes>().jobs.lock().unwrap().insert(
@@ -171,6 +258,7 @@ pub async fn port_forward(
     server_url: String,
     tunnel_id: String,
     port: u16,
+    protocol: Option<String>,
 ) -> Result<String, String> {
     if port == 0
         || tunnel_id.is_empty()
@@ -180,6 +268,7 @@ pub async fn port_forward(
     {
         return Err("Choose a valid tunnel and local port".into());
     }
+    let is_https = protocol.as_deref() == Some("https");
     let server = account::server(&server_url)?;
     let token = account::token(&server)?;
     let url = format!(
@@ -229,11 +318,12 @@ pub async fn port_forward(
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(25))
+            .danger_accept_invalid_certs(true)
             .no_proxy()
             .build()
             .unwrap();
         loop {
-            tokio::select! {_ =rx.changed()=>break,response=queue.recv()=>{let Some(response)=response else{break};if tx.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string().into())).await.is_err(){break;}},incoming=stream.next()=>{match incoming{Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{if text.len()>1500*1024{break;}let Ok(value)=serde_json::from_str::<Value>(&text) else{break;};let id=value["id"].as_str().unwrap_or("").to_owned();let Ok(slot)=slots.clone().try_acquire_owned()else{let _=responses.try_send(json!({"id":id,"status":503,"body":STANDARD.encode("Forwarding is busy"),"headers":[]}));continue;};let client=client.clone();let responses=responses.clone();tokio::spawn(async move{let _slot=slot;let result=forward_request(&client,port,&value).await.unwrap_or_else(|message|json!({"status":502,"body":STANDARD.encode(message),"headers":[]}));let mut result=result;result["id"]=json!(id);let _=responses.send(result).await;});},Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(bytes)))=>{let _=tx.send(tokio_tungstenite::tungstenite::Message::Pong(bytes)).await;},Some(Ok(tokio_tungstenite::tungstenite::Message::Pong(_)))=>{},_=>break}}}
+            tokio::select! {_ =rx.changed()=>break,response=queue.recv()=>{let Some(response)=response else{break};if tx.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string().into())).await.is_err(){break;}},incoming=stream.next()=>{match incoming{Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{if text.len()>1500*1024{break;}let Ok(value)=serde_json::from_str::<Value>(&text) else{break;};let id=value["id"].as_str().unwrap_or("").to_owned();let Ok(slot)=slots.clone().try_acquire_owned()else{let _=responses.try_send(json!({"id":id,"status":503,"body":STANDARD.encode("Forwarding is busy"),"headers":[]}));continue;};let client=client.clone();let responses=responses.clone();tokio::spawn(async move{let _slot=slot;let result=forward_request(&client,port,is_https,&value).await.unwrap_or_else(|message|json!({"status":502,"body":STANDARD.encode(message),"headers":[]}));let mut result=result;result["id"]=json!(id);let _=responses.send(result).await;});},Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(bytes)))=>{let _=tx.send(tokio_tungstenite::tungstenite::Message::Pong(bytes)).await;},Some(Ok(tokio_tungstenite::tungstenite::Message::Pong(_)))=>{},_=>break}}}
         }
         app.state::<Remotes>().jobs.lock().unwrap().remove(&task_id);
         let _ = app.emit("devyy-remote-changed", ());
@@ -243,13 +333,15 @@ pub async fn port_forward(
 async fn forward_request(
     client: &reqwest::Client,
     port: u16,
+    is_https: bool,
     value: &Value,
 ) -> Result<Value, String> {
     let path = value["path"].as_str().ok_or("Missing forwarded path")?;
     if !path.starts_with('/') || path.starts_with("//") || path.contains(['\\', '\r', '\n']) {
         return Err("Invalid forwarded path".into());
     }
-    let url = reqwest::Url::parse(&format!("http://127.0.0.1:{port}{path}"))
+    let scheme = if is_https { "https" } else { "http" };
+    let url = reqwest::Url::parse(&format!("{scheme}://127.0.0.1:{port}{path}"))
         .map_err(|_| "Invalid local URL")?;
     if url.host_str() != Some("127.0.0.1") || url.port() != Some(port) {
         return Err("Only the selected local port can be forwarded".into());
@@ -317,6 +409,187 @@ async fn forward_request(
     }
     Ok(json!({"status":status,"headers":headers,"body":STANDARD.encode(body)}))
 }
+
+#[tauri::command]
+pub async fn ssh_fetch_workspace(
+    host: String,
+    user: String,
+    ssh_port: u16,
+    remote_path: String,
+    password: Option<String>,
+) -> Result<String, String> {
+    if !valid_host(&host) {
+        return Err("Invalid remote host".into());
+    }
+    if !valid_host(&user) {
+        return Err("Invalid SSH user".into());
+    }
+
+    let sanitized_host = host.replace(|c: char| !c.is_alphanumeric(), "_");
+    let target_dir = std::env::temp_dir()
+        .join("devyy-remote-workspaces")
+        .join(format!("{}_{}_{}", user, sanitized_host, ssh_port));
+    tokio::fs::create_dir_all(&target_dir)
+        .await
+        .map_err(|e| format!("Could not create local workspace directory: {}", e))?;
+
+    let temp_askpass = if let Some(ref pass) = password {
+        if !pass.is_empty() {
+            Some(create_askpass_script(pass).await?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut cmd = tokio::process::Command::new("scp");
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.arg("-P")
+        .arg(ssh_port.to_string())
+        .arg("-r")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new")
+        .arg("-o")
+        .arg("NumberOfPasswordPrompts=1");
+
+    if let Some(ref askpass_path) = temp_askpass {
+        cmd.arg("-o").arg("BatchMode=no");
+        cmd.env("SSH_ASKPASS", askpass_path);
+        cmd.env("SSH_ASKPASS_REQUIRE", "force");
+        cmd.env("DISPLAY", ":0");
+        if let Some(ref pass) = password {
+            cmd.env("DEVYY_SSH_PASS", pass);
+        }
+    } else {
+        cmd.arg("-o").arg("BatchMode=yes");
+    }
+
+    let clean_path = remote_path.trim();
+    let remote_target = if clean_path.is_empty() || clean_path == "~" {
+        format!("{}@{}:~/*", user, host)
+    } else if clean_path.ends_with('/') || clean_path.ends_with('*') {
+        format!("{}@{}:{}", user, host, clean_path)
+    } else {
+        format!("{}@{}:{}/*", user, host, clean_path)
+    };
+
+    cmd.arg(remote_target).arg(&target_dir);
+
+    let output = cmd.output().await.map_err(|e| format!("Could not run scp: {}", e))?;
+
+    if let Some(ref p) = temp_askpass {
+        let _ = tokio::fs::remove_file(p).await;
+    }
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let trimmed = stderr.trim();
+        if trimmed.contains("Permission denied") {
+            return Err(format!("AUTH_PASSWORD_REQUIRED: {}", trimmed));
+        }
+        if !trimmed.contains("No such file or directory")
+            || target_dir
+                .read_dir()
+                .map_or(true, |mut i| i.next().is_none())
+        {
+            return Err(format!("SSH fetch failed: {}", trimmed));
+        }
+    }
+
+    // Write .devyy-remote.json metadata inside the target directory
+    let meta = serde_json::json!({
+        "host": host,
+        "user": user,
+        "sshPort": ssh_port,
+        "remotePath": remote_path,
+        "password": password
+    });
+    let _ = tokio::fs::write(target_dir.join(".devyy-remote.json"), meta.to_string()).await;
+
+    Ok(target_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_sync_file(
+    host: String,
+    user: String,
+    ssh_port: u16,
+    remote_path: String,
+    local_file: String,
+    relative_path: String,
+    password: Option<String>,
+) -> Result<(), String> {
+    if !valid_host(&host) || !valid_host(&user) {
+        return Err("Invalid SSH credentials".into());
+    }
+
+    let temp_askpass = if let Some(ref pass) = password {
+        if !pass.is_empty() {
+            Some(create_askpass_script(pass).await?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut cmd = tokio::process::Command::new("scp");
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.arg("-P")
+        .arg(ssh_port.to_string())
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new")
+        .arg("-o")
+        .arg("NumberOfPasswordPrompts=1");
+
+    if let Some(ref askpass_path) = temp_askpass {
+        cmd.arg("-o").arg("BatchMode=no");
+        cmd.env("SSH_ASKPASS", askpass_path);
+        cmd.env("SSH_ASKPASS_REQUIRE", "force");
+        cmd.env("DISPLAY", ":0");
+        if let Some(ref pass) = password {
+            cmd.env("DEVYY_SSH_PASS", pass);
+        }
+    } else {
+        cmd.arg("-o").arg("BatchMode=yes");
+    }
+
+    let clean_rel = relative_path.replace('\\', "/");
+    let base = remote_path.trim();
+    let target = if base.is_empty() || base == "~" {
+        format!("{}@{}:~/{}", user, host, clean_rel.trim_start_matches('/'))
+    } else {
+        format!(
+            "{}@{}:{}/{}",
+            user,
+            host,
+            base.trim_end_matches('/'),
+            clean_rel.trim_start_matches('/')
+        )
+    };
+
+    cmd.arg(&local_file).arg(target);
+    let output = cmd.output().await.map_err(|e| format!("Could not run scp: {}", e))?;
+
+    if let Some(ref p) = temp_askpass {
+        let _ = tokio::fs::remove_file(p).await;
+    }
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Could not sync file to remote: {}", stderr.trim()));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
