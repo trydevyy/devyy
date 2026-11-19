@@ -113,6 +113,7 @@ export interface Settings {
   vibrancy: boolean;
   reduceMotion: boolean;
   theme: "paper" | "midnight";
+  vcsProvider: "hit" | "git";
 }
 export interface Position {
   line: number;
@@ -183,6 +184,7 @@ export const defaults: Settings = {
   lineNumbers: true,
   autoSave: false,
   theme: "midnight",
+  vcsProvider: "hit",
   vibrancy: true,
   reduceMotion: false,
 };

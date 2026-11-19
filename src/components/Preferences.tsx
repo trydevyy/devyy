@@ -483,7 +483,9 @@ export default function Preferences({
               {!searching && category === "account" && (
                 <AccountSettings settings={settings} onChange={onChange} />
               )}
-              {!searching && category === "git" && <GitHubSettings />}
+              {!searching && category === "git" && (
+                <GitHubSettings settings={settings} onChange={onChange} />
+              )}
               {!searching && category === "editor" && (
                 <CompletionSettings
                   settings={settings}

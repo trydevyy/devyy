@@ -29,7 +29,7 @@ import {
   Sparkles,
   SlidersHorizontal,
   HeartHandshake,
-  Github,
+  GitBranch,
 } from "lucide-react";
 import type { Settings } from "./types";
 export const categories = [
@@ -96,9 +96,9 @@ export const categories = [
   },
   {
     id: "git",
-    label: "Git & GitHub",
-    description: "GitHub sign-in, Git installation and commit identity.",
-    icon: Github,
+    label: "Source control",
+    description: "Source control provider (Hit / Git), GitHub sign-in, and commit identity.",
+    icon: GitBranch,
   },
   {
     id: "languages",
@@ -658,4 +658,17 @@ export const controls: SettingControl[] = [
       "animation accessibility",
     ],
   ]),
+  {
+    key: "vcsProvider",
+    category: "git",
+    section: "Version control provider",
+    label: "Active source control provider",
+    description: "Choose between Hit (next-gen blazingly fast VCS, default) and standard Git.",
+    keywords: "git hit vcs source control version repository",
+    type: "select",
+    options: [
+      { value: "hit", label: "Hit (Fast, default)" },
+      { value: "git", label: "Git (Standard)" },
+    ],
+  },
 ];

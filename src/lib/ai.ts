@@ -18,6 +18,39 @@ import { useSyncExternalStore } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, listen, native } from "./native";
 import { contextPrompt, type AIAttachment } from "./aiContext";
+import { getActiveSkillsPrompt } from "./aiSkills";
+
+export type AIAgentMode = "ask" | "plan" | "agent" | "review";
+
+export interface AISubagentTask {
+  id: string;
+  role: string;
+  task: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress?: string;
+  result?: string;
+  toolsUsed?: string[];
+}
+
+export interface AIQAResult {
+  tool: string;
+  success: boolean;
+  output: string;
+}
+
+export interface AICheckpoint {
+  id: string;
+  name: string;
+  timestamp: number;
+  sha?: string;
+}
+
+export const AGENT_MODE_PROMPTS: Record<AIAgentMode, string> = {
+  ask: "You are Devyy in Ask Mode. Explore, understand, and explain the codebase or architectural questions clearly. Use search and read tools freely. Do not propose code modifications or execute destructive terminal operations.",
+  plan: "You are Devyy in Plan Mode. Carefully evaluate options and produce a structured, step-by-step implementation plan. Define explicit milestones, dependencies, and testing verification checkpoints before any code is written.",
+  agent: "You are Devyy in Agent Mode. Autonomously execute the task: read implementation, write and modify code with focused proposals, run non-interactive terminal commands (cargo, npm, tests), verify all changes, and resolve errors before completion.",
+  review: "You are Devyy in Review Mode. Thoroughly inspect recent diffs and changes for potential regressions, bugs, type safety flaws, performance pitfalls, and missing test coverage. Deliver a clean, structured code review report.",
+};
 
 export interface AIProvider {
   id: string;
@@ -75,12 +108,15 @@ export interface AIMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  mode?: AIAgentMode;
   context?: { path: string; content: string };
   error?: string;
   stopped?: boolean;
   reasoning?: string;
   proposals?: AIProposal[];
   tools?: AITool[];
+  subagents?: AISubagentTask[];
+  qaResults?: AIQAResult[];
   attachments?: AIAttachment[];
   startedAt?: number;
   finishedAt?: number;
@@ -95,6 +131,8 @@ export interface AIConversation {
   updatedAt: number;
   model?: string;
   effort?: string;
+  mode?: AIAgentMode;
+  checkpoints?: AICheckpoint[];
 }
 export interface AIUsage {
   tokens: number;
@@ -776,12 +814,24 @@ export async function sendAIMessage(
       state.providers.find((p) => p.id === chat!.providerId)?.model,
     effort: chat.effort,
   };
+  const currentMode = chat.mode ?? "agent";
+  assistant.mode = currentMode;
+  const modeInstruction = AGENT_MODE_PROMPTS[currentMode];
+  const lastUserMsg = chat.messages[chat.messages.length - 1];
+  const skillsContext = getActiveSkillsPrompt(lastUserMsg?.content ?? "");
+
   const requestId = crypto.randomUUID();
   const providerId = chat.providerId;
-  const messages = chat.messages.map((m) => ({
-    role: m.role,
-    content: contextPrompt(m),
-  }));
+  const messages = chat.messages.map((m, idx) => {
+    let text = contextPrompt(m);
+    if (idx === chat!.messages.length - 1 && m.role === "user") {
+      text = `[Current Agent Mode: ${currentMode.toUpperCase()}]\n${modeInstruction}${skillsContext}\n\n${text}`;
+    }
+    return {
+      role: m.role,
+      content: text,
+    };
+  });
   update({
     conversations: state.conversations.map((c) =>
       c.id === chatId
@@ -1083,4 +1133,96 @@ export function remainingLimits(
       },
     ];
   });
+}
+
+export function setAIMode(chatId: string, mode: AIAgentMode) {
+  update({
+    conversations: state.conversations.map((c) =>
+      c.id === chatId ? { ...c, mode } : c,
+    ),
+  });
+  persist();
+}
+
+export function addAICheckpoint(chatId: string, name: string, sha?: string) {
+  const checkpoint: AICheckpoint = {
+    id: crypto.randomUUID(),
+    name,
+    timestamp: Date.now(),
+    sha,
+  };
+  update({
+    conversations: state.conversations.map((c) =>
+      c.id === chatId
+        ? {
+            ...c,
+            checkpoints: [...(c.checkpoints ?? []), checkpoint],
+          }
+        : c,
+    ),
+  });
+  persist();
+}
+
+export function spawnAISubagent(
+  chatId: string,
+  messageId: string,
+  role: string,
+  task: string,
+): string {
+  const subagentId = crypto.randomUUID();
+  const subagent: AISubagentTask = {
+    id: subagentId,
+    role,
+    task,
+    status: "running",
+    progress: "Started subagent task...",
+  };
+  update({
+    conversations: state.conversations.map((c) =>
+      c.id === chatId
+        ? {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    subagents: [...(m.subagents ?? []), subagent],
+                  }
+                : m,
+            ),
+          }
+        : c,
+    ),
+  });
+  persist();
+  return subagentId;
+}
+
+export function updateAISubagent(
+  chatId: string,
+  messageId: string,
+  subagentId: string,
+  patch: Partial<AISubagentTask>,
+) {
+  update({
+    conversations: state.conversations.map((c) =>
+      c.id === chatId
+        ? {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    subagents: m.subagents?.map((s) =>
+                      s.id === subagentId ? { ...s, ...patch } : s,
+                    ),
+                  }
+                : m,
+            ),
+          }
+        : c,
+    ),
+  });
+  persist();
 }

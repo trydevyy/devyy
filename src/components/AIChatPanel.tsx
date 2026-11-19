@@ -34,6 +34,13 @@ import {
   X,
   ChartNoAxesColumn,
   Search,
+  MessageSquare,
+  Sparkles,
+  CheckCheck,
+  HelpCircle,
+  ListTodo,
+  Bot,
+  Bookmark,
 } from "lucide-react";
 import {
   chooseAIModel,
@@ -48,8 +55,12 @@ import {
   stopAIChat,
   useAI,
   setAIProposalStatus,
+  setAIMode,
+  addAICheckpoint,
   type AIMessage,
   type AIProposal,
+  type AIAgentMode,
+  AGENT_MODE_PROMPTS,
 } from "../lib/ai";
 import {
   hasAIContextDrag,
@@ -66,8 +77,11 @@ import AIModelPicker from "./AIModelPicker";
 import DevyyLogo from "./DevyyLogo";
 import AIWorkspaceAccess from "./AIWorkspaceAccess";
 import AIUsage from "./AIUsage";
-import { native } from "../lib/native";
+import { native, invoke } from "../lib/native";
 import { useContextMenu } from "./ContextMenu";
+import AISkillsView from "./AISkillsView";
+import AISessionsView from "./AISessionsView";
+import AIReviewView from "./AIReviewView";
 
 const Reply = lazy(() => import("./AIReply"));
 
@@ -110,6 +124,7 @@ export default function AIChatPanel({
     } catch {}
     return null;
   });
+  const [screen, setScreen] = useState<"chat" | "skills" | "sessions" | "review">("chat");
   const [draft, setDraft] = useState(""),
     [attached, setAttached] = useState<AIAttachment[]>([]),
     [queuedMessages, setQueuedMessages] = useState<
@@ -141,6 +156,19 @@ export default function AIChatPanel({
     model: chat?.model ?? ai.choices[chosen]?.model ?? provider?.model ?? "",
     effort: chat?.effort ?? ai.choices[chosen]?.effort ?? "",
   };
+  const currentMode: AIAgentMode = chat?.mode ?? "agent";
+  async function handleCreateCheckpoint() {
+    if (!chat) return;
+    try {
+      const nowStr = new Date().toLocaleTimeString();
+      const label = `Checkpoint ${nowStr}`;
+      await invoke<string>("vcs_checkpoint", { name: label });
+      addAICheckpoint(chat.id, label);
+      setError("");
+    } catch (err) {
+      setError(`Checkpoint error: ${String(err)}`);
+    }
+  }
   const last = chat?.messages.at(-1);
   useEffect(() => {
     if (visible) void loadAI();
@@ -500,48 +528,123 @@ export default function AIChatPanel({
       }}
       onDrop={(event) => void drop(event)}
     >
-      <div className="ai-chat-toolbar">
+      {/* 4 Main Screens: Chat, Skills, Sessions, Review */}
+      <div className="ai-screen-nav">
         <button
-          className="ai-thread-title"
-          onClick={() => setHistory(!history)}
-          title="Conversations"
+          type="button"
+          className={`ai-screen-nav-btn ${screen === "chat" ? "active" : ""}`}
+          onClick={() => setScreen("chat")}
         >
-          <span>{chat?.title ?? "New conversation"}</span>
-          <ChevronDown size={12} />
+          <MessageSquare size={13} /> Chat
         </button>
-        <div>
-          <button
-            className="icon-button"
-            aria-label="New AI conversation"
-            title="New conversation"
-            onClick={fresh}
-          >
-            <Plus size={15} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="AI conversation history"
-            aria-pressed={history}
-            onClick={() => setHistory(!history)}
-          >
-            <History size={15} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="AI usage"
-            onClick={() => setUsage(true)}
-          >
-            <ChartNoAxesColumn size={15} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="AI provider settings"
-            onClick={onSettings}
-          >
-            <Settings2 size={15} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`ai-screen-nav-btn ${screen === "skills" ? "active" : ""}`}
+          onClick={() => setScreen("skills")}
+        >
+          <Sparkles size={13} /> Skills
+        </button>
+        <button
+          type="button"
+          className={`ai-screen-nav-btn ${screen === "sessions" ? "active" : ""}`}
+          onClick={() => setScreen("sessions")}
+        >
+          <History size={13} /> Sessions
+        </button>
+        <button
+          type="button"
+          className={`ai-screen-nav-btn ${screen === "review" ? "active" : ""}`}
+          onClick={() => setScreen("review")}
+        >
+          <CheckCheck size={13} /> Review
+        </button>
       </div>
+
+      {screen === "skills" && <AISkillsView />}
+
+      {screen === "sessions" && (
+        <AISessionsView
+          onSelectChat={(id) => {
+            selectAIChat(id);
+            setScreen("chat");
+          }}
+        />
+      )}
+
+      {screen === "review" && (
+        <AIReviewView
+          onReview={onReview}
+          onApproveAll={onApproveAll}
+        />
+      )}
+
+      {screen === "chat" && (
+        <>
+          <div className="ai-chat-toolbar">
+            <button
+              className="ai-thread-title"
+              onClick={() => setScreen("sessions")}
+              title="Sessions"
+            >
+              <span>{chat?.title ?? "New conversation"}</span>
+              <ChevronDown size={12} />
+            </button>
+            <div>
+              <button
+                className="icon-button"
+                aria-label="New AI conversation"
+                title="New conversation"
+                onClick={fresh}
+              >
+                <Plus size={15} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Create Hit/Git Checkpoint"
+                title="Create Hit/Git Checkpoint"
+                onClick={() => void handleCreateCheckpoint()}
+              >
+                <Bookmark size={15} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="AI usage"
+                onClick={() => setUsage(true)}
+              >
+                <ChartNoAxesColumn size={15} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="AI provider settings"
+                onClick={onSettings}
+              >
+                <Settings2 size={15} />
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Agent Modes Selector: Ask / Plan / Agent / Review */}
+          <div className="ai-mode-bar" role="tablist" aria-label="Agent Mode">
+            {(["ask", "plan", "agent", "review"] as AIAgentMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={currentMode === mode}
+                className={`ai-mode-tab ${currentMode === mode ? "active " + mode : ""}`}
+                onClick={() => {
+                  if (chat) setAIMode(chat.id, mode);
+                }}
+                title={AGENT_MODE_PROMPTS[mode]}
+              >
+                {mode === "ask" && <HelpCircle size={12} />}
+                {mode === "plan" && <ListTodo size={12} />}
+                {mode === "agent" && <Bot size={12} />}
+                {mode === "review" && <CheckCheck size={12} />}
+                <span>{mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
+              </button>
+            ))}
+          </div>
       {history ? (
         <div className="ai-history">
           <div className="ai-history-search">
@@ -699,6 +802,18 @@ export default function AIChatPanel({
                         finishedAt={message.finishedAt}
                       />
                     )}
+                  {Boolean(message.subagents?.length) && (
+                    <div className="ai-subagents-container" aria-label="Subagent tasks">
+                      {message.subagents!.map((sub) => (
+                        <div key={sub.id} className="ai-subagent-card">
+                          <Bot size={13} />
+                          <span className="ai-subagent-role">{sub.role}:</span>
+                          <span>{sub.task}</span>
+                          <span className={`ai-subagent-status ${sub.status}`}>{sub.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {message.role === "assistant" ? (
                     <Suspense fallback={<p>{message.content}</p>}>
                       <Reply
@@ -1157,6 +1272,8 @@ export default function AIChatPanel({
           }}
         />
       </div>
+        </>
+      )}
       {dragging && (
         <div className="ai-drop-target">
           <Paperclip size={24} />
