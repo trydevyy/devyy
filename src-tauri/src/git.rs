@@ -96,7 +96,11 @@ fn hit_binary_path() -> Option<std::path::PathBuf> {
             return Some(p);
         }
     }
-    if crate::process::command("hit").arg("--version").output().is_ok() {
+    if crate::process::command("hit")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
         return Some(std::path::PathBuf::from("hit"));
     }
     None
@@ -175,7 +179,10 @@ pub async fn vcs_checkpoint(
             let sha = out.trim().to_string();
             let _ = git(&base, &["stash", "store", "-m", &msg, &sha]);
             let short = if sha.len() >= 8 { &sha[..8] } else { &sha };
-            Ok(format!("Checkpoint {} created (SHA: {})", checkpoint_name, short))
+            Ok(format!(
+                "Checkpoint {} created (SHA: {})",
+                checkpoint_name, short
+            ))
         }
     })
     .await
@@ -1323,8 +1330,7 @@ pub async fn git_commit(
     .await
 }
 
-
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod graph_tests;
+#[cfg(test)]
+mod tests;
