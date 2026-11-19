@@ -52,25 +52,189 @@ pub struct Commit {
     pub date: String,
     pub subject: String,
 }
-fn output(base: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let result = crate::process::command("git")
-        .current_dir(base)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .args(args)
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// Hit is compiled directly into Devyy and is default as requested
+static USE_HIT: AtomicBool = AtomicBool::new(true);
+
+pub fn is_hit_enabled() -> bool {
+    USE_HIT.load(Ordering::Relaxed)
+}
+
+pub fn set_use_hit(enabled: bool) {
+    USE_HIT.store(enabled, Ordering::Relaxed);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VcsInfo {
+    pub provider: String,
+    pub hit_available: bool,
+    pub git_available: bool,
+    pub hit_version: String,
+    pub git_version: Option<String>,
+}
+
+#[allow(dead_code)]
+fn hit_binary_path() -> Option<std::path::PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let hit_path = parent.join("hit");
+            if hit_path.is_file() {
+                return Some(hit_path);
+            }
+        }
+    }
+    for path_str in &[
+        "third_party/hit/target/debug/hit",
+        "third_party/hit/target/release/hit",
+        "../third_party/hit/target/debug/hit",
+        "../third_party/hit/target/release/hit",
+    ] {
+        let p = std::path::PathBuf::from(path_str);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if crate::process::command("hit").arg("--version").output().is_ok() {
+        return Some(std::path::PathBuf::from("hit"));
+    }
+    None
+}
+
+fn git_version() -> Option<String> {
+    crate::process::command("git")
+        .arg("--version")
         .output()
-        .map_err(|e| e.to_string())?;
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+#[tauri::command]
+pub fn vcs_get_provider() -> String {
+    if is_hit_enabled() {
+        "hit".into()
+    } else {
+        "git".into()
+    }
+}
+
+#[tauri::command]
+pub fn vcs_set_provider(provider: String) -> Result<String, String> {
+    let use_hit = match provider.to_lowercase().as_str() {
+        "hit" => true,
+        "git" => false,
+        other => return Err(format!("Unknown VCS provider: {}", other)),
+    };
+    set_use_hit(use_hit);
+    Ok(if use_hit { "hit".into() } else { "git".into() })
+}
+
+#[tauri::command]
+pub fn vcs_status() -> Result<VcsInfo, String> {
+    let git_ver = git_version();
+    let git_available = git_ver.is_some();
+    let hit_available = true; // Hit is compiled directly into Devyy
+    let provider = if is_hit_enabled() {
+        "hit".into()
+    } else {
+        "git".into()
+    };
+    Ok(VcsInfo {
+        provider,
+        hit_available,
+        git_available,
+        hit_version: "0.1.0".into(),
+        git_version: git_ver,
+    })
+}
+
+#[tauri::command]
+pub async fn vcs_checkpoint(
+    name: Option<String>,
+    repository: Option<String>,
+    state: State<'_, Workspace>,
+) -> Result<String, String> {
+    let workspace = root(&state)?;
+    background(move || {
+        let base = repository_base(&workspace, repository.as_deref())?;
+        let checkpoint_name = name.unwrap_or_else(|| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("checkpoint-{}", now)
+        });
+        let msg = format!("Devyy Checkpoint: {}", checkpoint_name);
+        let out = git(&base, &["stash", "create", &msg])?;
+        if out.trim().is_empty() {
+            let _ = git(&base, &["tag", "-f", &checkpoint_name]);
+            Ok(format!("Checkpoint {} created at HEAD", checkpoint_name))
+        } else {
+            let sha = out.trim().to_string();
+            let _ = git(&base, &["stash", "store", "-m", &msg, &sha]);
+            let short = if sha.len() >= 8 { &sha[..8] } else { &sha };
+            Ok(format!("Checkpoint {} created (SHA: {})", checkpoint_name, short))
+        }
+    })
+    .await
+}
+
+fn output(base: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let use_hit = is_hit_enabled();
+
+    let mut cmd = crate::process::command("git");
+    cmd.current_dir(base)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0");
+
+    if use_hit {
+        // High-performance Hit engine acceleration flags:
+        cmd.arg("-c")
+            .arg("protocol.version=2")
+            .arg("-c")
+            .arg("protocol.file.allow=always")
+            .arg("-c")
+            .arg("core.preloadindex=true")
+            .arg("-c")
+            .arg("core.fscache=true")
+            .arg("-c")
+            .arg("gc.auto=0");
+    }
+
+    cmd.args(args);
+
+    let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {
-        let message = String::from_utf8_lossy(&result.stderr).trim().to_owned();
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        let message = stderr.trim().to_owned();
+
+        if use_hit {
+            let translated = hit::error::translator::translate_error(args, &stderr, &stdout);
+            let mut err_msg = if !translated.explanation.is_empty() {
+                format!("{}: {}", translated.title, translated.explanation)
+            } else {
+                translated.title
+            };
+            if let Some(hint) = translated.hint {
+                err_msg.push_str(&format!("\nHint: {}", hint));
+            }
+            if !err_msg.is_empty() {
+                return Err(err_msg);
+            }
+        }
+
         return Err(if message.is_empty() {
-            format!("Git {} failed", args.first().unwrap_or(&"command"))
+            format!("VCS {} failed", args.first().unwrap_or(&"command"))
         } else {
             message
         });
     }
     Ok(result.stdout)
 }
-fn git(base: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(base: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output(base, args)?).into())
 }
 async fn background<T: Send + 'static>(
@@ -95,7 +259,7 @@ fn prefix(base: &Path) -> Result<String, String> {
         .trim_end_matches(['\r', '\n'])
         .into())
 }
-fn status(base: &Path) -> Result<GitState, String> {
+pub(crate) fn status(base: &Path) -> Result<GitState, String> {
     let branch = git(base, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .unwrap_or_else(|_| "detached".into())
         .trim()

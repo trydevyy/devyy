@@ -375,6 +375,130 @@ impl Context {
                     json!({"id":uuid::Uuid::new_v4().to_string(),"path":path,"original":original,"modified":modified,"create":create,"workspace":workspace::display_path(&self.base),"status":"pending"}),
                 )
             }
+            "write_file" => {
+                if self.mode != "full" {
+                    return Err("Full workspace access is required to write files".into());
+                }
+                let content = args["content"].as_str().ok_or("Provide file content")?;
+                let full = self.path(path, true)?;
+                if let Some(parent) = full.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(&full, content).map_err(|e| e.to_string())?;
+                Ok(json!({"path": path, "bytesWritten": content.len(), "success": true}))
+            }
+            "move_file" => {
+                if self.mode != "full" {
+                    return Err("Full workspace access is required to move files".into());
+                }
+                let from = args["from"].as_str().ok_or("Provide source path")?;
+                let to = args["to"].as_str().ok_or("Provide destination path")?;
+                let from_full = self.path(from, false)?;
+                let to_full = self.path(to, true)?;
+                if let Some(parent) = to_full.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::rename(&from_full, &to_full).map_err(|e| e.to_string())?;
+                Ok(json!({"from": from, "to": to, "success": true}))
+            }
+            "delete_file" => {
+                if self.mode != "full" {
+                    return Err("Full workspace access is required to delete files".into());
+                }
+                let full = self.path(path, false)?;
+                if full.is_dir() {
+                    std::fs::remove_dir_all(&full).map_err(|e| e.to_string())?;
+                } else {
+                    std::fs::remove_file(&full).map_err(|e| e.to_string())?;
+                }
+                Ok(json!({"path": path, "deleted": true}))
+            }
+            "vcs_status" => {
+                let state = crate::git::status(&self.base)?;
+                let provider = crate::git::vcs_get_provider();
+                Ok(json!({
+                    "provider": provider,
+                    "branch": state.branch,
+                    "upstream": state.upstream,
+                    "ahead": state.ahead,
+                    "behind": state.behind,
+                    "changes": state.changes
+                }))
+            }
+            "vcs_diff" => {
+                let diff_path = args["path"].as_str().unwrap_or("");
+                let staged = args["staged"].as_bool().unwrap_or(false);
+                let mut cmd_args = vec!["diff"];
+                if staged {
+                    cmd_args.push("--staged");
+                }
+                if !diff_path.is_empty() {
+                    cmd_args.push("--");
+                    cmd_args.push(diff_path);
+                }
+                let diff_output = crate::git::git(&self.base, &cmd_args)?;
+                let max_len = LIMIT;
+                let truncated = diff_output.len() > max_len;
+                let diff_text = if truncated {
+                    format!("{}... [diff truncated]", &diff_output[..max_len])
+                } else {
+                    diff_output
+                };
+                Ok(json!({"path": diff_path, "diff": diff_text, "truncated": truncated}))
+            }
+            "vcs_checkpoint" => {
+                let name = args["name"].as_str().map(|s| s.to_string());
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let checkpoint_name = name.unwrap_or_else(|| format!("checkpoint-{}", now));
+                let msg = format!("Devyy Agent Checkpoint: {}", checkpoint_name);
+                let out = crate::git::git(&self.base, &["stash", "create", &msg])?;
+                if out.trim().is_empty() {
+                    let _ = crate::git::git(&self.base, &["tag", "-f", &checkpoint_name]);
+                    Ok(json!({"checkpoint": checkpoint_name, "status": "created_tag_at_head"}))
+                } else {
+                    let sha = out.trim().to_string();
+                    let _ = crate::git::git(&self.base, &["stash", "store", "-m", &msg, &sha]);
+                    let short = if sha.len() >= 8 { &sha[..8] } else { &sha };
+                    Ok(json!({"checkpoint": checkpoint_name, "sha": short, "status": "stored_stash"}))
+                }
+            }
+            "qa_check" => {
+                let has_cargo = self.base.join("Cargo.toml").exists();
+                let has_package = self.base.join("package.json").exists();
+                let mut results = Vec::new();
+                if has_cargo {
+                    let output = std::process::Command::new("cargo")
+                        .arg("check")
+                        .current_dir(&self.base)
+                        .output();
+                    if let Ok(res) = output {
+                        let stderr = String::from_utf8_lossy(&res.stderr);
+                        results.push(json!({
+                            "tool": "cargo check",
+                            "success": res.status.success(),
+                            "output": stderr.chars().take(2000).collect::<String>()
+                        }));
+                    }
+                }
+                if has_package {
+                    let output = std::process::Command::new("npm")
+                        .args(["run", "check"])
+                        .current_dir(&self.base)
+                        .output();
+                    if let Ok(res) = output {
+                        let out = format!("{}\n{}", String::from_utf8_lossy(&res.stdout), String::from_utf8_lossy(&res.stderr));
+                        results.push(json!({
+                            "tool": "npm run check",
+                            "success": res.status.success(),
+                            "output": out.trim().chars().take(2000).collect::<String>()
+                        }));
+                    }
+                }
+                Ok(json!({"checks": results}))
+            }
             _ => Err("Unknown workspace tool".into()),
         }
     }
@@ -427,11 +551,18 @@ fn definitions(full: bool) -> Vec<Value> {
         json!({"name":"read_file","description":"Read lines of a UTF-8 workspace file up to 10 MiB. Each result is bounded to 256 KiB; start_line and end_line are optional (reads up to 2000 lines).","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path to the file"},"start_line":{"type":"integer","description":"Optional 1-indexed start line (defaults to 1)"},"end_line":{"type":"integer","description":"Optional 1-indexed end line (defaults to start_line + 1999)"}},"required":["path"],"additionalProperties":false}}),
         json!({"name":"find_files","description":"Quickly find workspace files matching a glob pattern, extension, or filename substring (e.g. '*.rs', 'package.json', 'src/**/*.ts').","parameters":{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, extension, or filename substring to match"}},"required":["pattern"],"additionalProperties":false}}),
         json!({"name":"search_files","description":"Find literal text in workspace files, with line numbers. Results are bounded; narrow the directory for large projects.","parameters":{"type":"object","properties":{"path":{"type":"string"},"query":{"type":"string"}},"required":["path","query"],"additionalProperties":false}}),
+        json!({"name":"vcs_status","description":"Inspect version control status (Git or Hit), including branch, ahead/behind count, modified, and untracked files.","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}),
+        json!({"name":"vcs_diff","description":"View unstaged or staged unified diffs for a specific file or the entire repository.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Optional workspace-relative path"},"staged":{"type":"boolean","description":"Optional: if true, inspect staged changes"}},"required":[],"additionalProperties":false}}),
     ];
     tools.push(json!({"name":"read_files","description":"Read up to 8 workspace files in one call, up to 250 lines per file. Each file reports its own result or permission/error without discarding other results.","parameters":{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8}},"required":["paths"],"additionalProperties":false}}));
     if full {
-        tools.push(json!({"name":"run_command","description":"Execute a non-interactive shell command directly in the workspace directory (e.g. 'cargo check', 'npm test', 'git status', 'git diff', 'ls -la'). Standard output and error are returned with a 30s timeout.","parameters":{"type":"object","properties":{"command":{"type":"string","description":"Command to execute in the workspace directory"}},"required":["command"],"additionalProperties":false}}));
+        tools.push(json!({"name":"run_command","description":"Execute a non-interactive shell command directly in the workspace directory (e.g. 'cargo check', 'npm test', 'git status', 'hit status'). Standard output and error are returned with a 30s timeout.","parameters":{"type":"object","properties":{"command":{"type":"string","description":"Command to execute in the workspace directory"}},"required":["command"],"additionalProperties":false}}));
         tools.push(json!({"name":"propose_edit","description":"Stage a complete file replacement or a new file in an existing directory for the user to review in Devyy. Does not write to disk.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}));
+        tools.push(json!({"name":"write_file","description":"Directly write or overwrite a file in the workspace directory with the given content. Creates parent directories as needed.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path to write"},"content":{"type":"string","description":"Complete content to write"}},"required":["path","content"],"additionalProperties":false}}));
+        tools.push(json!({"name":"move_file","description":"Move or rename a file or directory within the workspace.","parameters":{"type":"object","properties":{"from":{"type":"string","description":"Existing source path"},"to":{"type":"string","description":"New destination path"}},"required":["from","to"],"additionalProperties":false}}));
+        tools.push(json!({"name":"delete_file","description":"Delete a file or directory within the workspace.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path to remove"}},"required":["path"],"additionalProperties":false}}));
+        tools.push(json!({"name":"vcs_checkpoint","description":"Create a quick Hit/Git rollback checkpoint or tag for the current working tree state before making major changes.","parameters":{"type":"object","properties":{"name":{"type":"string","description":"Optional checkpoint name"}},"required":[],"additionalProperties":false}}));
+        tools.push(json!({"name":"qa_check","description":"Automatically run project quality assurance checks (typecheck, compiler, linter) and report errors.","parameters":{"type":"object","properties":{"check_type":{"type":"string","description":"Optional check category: 'cargo', 'npm', or 'all'"}},"required":[],"additionalProperties":false}}));
     }
     for tool in &mut tools {
         strict_schema(&mut tool["parameters"]);
