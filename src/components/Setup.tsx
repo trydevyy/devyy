@@ -23,6 +23,7 @@ import {
   Code2,
   Download,
   Moon,
+  Monitor,
   Palette,
   Puzzle,
   Sun,
@@ -144,7 +145,7 @@ export default function Setup({
                   role="group"
                   aria-label="Setup theme"
                 >
-                  {(["midnight", "paper"] as const).map((theme) => (
+                  {(["midnight", "paper", "monochrome"] as const).map((theme) => (
                     <button
                       key={theme}
                       aria-pressed={
@@ -170,10 +171,16 @@ export default function Setup({
                       <span>
                         {theme === "midnight" ? (
                           <Moon size={14} />
-                        ) : (
+                        ) : theme === "paper" ? (
                           <Sun size={14} />
+                        ) : (
+                          <Monitor size={14} />
                         )}{" "}
-                        {theme === "midnight" ? "Dark" : "Light"}
+                        {theme === "midnight"
+                          ? "Dark"
+                          : theme === "paper"
+                            ? "Light"
+                            : "Monochrome"}
                         {settings.theme === theme &&
                           !settings.followSystemTheme && <Check size={13} />}
                       </span>

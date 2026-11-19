@@ -189,7 +189,7 @@ export default function Preferences({
     if (item.type === "theme")
       return (
         <div className="theme-options">
-          {(["paper", "midnight"] as const).map((theme) => (
+          {(["paper", "midnight", "monochrome"] as const).map((theme) => (
             <button
               key={theme}
               className={settings.theme === theme ? "selected" : ""}
@@ -203,7 +203,7 @@ export default function Preferences({
                 <i />
                 <i />
               </span>
-              {theme === "paper" ? "Light" : "Dark"}
+              {theme === "paper" ? "Light" : theme === "midnight" ? "Dark" : "Monochrome"}
               {settings.theme === theme && <Check size={12} />}
             </button>
           ))}

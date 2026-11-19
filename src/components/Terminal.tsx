@@ -65,7 +65,7 @@ export default forwardRef<
     onExit?: () => void;
     onError: (error: unknown) => void;
     onOpen: () => void;
-    theme: "paper" | "midnight";
+    theme: "paper" | "midnight" | "monochrome";
     fontSize: number;
     scrollback: number;
     cursorBlink: boolean;
@@ -342,28 +342,29 @@ export default forwardRef<
   );
 });
 
-export function terminalTheme(theme: "paper" | "midnight") {
+export function terminalTheme(theme: "paper" | "midnight" | "monochrome") {
   const light = theme === "paper";
+  const oled = theme === "monochrome";
   return {
-    background: light ? "#f5f4f7" : "#1e1e21",
-    foreground: light ? "#494453" : "#d7d3de",
-    cursor: light ? "#80659f" : "#b9a2d7",
-    selectionBackground: light ? "#dcd3e8" : "#494053",
-    black: "#28262e",
-    red: "#d28c8d",
-    green: "#9eb394",
-    yellow: "#c5b189",
-    blue: "#8eaac6",
-    magenta: "#b499cd",
-    cyan: "#8eafb5",
-    white: "#ddd9e4",
-    brightBlack: "#797480",
-    brightRed: "#e4a1a1",
-    brightGreen: "#b0c8a5",
-    brightYellow: "#ddc79a",
-    brightBlue: "#a8c0dd",
-    brightMagenta: "#cab1df",
-    brightCyan: "#a3c5cb",
-    brightWhite: "#f4f1f8",
+    background: light ? "#f5f4f7" : oled ? "#000000" : "#1e1e21",
+    foreground: light ? "#494453" : oled ? "#eaeaea" : "#d7d3de",
+    cursor: light ? "#80659f" : oled ? "#ffffff" : "#b9a2d7",
+    selectionBackground: light ? "#dcd3e8" : oled ? "#2a2a2a" : "#494053",
+    black: oled ? "#000000" : "#28262e",
+    red: oled ? "#d8d8d8" : "#d28c8d",
+    green: oled ? "#cccccc" : "#9eb394",
+    yellow: oled ? "#e0e0e0" : "#c5b189",
+    blue: oled ? "#d0d0d0" : "#8eaac6",
+    magenta: oled ? "#e8e8e8" : "#b499cd",
+    cyan: oled ? "#c0c0c0" : "#8eafb5",
+    white: oled ? "#ffffff" : "#ddd9e4",
+    brightBlack: oled ? "#444444" : "#797480",
+    brightRed: oled ? "#eeeeee" : "#e4a1a1",
+    brightGreen: oled ? "#e4e4e4" : "#b0c8a5",
+    brightYellow: oled ? "#f4f4f4" : "#ddc79a",
+    brightBlue: oled ? "#dedede" : "#a8c0dd",
+    brightMagenta: oled ? "#f8f8f8" : "#cab1df",
+    brightCyan: oled ? "#d4d4d4" : "#a3c5cb",
+    brightWhite: "#ffffff",
   };
 }

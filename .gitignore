@@ -10,3 +10,7 @@ playwright-report/
 # Recreated from locked dependencies by assets:generate.
 public/file-icons/
 public/third-party-licenses.json
+
+# Igel files
+.igel/
+Igel.lock.bin

@@ -112,7 +112,7 @@ export interface Settings {
   autoSave: boolean;
   vibrancy: boolean;
   reduceMotion: boolean;
-  theme: "paper" | "midnight";
+  theme: "paper" | "midnight" | "monochrome";
   vcsProvider: "hit" | "git";
 }
 export interface Position {
@@ -291,7 +291,7 @@ export function normalizeSettings(value: unknown): Settings {
     result.customAccent = s.customAccent;
   if (typeof s.extensionTheme === "string" && s.extensionTheme.length < 1024)
     result.extensionTheme = s.extensionTheme;
-  if (s.theme === "paper") result.theme = "paper";
+  if (s.theme === "paper" || s.theme === "monochrome") result.theme = s.theme;
   if (s.fontFamily === "menlo" || s.fontFamily === "monospace")
     result.fontFamily = s.fontFamily;
   if (s.bindings && typeof s.bindings === "object")

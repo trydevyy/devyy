@@ -178,6 +178,7 @@ export function DesktopMenuBar({
       ref={container}
       className="desktop-menu-bar"
       aria-label="Application menu"
+      data-tauri-drag-region
     >
       <div
         ref={measures}
@@ -186,7 +187,7 @@ export function DesktopMenuBar({
         inert
       >
         {menus.map((menu) => (
-          <button key={menu.label}>{menu.label}</button>
+          <button key={menu.label} tabIndex={-1}>{menu.label}</button>
         ))}
       </div>
 

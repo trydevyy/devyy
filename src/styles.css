@@ -103,6 +103,41 @@
   --syntax-meta: #9c7daf;
 }
 
+:root[data-theme="monochrome"] {
+  color-scheme: dark;
+  --shell: #000000;
+  --shell-rgb: 0, 0, 0;
+  --paper: #000000;
+  --paper-rgb: 0, 0, 0;
+  --surface: #0a0a0a;
+  --raised: #121212;
+  --ink: #f0f0f0;
+  --secondary: #a8a8a8;
+  --muted: #737373;
+  --faint: #444444;
+  --line: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.06);
+  --accent: #ffffff;
+  --accent-soft: rgba(255, 255, 255, 0.12);
+  --accent-line: #ffffff;
+  --green: #cccccc;
+  --active-line: rgba(255, 255, 255, 0.04);
+  --selection: rgba(255, 255, 255, 0.18);
+  --primary: #ffffff;
+  --primary-ink: #000000;
+  --terminal: #000000;
+  --shadow: 0 28px 80px #000000, 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --syntax-keyword: #ffffff;
+  --syntax-function: #e0e0e0;
+  --syntax-comment: #666666;
+  --syntax-string: #b8b8b8;
+  --syntax-number: #d4d4d4;
+  --syntax-type: #c8c8c8;
+  --syntax-punctuation: #888888;
+  --syntax-meta: #999999;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -215,6 +250,11 @@ a {
       transparent 40%
     ),
     var(--shell);
+}
+
+:root[data-theme="monochrome"] .devyy,
+:root[data-theme="monochrome"][data-runtime="browser"][data-vibrancy="on"] .devyy {
+  background: #000000;
 }
 
 .titlebar {
@@ -2849,6 +2889,16 @@ a {
 .theme-preview.paper {
   background: #fafafa;
   border-left-color: #e1dfe5;
+}
+.theme-preview.monochrome {
+  background: #000000;
+  border-left-color: #ffffff;
+}
+.theme-preview.monochrome i {
+  background: #888888;
+}
+.theme-preview.monochrome i:nth-child(2) {
+  background: #cccccc;
 }
 .theme-preview i {
   display: block;
@@ -6208,6 +6258,17 @@ button.split-tab-indicator:hover {
 .setup-theme-window.paper {
   background: #f8f8f8;
   border-color: #0000000a;
+}
+.setup-theme-window.monochrome {
+  background: #000000;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.setup-theme-window.monochrome b {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.setup-theme-window.monochrome em {
+  background: #ffffff90;
 }
 .setup-theme-window > span {
   display: flex;

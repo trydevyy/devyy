@@ -136,7 +136,7 @@ export default function DiffEditor({
               ".cm-content": { padding: "12px 0" },
               "&.cm-focused": { outline: "none" },
             },
-            { dark: settings.theme === "midnight" },
+            { dark: settings.theme !== "paper" },
           ),
           ...(support ? [support] : []),
         ];

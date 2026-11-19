@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "xyz.devyy.installer",
   "build": {
+    "runner": "igl",
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1431",
     "beforeBuildCommand": "npm run build",

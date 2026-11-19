@@ -75,7 +75,7 @@ export function useAppearance(
   }, [settings.uiScale, settings.uiTextSize]);
   useEffect(() => {
     const root = document.documentElement;
-    const color = accentColor(settings, settings.theme === "midnight");
+    const color = accentColor(settings, settings.theme !== "paper");
     root.dataset.platform = /Mac/.test(navigator.platform)
       ? "macos"
       : /Win/.test(navigator.platform)
