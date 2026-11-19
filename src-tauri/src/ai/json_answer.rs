@@ -15,17 +15,9 @@
 
 use serde_json::Value;
 
-const START_TAGS: &[&str] = &[
-    "<ctrl94>thought",
-    "<ctrl94>",
-    "\u{001e}thought",
-    "\u{001e}",
-];
+const START_TAGS: &[&str] = &["<ctrl94>thought", "<ctrl94>", "\u{001e}thought", "\u{001e}"];
 
-const END_TAGS: &[&str] = &[
-    "<ctrl95>",
-    "\u{001f}",
-];
+const END_TAGS: &[&str] = &["<ctrl95>", "\u{001f}"];
 
 pub fn start_thought_tag(s: &str) -> Option<usize> {
     for tag in START_TAGS {
@@ -162,7 +154,9 @@ impl JsonAnswer {
                     if let Some(tag_len) = start_thought_tag(remaining) {
                         self.in_thought = true;
                         self.cursor += tag_len;
-                        if self.cursor < self.input.len() && self.input[self.cursor..].starts_with('\n') {
+                        if self.cursor < self.input.len()
+                            && self.input[self.cursor..].starts_with('\n')
+                        {
                             self.cursor += 1;
                         }
                         continue;
@@ -174,7 +168,9 @@ impl JsonAnswer {
                     if let Some(tag_len) = end_thought_tag(remaining) {
                         self.in_thought = false;
                         self.cursor += tag_len;
-                        if self.cursor < self.input.len() && self.input[self.cursor..].starts_with('\n') {
+                        if self.cursor < self.input.len()
+                            && self.input[self.cursor..].starts_with('\n')
+                        {
                             self.cursor += 1;
                         }
                         continue;
@@ -196,7 +192,9 @@ impl JsonAnswer {
                     if let Some(tag_len) = start_thought_tag(remaining) {
                         self.in_thought = true;
                         self.cursor += tag_len;
-                        if self.cursor < self.input.len() && self.input[self.cursor..].starts_with('\n') {
+                        if self.cursor < self.input.len()
+                            && self.input[self.cursor..].starts_with('\n')
+                        {
                             self.cursor += 1;
                         }
                         continue;
@@ -208,7 +206,9 @@ impl JsonAnswer {
                     if let Some(tag_len) = end_thought_tag(remaining) {
                         self.in_thought = false;
                         self.cursor += tag_len;
-                        if self.cursor < self.input.len() && self.input[self.cursor..].starts_with('\n') {
+                        if self.cursor < self.input.len()
+                            && self.input[self.cursor..].starts_with('\n')
+                        {
                             self.cursor += 1;
                         }
                         continue;
@@ -311,7 +311,9 @@ mod tests {
     fn streams_answer_and_waits_for_split_escapes_without_exposing_tools() {
         let mut stream = JsonAnswer::default();
         assert_eq!(
-            stream.push(r#"{"tool_requests":[{"arguments":"{\"answer\":\"private\"}"}],"ans"#).0,
+            stream
+                .push(r#"{"tool_requests":[{"arguments":"{\"answer\":\"private\"}"}],"ans"#)
+                .0,
             ""
         );
         assert_eq!(stream.push(r#"wer":"Hello \uD83D"#).0, "Hello ");
