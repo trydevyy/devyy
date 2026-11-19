@@ -69,9 +69,12 @@ async fn create_askpass_script(_password: &str) -> Result<std::path::PathBuf, St
 
     #[cfg(not(windows))]
     {
-        tokio::fs::write(&script_path, b"#!/bin/sh\nprintf '%s\\n' \"$DEVYY_SSH_PASS\"\n")
-            .await
-            .map_err(|e| format!("Could not create askpass script: {}", e))?;
+        tokio::fs::write(
+            &script_path,
+            b"#!/bin/sh\nprintf '%s\\n' \"$DEVYY_SSH_PASS\"\n",
+        )
+        .await
+        .map_err(|e| format!("Could not create askpass script: {}", e))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -479,7 +482,10 @@ pub async fn ssh_fetch_workspace(
 
     cmd.arg(remote_target).arg(&target_dir);
 
-    let output = cmd.output().await.map_err(|e| format!("Could not run scp: {}", e))?;
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Could not run scp: {}", e))?;
 
     if let Some(ref p) = temp_askpass {
         let _ = tokio::fs::remove_file(p).await;
@@ -576,7 +582,10 @@ pub async fn ssh_sync_file(
     };
 
     cmd.arg(&local_file).arg(target);
-    let output = cmd.output().await.map_err(|e| format!("Could not run scp: {}", e))?;
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Could not run scp: {}", e))?;
 
     if let Some(ref p) = temp_askpass {
         let _ = tokio::fs::remove_file(p).await;

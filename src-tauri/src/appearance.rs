@@ -27,9 +27,10 @@ pub fn set_appearance(
     theme: String,
     vibrancy: bool,
 ) -> Result<Appearance, String> {
+    let is_monochrome = theme == "monochrome";
     let theme = match theme.as_str() {
         "paper" => Theme::Light,
-        "midnight" => Theme::Dark,
+        "midnight" | "monochrome" => Theme::Dark,
         _ => return Err("Unknown color theme".into()),
     };
     window.set_theme(Some(theme)).map_err(|e| e.to_string())?;
@@ -83,6 +84,8 @@ pub fn set_appearance(
         window
             .set_background_color(Some(if mica {
                 tauri::window::Color(0, 0, 0, 0)
+            } else if is_monochrome {
+                tauri::window::Color(0, 0, 0, 255)
             } else if theme == Theme::Dark {
                 tauri::window::Color(27, 28, 30, 255)
             } else {
@@ -97,7 +100,9 @@ pub fn set_appearance(
     {
         let _ = vibrancy;
         window
-            .set_background_color(Some(if theme == Theme::Dark {
+            .set_background_color(Some(if is_monochrome {
+                tauri::window::Color(0, 0, 0, 255)
+            } else if theme == Theme::Dark {
                 tauri::window::Color(27, 28, 30, 255)
             } else {
                 tauri::window::Color(237, 237, 238, 255)

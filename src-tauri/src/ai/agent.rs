@@ -462,7 +462,9 @@ impl Context {
                     let sha = out.trim().to_string();
                     let _ = crate::git::git(&self.base, &["stash", "store", "-m", &msg, &sha]);
                     let short = if sha.len() >= 8 { &sha[..8] } else { &sha };
-                    Ok(json!({"checkpoint": checkpoint_name, "sha": short, "status": "stored_stash"}))
+                    Ok(
+                        json!({"checkpoint": checkpoint_name, "sha": short, "status": "stored_stash"}),
+                    )
                 }
             }
             "qa_check" => {
@@ -489,7 +491,11 @@ impl Context {
                         .current_dir(&self.base)
                         .output();
                     if let Ok(res) = output {
-                        let out = format!("{}\n{}", String::from_utf8_lossy(&res.stdout), String::from_utf8_lossy(&res.stderr));
+                        let out = format!(
+                            "{}\n{}",
+                            String::from_utf8_lossy(&res.stdout),
+                            String::from_utf8_lossy(&res.stderr)
+                        );
                         results.push(json!({
                             "tool": "npm run check",
                             "success": res.status.success(),
@@ -1100,10 +1106,7 @@ fn structured_turn<R: tauri::Runtime>(
         output: vec![json!({"role":"assistant","content":output.to_string()})],
         ..Default::default()
     };
-    let remaining = turn
-        .text
-        .strip_prefix(&answer.text)
-        .unwrap_or(&turn.text);
+    let remaining = turn.text.strip_prefix(&answer.text).unwrap_or(&turn.text);
     if !remaining.is_empty() && (answer.text.is_empty() || turn.text.starts_with(&answer.text)) {
         emit(app, &r.request_id, "delta", json!(remaining));
     }

@@ -1308,7 +1308,11 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let custom_brand = tmp.path().join("brand.html");
-        std::fs::write(&custom_brand, "<div class=\"custom-brand\">CUSTOM_BRAND</div>").unwrap();
+        std::fs::write(
+            &custom_brand,
+            "<div class=\"custom-brand\">CUSTOM_BRAND</div>",
+        )
+        .unwrap();
         let custom_html = render_auth_page(true, "test-nonce", Some(tmp.path()));
         assert!(custom_html.contains("CUSTOM_BRAND"));
     }
