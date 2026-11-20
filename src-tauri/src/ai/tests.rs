@@ -129,6 +129,7 @@ fn published_thinking_summaries_are_separate_from_answer_text() {
 fn official_apis_request_summaries_only_on_supported_models() {
     let mut p = defaults().into_iter().find(|p| p.kind == "openai").unwrap();
     let request = ChatRequest {
+        agent_mode: None,
         request_id: "test".into(),
         provider_id: p.id.clone(),
         messages: vec![Message {

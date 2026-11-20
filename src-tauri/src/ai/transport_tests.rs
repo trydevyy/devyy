@@ -32,6 +32,7 @@ fn app() -> (tauri::App<MockRuntime>, Arc<Mutex<Vec<Value>>>) {
 }
 fn chat() -> ChatRequest {
     ChatRequest {
+        agent_mode: None,
         request_id: "transport-test".into(),
         provider_id: "fixture".into(),
         messages: vec![Message {

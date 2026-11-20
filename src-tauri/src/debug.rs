@@ -93,6 +93,9 @@ pub async fn debug_start<R: tauri::Runtime>(
         return Err("Stop the current debug session first".into());
     }
     let base = root(&workspace)?;
+    if crate::remote::ssh_workspace(&base).is_some() {
+        return Err("Use the remote terminal to start a debugger on this SSH server.".into());
+    }
     let adapter = tauri::async_runtime::spawn_blocking(move || -> Result<Arc<Adapter>, String> {
         let mut cmd = match kind.as_str() { "python" => { let binary = if cfg!(windows) { "python" } else { "python3" }; let mut c = crate::process::command(binary); c.args(["-m", "debugpy.adapter"]); c }, "lldb" => crate::process::command("lldb-dap"), _ => return Err("Choose LLDB or Python as the debug adapter".into()) };
         let mut child = cmd.current_dir(base).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| format!("Debug adapter unavailable. Install lldb-dap (LLVM) or debugpy (Python): {e}"))?;

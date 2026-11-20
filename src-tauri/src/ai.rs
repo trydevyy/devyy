@@ -728,6 +728,7 @@ pub struct ChatRequest {
     pub cwd: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub agent_mode: Option<String>,
 }
 fn check_messages(messages: &[Message]) -> Result<(), String> {
     if messages.is_empty()
@@ -810,6 +811,9 @@ pub async fn ai_chat(
     request: ChatRequest,
 ) -> Result<(), String> {
     check_messages(&request.messages)?;
+    if request.agent_mode.as_deref().is_some_and(|mode| !matches!(mode, "ask" | "plan" | "agent" | "review")) {
+        return Err("Invalid agent mode".into());
+    }
     let mut p = provider(&app, &state, &request.provider_id)?;
     if !p.enabled {
         return Err("This provider is disabled. Enable it in AI providers.".into());

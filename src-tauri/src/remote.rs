@@ -28,6 +28,7 @@ use tokio::sync::watch;
 #[derive(Default)]
 pub struct Remotes {
     jobs: Mutex<HashMap<String, Job>>,
+    mounts: Mutex<Vec<WorkspaceMount>>,
 }
 struct Job {
     cancel: watch::Sender<bool>,
@@ -229,7 +230,7 @@ pub async fn ssh_forward(app: tauri::AppHandle, options: SshOptions) -> Result<S
     app.state::<Remotes>().jobs.lock().unwrap().insert(
         id.clone(),
         Job {
-            cancel,
+            cancel: cancel.clone(),
             info: Connection {
                 id: id.clone(),
                 kind: "ssh".into(),
@@ -250,7 +251,15 @@ pub async fn ssh_forward(app: tauri::AppHandle, options: SshOptions) -> Result<S
         });
         tokio::select! {_ =rx.changed()=>{let _=child.kill().await;},result=child.wait()=>{if result.is_err()||result.is_ok_and(|s|!s.success()){let _=app.emit("devyy-remote-error","The SSH connection ended. Check your network and SSH agent.");}}}
         drain.abort();
-        app.state::<Remotes>().jobs.lock().unwrap().remove(&task_id);
+        let remotes = app.state::<Remotes>();
+        let mut jobs = remotes.jobs.lock().unwrap();
+        if jobs
+            .get(&task_id)
+            .is_some_and(|job| job.cancel.same_channel(&cancel))
+        {
+            jobs.remove(&task_id);
+        }
+        drop(jobs);
         let _ = app.emit("devyy-remote-changed", ());
     });
     Ok(id)
@@ -302,7 +311,7 @@ pub async fn port_forward(
         jobs.insert(
             id.clone(),
             Job {
-                cancel,
+                cancel: cancel.clone(),
                 info: Connection {
                     id: id.clone(),
                     kind: "port".into(),
@@ -328,7 +337,15 @@ pub async fn port_forward(
         loop {
             tokio::select! {_ =rx.changed()=>break,response=queue.recv()=>{let Some(response)=response else{break};if tx.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string().into())).await.is_err(){break;}},incoming=stream.next()=>{match incoming{Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{if text.len()>1500*1024{break;}let Ok(value)=serde_json::from_str::<Value>(&text) else{break;};let id=value["id"].as_str().unwrap_or("").to_owned();let Ok(slot)=slots.clone().try_acquire_owned()else{let _=responses.try_send(json!({"id":id,"status":503,"body":STANDARD.encode("Forwarding is busy"),"headers":[]}));continue;};let client=client.clone();let responses=responses.clone();tokio::spawn(async move{let _slot=slot;let result=forward_request(&client,port,is_https,&value).await.unwrap_or_else(|message|json!({"status":502,"body":STANDARD.encode(message),"headers":[]}));let mut result=result;result["id"]=json!(id);let _=responses.send(result).await;});},Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(bytes)))=>{let _=tx.send(tokio_tungstenite::tungstenite::Message::Pong(bytes)).await;},Some(Ok(tokio_tungstenite::tungstenite::Message::Pong(_)))=>{},_=>break}}}
         }
-        app.state::<Remotes>().jobs.lock().unwrap().remove(&task_id);
+        let remotes = app.state::<Remotes>();
+        let mut jobs = remotes.jobs.lock().unwrap();
+        if jobs
+            .get(&task_id)
+            .is_some_and(|job| job.cancel.same_channel(&cancel))
+        {
+            jobs.remove(&task_id);
+        }
+        drop(jobs);
         let _ = app.emit("devyy-remote-changed", ());
     });
     Ok(id)
@@ -413,190 +430,293 @@ async fn forward_request(
     Ok(json!({"status":status,"headers":headers,"body":STANDARD.encode(body)}))
 }
 
+#[derive(Clone)]
+pub(crate) struct SshWorkspace {
+    pub host: String,
+    pub user: String,
+    pub port: u16,
+    path: String,
+    pub mount: std::path::PathBuf,
+}
+
+static WORKSPACES: Mutex<Vec<SshWorkspace>> = Mutex::new(Vec::new());
+
+pub(crate) fn ssh_workspace(path: &std::path::Path) -> Option<SshWorkspace> {
+    WORKSPACES
+        .lock()
+        .ok()?
+        .iter()
+        .find(|entry| path.starts_with(&entry.mount))
+        .cloned()
+}
+
+pub(crate) fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+impl SshWorkspace {
+    pub fn destination(&self) -> String {
+        format!("{}@{}", self.user, self.host)
+    }
+
+    pub fn remote_directory(&self, local: &std::path::Path) -> String {
+        let base = if self.path.starts_with('/') {
+            shell_quote(&self.path)
+        } else {
+            format!("\"$HOME\"/{}", shell_quote(&self.path))
+        };
+        let relative = local
+            .strip_prefix(&self.mount)
+            .unwrap_or(local)
+            .to_string_lossy();
+        if relative.is_empty() {
+            base
+        } else {
+            format!("{base}/{}", shell_quote(&relative.replace('\\', "/")))
+        }
+    }
+
+    pub fn command_at(
+        &self,
+        local: &std::path::Path,
+        script: &str,
+    ) -> Result<std::process::Command, String> {
+        self.ensure_mounted()?;
+        let mut command = crate::process::command("ssh");
+        command.args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-p",
+            &self.port.to_string(),
+            &self.destination(),
+        ]);
+        command.arg(format!(
+            "cd {} && sh -c {}",
+            self.remote_directory(local),
+            shell_quote(script)
+        ));
+        Ok(command)
+    }
+
+    pub fn ensure_mounted(&self) -> Result<(), String> {
+        if is_mounted(&self.mount) {
+            Ok(())
+        } else {
+            Err("The SSH workspace disconnected. Reopen it in Remote Explorer.".into())
+        }
+    }
+}
+
+fn is_mounted(mount: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        mount
+            .parent()
+            .and_then(|parent| std::fs::metadata(parent).ok())
+            .zip(std::fs::metadata(mount).ok())
+            .is_some_and(|(local, remote)| local.dev() != remote.dev())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(mount).is_ok_and(|metadata| metadata.is_dir())
+    }
+}
+
+struct WorkspaceMount {
+    // The foreground SSHFS process owns the mount for the lifetime of the app.
+    _process: tokio::process::Child,
+    _directory: MountDirectory,
+}
+
+struct MountDirectory(std::path::PathBuf);
+
+impl Drop for MountDirectory {
+    fn drop(&mut self) {
+        // An SSHFS directory may still be mounted here. Never recurse into it.
+        let _ = std::fs::remove_dir(self.0.join("workspace"));
+        let _ = std::fs::remove_dir(&self.0);
+    }
+}
+
 #[tauri::command]
-pub async fn ssh_fetch_workspace(
+pub async fn ssh_mount_workspace(
+    app: tauri::AppHandle,
     host: String,
     user: String,
     ssh_port: u16,
     remote_path: String,
     password: Option<String>,
 ) -> Result<String, String> {
-    if !valid_host(&host) {
-        return Err("Invalid remote host".into());
-    }
-    if !valid_host(&user) {
-        return Err("Invalid SSH user".into());
-    }
+    use tokio::io::AsyncWriteExt;
 
-    let sanitized_host = host.replace(|c: char| !c.is_alphanumeric(), "_");
-    let target_dir = std::env::temp_dir()
-        .join("devyy-remote-workspaces")
-        .join(format!("{}_{}_{}", user, sanitized_host, ssh_port));
-    tokio::fs::create_dir_all(&target_dir)
-        .await
-        .map_err(|e| format!("Could not create local workspace directory: {}", e))?;
-
-    let temp_askpass = if let Some(ref pass) = password {
-        if !pass.is_empty() {
-            Some(create_askpass_script(pass).await?)
-        } else {
-            None
-        }
+    if !valid_host(&host) || !valid_host(&user) || user.contains(':') || ssh_port == 0 {
+        return Err("Invalid SSH connection settings".into());
+    }
+    if remote_path.contains(['\n', '\r', '\0']) {
+        return Err("Invalid remote workspace path".into());
+    }
+    let path = remote_path.trim();
+    let path = if path == "~" {
+        ""
     } else {
-        None
+        path.strip_prefix("~/").unwrap_or(path)
     };
-
-    let mut cmd = tokio::process::Command::new("scp");
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x08000000);
-    }
-    cmd.arg("-P")
-        .arg(ssh_port.to_string())
-        .arg("-r")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
-        .arg("NumberOfPasswordPrompts=1");
-
-    if let Some(ref askpass_path) = temp_askpass {
-        cmd.arg("-o").arg("BatchMode=no");
-        cmd.env("SSH_ASKPASS", askpass_path);
-        cmd.env("SSH_ASKPASS_REQUIRE", "force");
-        cmd.env("DISPLAY", ":0");
-        if let Some(ref pass) = password {
-            cmd.env("DEVYY_SSH_PASS", pass);
-        }
-    } else {
-        cmd.arg("-o").arg("BatchMode=yes");
-    }
-
-    let clean_path = remote_path.trim();
-    let remote_target = if clean_path.is_empty() || clean_path == "~" {
-        format!("{}@{}:~/*", user, host)
-    } else if clean_path.ends_with('/') || clean_path.ends_with('*') {
-        format!("{}@{}:{}", user, host, clean_path)
-    } else {
-        format!("{}@{}:{}/*", user, host, clean_path)
-    };
-
-    cmd.arg(remote_target).arg(&target_dir);
-
-    let output = cmd
-        .output()
+    let existing = WORKSPACES
+        .lock()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .rev()
+        .find(|entry| {
+            entry.host == host && entry.user == user && entry.port == ssh_port && entry.path == path
+        })
+        .cloned();
+    if let Some(existing) = existing {
+        if let Ok(Ok(mount)) = tokio::task::spawn_blocking(move || {
+            existing.ensure_mounted()?;
+            Ok::<_, String>(existing.mount)
+        })
         .await
-        .map_err(|e| format!("Could not run scp: {}", e))?;
-
-    if let Some(ref p) = temp_askpass {
-        let _ = tokio::fs::remove_file(p).await;
-    }
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let trimmed = stderr.trim();
-        if trimmed.contains("Permission denied") {
-            return Err(format!("AUTH_PASSWORD_REQUIRED: {}", trimmed));
-        }
-        if !trimmed.contains("No such file or directory")
-            || target_dir
-                .read_dir()
-                .map_or(true, |mut i| i.next().is_none())
         {
-            return Err(format!("SSH fetch failed: {}", trimmed));
+            return Ok(crate::workspace::display_path(&mount));
         }
     }
-
-    // Write .devyy-remote.json metadata inside the target directory
-    let meta = serde_json::json!({
-        "host": host,
-        "user": user,
-        "sshPort": ssh_port,
-        "remotePath": remote_path,
-        "password": password
-    });
-    let _ = tokio::fs::write(target_dir.join(".devyy-remote.json"), meta.to_string()).await;
-
-    Ok(target_dir.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub async fn ssh_sync_file(
-    host: String,
-    user: String,
-    ssh_port: u16,
-    remote_path: String,
-    local_file: String,
-    relative_path: String,
-    password: Option<String>,
-) -> Result<(), String> {
-    if !valid_host(&host) || !valid_host(&user) {
-        return Err("Invalid SSH credentials".into());
-    }
-
-    let temp_askpass = if let Some(ref pass) = password {
-        if !pass.is_empty() {
-            Some(create_askpass_script(pass).await?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let mut cmd = tokio::process::Command::new("scp");
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x08000000);
-    }
-    cmd.arg("-P")
-        .arg(ssh_port.to_string())
-        .arg("-o")
-        .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
-        .arg("NumberOfPasswordPrompts=1");
-
-    if let Some(ref askpass_path) = temp_askpass {
-        cmd.arg("-o").arg("BatchMode=no");
-        cmd.env("SSH_ASKPASS", askpass_path);
-        cmd.env("SSH_ASKPASS_REQUIRE", "force");
-        cmd.env("DISPLAY", ":0");
-        if let Some(ref pass) = password {
-            cmd.env("DEVYY_SSH_PASS", pass);
-        }
-    } else {
-        cmd.arg("-o").arg("BatchMode=yes");
-    }
-
-    let clean_rel = relative_path.replace('\\', "/");
-    let base = remote_path.trim();
-    let target = if base.is_empty() || base == "~" {
-        format!("{}@{}:~/{}", user, host, clean_rel.trim_start_matches('/'))
-    } else {
-        format!(
-            "{}@{}:{}/{}",
-            user,
-            host,
-            base.trim_end_matches('/'),
-            clean_rel.trim_start_matches('/')
-        )
-    };
-
-    cmd.arg(&local_file).arg(target);
-    let output = cmd
-        .output()
+    let directory = MountDirectory(
+        tempfile::tempdir()
+            .map_err(|error| error.to_string())?
+            .keep(),
+    );
+    let mount = directory.0.join("workspace");
+    #[cfg(not(windows))]
+    tokio::fs::create_dir(&mount)
         .await
-        .map_err(|e| format!("Could not run scp: {}", e))?;
+        .map_err(|error| error.to_string())?;
 
-    if let Some(ref p) = temp_askpass {
-        let _ = tokio::fs::remove_file(p).await;
+    #[cfg(windows)]
+    let mut cmd = {
+        let installed = std::env::var_os("ProgramFiles")
+            .map(std::path::PathBuf::from)
+            .map(|path| path.join("SSHFS-Win/bin/sshfs-win.exe"))
+            .filter(|path| path.is_file());
+        let mut command =
+            tokio::process::Command::new(installed.unwrap_or_else(|| "sshfs-win.exe".into()));
+        command.creation_flags(0x08000000).arg("cmd");
+        command
+    };
+    #[cfg(not(windows))]
+    let mut cmd = tokio::process::Command::new("sshfs");
+
+    let host_arg = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.clone()
+    };
+    cmd.arg(format!("{user}@{host_arg}:{path}"))
+        .arg(&mount)
+        .arg("-f")
+        .args([
+            "-p",
+            &ssh_port.to_string(),
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+        ])
+        .args(["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15"])
+        .args([
+            "-o",
+            "dir_cache=no",
+            "-o",
+            "direct_io",
+            "-o",
+            "transform_symlinks",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+
+    let password = password.filter(|value| !value.is_empty());
+    if password
+        .as_ref()
+        .is_some_and(|value| value.contains(['\n', '\r', '\0']))
+    {
+        return Err("SSH passwords cannot contain a line break or NUL".into());
+    }
+    if password.is_some() {
+        cmd.args(["-o", "password_stdin"])
+            .stdin(std::process::Stdio::piped());
+    } else {
+        cmd.args(["-o", "BatchMode=yes"])
+            .stdin(std::process::Stdio::null());
+    }
+    let mut process = cmd.spawn().map_err(|error| {
+        format!("Could not start SSHFS. Install SSHFS, or WinFsp and SSHFS-Win on Windows. {error}")
+    })?;
+    if let (Some(password), Some(mut stdin)) = (password, process.stdin.take()) {
+        stdin
+            .write_all(format!("{password}\n").as_bytes())
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        if process
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            let output = process
+                .wait_with_output()
+                .await
+                .map_err(|error| error.to_string())?;
+            return Err(format!(
+                "Could not mount SSH workspace: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let candidate = mount.clone();
+        if tokio::time::timeout_at(
+            deadline,
+            tokio::task::spawn_blocking(move || is_mounted(&candidate)),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or(false)
+        {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("Timed out opening the SSH workspace".into());
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Could not sync file to remote: {}", stderr.trim()));
+    if let Some(mut stderr) = process.stderr.take() {
+        tokio::spawn(async move {
+            let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
+        });
     }
-
-    Ok(())
+    let mount = mount.canonicalize().map_err(|error| error.to_string())?;
+    WORKSPACES
+        .lock()
+        .map_err(|error| error.to_string())?
+        .push(SshWorkspace {
+            host,
+            user,
+            port: ssh_port,
+            path: path.to_owned(),
+            mount: mount.clone(),
+        });
+    app.state::<Remotes>()
+        .mounts
+        .lock()
+        .map_err(|error| error.to_string())?
+        .push(WorkspaceMount {
+            _process: process,
+            _directory: directory,
+        });
+    Ok(crate::workspace::display_path(&mount))
 }
 
 #[cfg(test)]

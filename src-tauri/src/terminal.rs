@@ -59,7 +59,16 @@ pub async fn terminal_create<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let base = root(&workspace).or_else(|_| app.path().home_dir().map_err(|e| e.to_string()))?;
+    let base = if workspace
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        root(&workspace)?
+    } else {
+        app.path().home_dir().map_err(|error| error.to_string())?
+    };
     tauri::async_runtime::spawn_blocking(move || {
         create_session(app, base, cols, rows, profile, options)
     })
@@ -74,7 +83,7 @@ fn create_session<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let shell = crate::shells::select(profile.as_deref())?;
+    let ssh = crate::remote::ssh_workspace(&base);
     let state = app.state::<Terminals>();
     let pty = native_pty_system()
         .openpty(PtySize {
@@ -85,33 +94,53 @@ fn create_session<R: tauri::Runtime>(
         })
         .map_err(|e| e.to_string())?;
     let options = options.unwrap_or_default();
-    let mut cmd = CommandBuilder::new(options.shell_path.as_deref().unwrap_or(&shell.path));
-    if let Some(args) = options.shell_args {
-        if let Some(args) = args.as_array() {
-            cmd.args(args.iter().filter_map(|s| s.as_str()));
-        } else if let Some(args) = args.as_str() {
-            cmd.arg(args);
+    let mut cmd = if let Some(ssh) = ssh {
+        let mut command =
+            CommandBuilder::new(crate::process::executable("ssh").unwrap_or_else(|| "ssh".into()));
+        command.args([
+            "-tt",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-p",
+            &ssh.port.to_string(),
+            &ssh.destination(),
+        ]);
+        command.arg(format!(
+            "cd {} && exec \"$SHELL\" -l",
+            ssh.remote_directory(&base)
+        ));
+        command
+    } else {
+        let shell = crate::shells::select(profile.as_deref())?;
+        let mut cmd = CommandBuilder::new(options.shell_path.as_deref().unwrap_or(&shell.path));
+        if let Some(args) = options.shell_args {
+            if let Some(args) = args.as_array() {
+                cmd.args(args.iter().filter_map(|s| s.as_str()));
+            } else if let Some(args) = args.as_str() {
+                cmd.arg(args);
+            }
+        } else if options.shell_path.is_none() {
+            cmd.args(&shell.args);
         }
-    } else if options.shell_path.is_none() {
-        cmd.args(&shell.args);
-    }
-    let cwd = options
-        .cwd
-        .as_ref()
-        .and_then(|v| v.as_str().or_else(|| v["fsPath"].as_str()))
-        .map(std::path::PathBuf::from)
-        .unwrap_or(base);
-    cmd.cwd(cwd);
-    if options.strict_env.unwrap_or(false) {
-        cmd.env_clear();
-    }
-    for (key, value) in options.env.unwrap_or_default() {
-        if let Some(value) = value {
-            cmd.env(key, value);
-        } else {
-            cmd.env_remove(key);
+        let cwd = options
+            .cwd
+            .as_ref()
+            .and_then(|v| v.as_str().or_else(|| v["fsPath"].as_str()))
+            .map(std::path::PathBuf::from)
+            .unwrap_or(base);
+        cmd.cwd(cwd);
+        if options.strict_env.unwrap_or(false) {
+            cmd.env_clear();
         }
-    }
+        for (key, value) in options.env.unwrap_or_default() {
+            if let Some(value) = value {
+                cmd.env(key, value);
+            } else {
+                cmd.env_remove(key);
+            }
+        }
+        cmd
+    };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     let child = pty.slave.spawn_command(cmd).map_err(|e| e.to_string())?;

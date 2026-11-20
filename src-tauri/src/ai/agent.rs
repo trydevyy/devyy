@@ -325,12 +325,14 @@ impl Context {
                 } else {
                     "-c"
                 };
-                let output = std::process::Command::new(shell)
-                    .arg(arg_flag)
-                    .arg(command)
-                    .current_dir(&self.base)
-                    .output()
-                    .map_err(|e| format!("Failed to run command: {e}"))?;
+                let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
+                    ssh.command_at(&self.base, command)?
+                } else {
+                    let mut process = crate::process::command(shell);
+                    process.arg(arg_flag).arg(command).current_dir(&self.base);
+                    process
+                };
+                let output = bounded_command(&mut process)?;
 
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -342,7 +344,10 @@ impl Context {
                 let max_len = LIMIT;
                 let truncated = combined.len() > max_len;
                 let result_text = if truncated {
-                    format!("{}... [output truncated]", &combined[..max_len])
+                    format!(
+                        "{}... [output truncated]",
+                        &combined[..combined.floor_char_boundary(max_len)]
+                    )
                 } else {
                     combined
                 };
@@ -440,7 +445,10 @@ impl Context {
                 let max_len = LIMIT;
                 let truncated = diff_output.len() > max_len;
                 let diff_text = if truncated {
-                    format!("{}... [diff truncated]", &diff_output[..max_len])
+                    format!(
+                        "{}... [diff truncated]",
+                        &diff_output[..diff_output.floor_char_boundary(max_len)]
+                    )
                 } else {
                     diff_output
                 };
@@ -456,11 +464,11 @@ impl Context {
                 let msg = format!("Devyy Agent Checkpoint: {}", checkpoint_name);
                 let out = crate::git::git(&self.base, &["stash", "create", &msg])?;
                 if out.trim().is_empty() {
-                    let _ = crate::git::git(&self.base, &["tag", "-f", &checkpoint_name]);
+                    crate::git::git(&self.base, &["tag", &checkpoint_name])?;
                     Ok(json!({"checkpoint": checkpoint_name, "status": "created_tag_at_head"}))
                 } else {
                     let sha = out.trim().to_string();
-                    let _ = crate::git::git(&self.base, &["stash", "store", "-m", &msg, &sha]);
+                    crate::git::git(&self.base, &["stash", "store", "-m", &msg, &sha])?;
                     let short = if sha.len() >= 8 { &sha[..8] } else { &sha };
                     Ok(
                         json!({"checkpoint": checkpoint_name, "sha": short, "status": "stored_stash"}),
@@ -472,10 +480,14 @@ impl Context {
                 let has_package = self.base.join("package.json").exists();
                 let mut results = Vec::new();
                 if has_cargo {
-                    let output = std::process::Command::new("cargo")
-                        .arg("check")
-                        .current_dir(&self.base)
-                        .output();
+                    let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
+                        ssh.command_at(&self.base, "cargo check")?
+                    } else {
+                        let mut process = crate::process::command("cargo");
+                        process.arg("check").current_dir(&self.base);
+                        process
+                    };
+                    let output = bounded_command(&mut process);
                     if let Ok(res) = output {
                         let stderr = String::from_utf8_lossy(&res.stderr);
                         results.push(json!({
@@ -483,13 +495,20 @@ impl Context {
                             "success": res.status.success(),
                             "output": stderr.chars().take(2000).collect::<String>()
                         }));
+                    } else if let Err(error) = output {
+                        results
+                            .push(json!({"tool":"cargo check", "success":false, "output":error}));
                     }
                 }
                 if has_package {
-                    let output = std::process::Command::new("npm")
-                        .args(["run", "check"])
-                        .current_dir(&self.base)
-                        .output();
+                    let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
+                        ssh.command_at(&self.base, "npm run check")?
+                    } else {
+                        let mut process = crate::process::command("npm");
+                        process.args(["run", "check"]).current_dir(&self.base);
+                        process
+                    };
+                    let output = bounded_command(&mut process);
                     if let Ok(res) = output {
                         let out = format!(
                             "{}\n{}",
@@ -501,6 +520,9 @@ impl Context {
                             "success": res.status.success(),
                             "output": out.trim().chars().take(2000).collect::<String>()
                         }));
+                    } else if let Err(error) = output {
+                        results
+                            .push(json!({"tool":"npm run check", "success":false, "output":error}));
                     }
                 }
                 Ok(json!({"checks": results}))
@@ -509,6 +531,51 @@ impl Context {
         }
     }
 }
+fn bounded_command(command: &mut std::process::Command) -> Result<std::process::Output, String> {
+    use std::io::{Read, Seek};
+
+    let mut stdout = tempfile::tempfile().map_err(|error| error.to_string())?;
+    let mut stderr = tempfile::tempfile().map_err(|error| error.to_string())?;
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(stdout.try_clone().map_err(|error| error.to_string())?)
+        .stderr(stderr.try_clone().map_err(|error| error.to_string())?);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut process = command
+        .spawn()
+        .map_err(|error| format!("Failed to run command: {error}"))?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = process.try_wait().map_err(|error| error.to_string())? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            stop_process_tree(process.id());
+            let _ = process.kill();
+            let _ = process.wait();
+            return Err("Command stopped after reaching its 30-second time limit".into());
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    };
+    fn read_excerpt(file: &mut std::fs::File) -> Result<Vec<u8>, String> {
+        let mut output = Vec::new();
+        file.rewind().map_err(|error| error.to_string())?;
+        file.take(LIMIT as u64 + 1)
+            .read_to_end(&mut output)
+            .map_err(|error| error.to_string())?;
+        Ok(output)
+    }
+    Ok(std::process::Output {
+        status,
+        stdout: read_excerpt(&mut stdout)?,
+        stderr: read_excerpt(&mut stderr)?,
+    })
+}
+
 fn sensitive(path: &str) -> bool {
     path.split(['/', '\\']).any(|part| {
         part == ".git"
@@ -809,6 +876,10 @@ async fn cli_turn<R: tauri::Runtime>(
     tools: &[Value],
 ) -> Result<(Turn, Value), String> {
     let mut schema = json!({"type":"object","properties":{"answer":{"type":"string"},"tool_requests":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"name":{"type":"string","enum":["list_files","read_file","read_files","find_files","search_files","run_command","propose_edit"]},"arguments":{"type":"string","description":"JSON-encoded tool arguments matching its definition"}},"required":["name","arguments"]}}},"required":["answer","tool_requests"]});
+    schema["properties"]["tool_requests"]["items"]["properties"]["name"]["enum"] = json!(tools
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>());
     let system=format!("{instructions}\nReturn JSON matching the output schema. Use tool_requests to request tools from Devyy; do not pretend to execute them. Available tool definitions: {}",json!(tools));
     strict_schema(&mut schema);
     if p.kind == "opencode" {
@@ -1150,7 +1221,8 @@ pub async fn chat<R: tauri::Runtime>(
     } else {
         "chat"
     };
-    let tools = definitions(context.mode == "full");
+    let read_only = matches!(r.agent_mode.as_deref(), Some("ask" | "plan" | "review"));
+    let tools = definitions(context.mode == "full" && !read_only);
     let mut instructions = format!(
         "{INSTRUCTIONS}\nWorkspace: {}. Permission: {}.",
         context
@@ -1322,13 +1394,36 @@ pub async fn chat<R: tauri::Runtime>(
             parsed_calls.push((idx, call, args, path, detail));
         }
 
+        let read_batch = parsed_calls.iter().all(|(_, call, _, _, _)| {
+            matches!(
+                call.name.as_str(),
+                "list_files"
+                    | "read_file"
+                    | "read_files"
+                    | "find_files"
+                    | "search_files"
+                    | "vcs_status"
+                    | "vcs_diff"
+            )
+        });
+        let mut outcomes_map = HashMap::new();
         let mut set = tokio::task::JoinSet::new();
         for (idx, call, args, _, _) in &parsed_calls {
             let work = context.clone();
             let name = call.name.clone();
             let args_for_work = args.clone();
             let idx = *idx;
-            if call.name == "propose_edit" && proposal_count >= 32 {
+            if !tools
+                .iter()
+                .any(|tool| tool["name"].as_str() == Some(name.as_str()))
+            {
+                set.spawn(async move {
+                    (
+                        idx,
+                        Err("This tool is unavailable in the current agent mode".into()),
+                    )
+                });
+            } else if call.name == "propose_edit" && proposal_count >= 32 {
                 set.spawn(async move {
                     (
                         idx,
@@ -1338,11 +1433,20 @@ pub async fn chat<R: tauri::Runtime>(
                         ),
                     )
                 });
-            } else {
+            } else if read_batch {
                 set.spawn_blocking(move || (idx, work.execute(&name, &args_for_work)));
+            } else {
+                context.check(app)?;
+                let result =
+                    tokio::task::spawn_blocking(move || work.execute(&name, &args_for_work))
+                        .await
+                        .map_err(|error| error.to_string())?;
+                if call.name == "propose_edit" && result.is_ok() {
+                    proposal_count += 1;
+                }
+                outcomes_map.insert(idx, result);
             }
         }
-        let mut outcomes_map = HashMap::new();
         while let Some(res) = set.join_next().await {
             match res {
                 Ok((idx, outcome)) => {
@@ -1362,7 +1466,6 @@ pub async fn chat<R: tauri::Runtime>(
             let (result, status) = match &outcome {
                 Ok(value) => {
                     if call.name == "propose_edit" {
-                        proposal_count += 1;
                         emit(app, &r.request_id, "proposal", value.clone());
                         (
                             json!({"stagedForReview":value["id"],"path":value["path"],"applied":false}),
@@ -1581,6 +1684,7 @@ mod tests {
             .build(mock_context(noop_assets()))
             .unwrap();
         let r = ChatRequest {
+            agent_mode: None,
             request_id: "test".into(),
             provider_id: "test".into(),
             messages: vec![],
@@ -1678,6 +1782,7 @@ mod tests {
                 .await
                 .unwrap();
             let r = ChatRequest {
+                agent_mode: None,
                 request_id: "test".into(),
                 provider_id: "test".into(),
                 messages: vec![],
@@ -1731,6 +1836,7 @@ print(json.dumps({'type':'result','is_error':False,'structured_output':{'answer'
         p.executable = script.path().to_string_lossy().into();
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
         let r = ChatRequest {
+            agent_mode: None,
             request_id: "cli-tools".into(),
             provider_id: p.id.clone(),
             messages: vec![],
@@ -1822,6 +1928,7 @@ print(json.dumps({'type':'step_finish','part':{'id':'step','tokens':{'input':10,
         provider.model = "provider/model".into();
         assert!(provider.endpoint.is_empty());
         let request = ChatRequest {
+            agent_mode: None,
             request_id: "opencode-tools".into(),
             provider_id: provider.id.clone(),
             messages: vec![Message {
@@ -1900,6 +2007,7 @@ print(json.dumps({'event':'result','result':{'status':'SUCCESS','response':outpu
             }
         });
         let request = ChatRequest {
+            agent_mode: None,
             request_id: "agy-agent".into(),
             provider_id: provider.id.clone(),
             messages: vec![],

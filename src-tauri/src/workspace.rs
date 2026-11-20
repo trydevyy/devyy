@@ -58,12 +58,16 @@ pub struct SearchOptions {
 }
 
 pub fn root(state: &Workspace) -> Result<PathBuf, String> {
-    state
+    let path = state
         .0
         .lock()
         .map_err(|e| e.to_string())?
         .clone()
-        .ok_or("Open a folder first".into())
+        .ok_or_else(|| "Open a folder first".to_string())?;
+    if let Some(ssh) = crate::remote::ssh_workspace(&path) {
+        ssh.ensure_mounted()?;
+    }
+    Ok(path)
 }
 pub fn display_path(path: &Path) -> String {
     let text = path.to_string_lossy();
@@ -324,6 +328,13 @@ pub async fn open_workspace(
         let base = PathBuf::from(path)
             .canonicalize()
             .map_err(|e| e.to_string())?;
+        if std::env::temp_dir()
+            .join("devyy-remote-workspaces")
+            .canonicalize()
+            .is_ok_and(|legacy| base.starts_with(legacy))
+        {
+            return Err("This was a downloaded SSH workspace. Open the server again in Remote Explorer.".into());
+        }
         if !base.is_dir() {
             return Err("Choose a folder".to_string());
         }

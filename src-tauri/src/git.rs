@@ -189,12 +189,26 @@ pub async fn vcs_checkpoint(
 }
 
 fn output(base: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let use_hit = is_hit_enabled();
-
-    let mut cmd = crate::process::command("git");
-    cmd.current_dir(base)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0");
+    let ssh = crate::remote::ssh_workspace(base);
+    let use_hit = ssh.is_none() && is_hit_enabled();
+    let mut cmd = if let Some(ssh) = &ssh {
+        let arguments = args
+            .iter()
+            .map(|arg| crate::remote::shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        ssh.command_at(
+            base,
+            &format!("GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git {arguments}"),
+        )?
+    } else {
+        crate::process::command("git")
+    };
+    if ssh.is_none() {
+        cmd.current_dir(base)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_TERMINAL_PROMPT", "0");
+    }
 
     if use_hit {
         // High-performance Hit engine acceleration flags:
@@ -210,7 +224,9 @@ fn output(base: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
             .arg("gc.auto=0");
     }
 
-    cmd.args(args);
+    if ssh.is_none() {
+        cmd.args(args);
+    }
 
     let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {
@@ -497,6 +513,9 @@ fn repository_base(base: &Path, repository: Option<&str>) -> Result<std::path::P
         .map_err(|e| e.to_string())?;
     if !path.join(".git").exists() {
         return Err("This submodule has not been initialized".into());
+    }
+    if crate::remote::ssh_workspace(&path).is_some() {
+        return Ok(path);
     }
     let top = git(&path, &["rev-parse", "--show-toplevel"])?;
     if Path::new(top.trim())

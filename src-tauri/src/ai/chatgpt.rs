@@ -1033,6 +1033,7 @@ mod tests {
                     .push(serde_json::from_str(event.payload()).unwrap())
             });
             let request = ChatRequest {
+                agent_mode: None,
                 request_id: "usage-fixture".into(),
                 provider_id: "chatgpt".into(),
                 messages: vec![Message {
@@ -1278,6 +1279,7 @@ mod tests {
         let mut p = defaults().remove(0);
         p.model = "b".into();
         let r = ChatRequest {
+            agent_mode: None,
             request_id: "test".into(),
             provider_id: p.id.clone(),
             messages: vec![Message {
