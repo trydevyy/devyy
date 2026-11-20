@@ -156,7 +156,9 @@ export default function AIChatPanel({
     model: chat?.model ?? ai.choices[chosen]?.model ?? provider?.model ?? "",
     effort: chat?.effort ?? ai.choices[chosen]?.effort ?? "",
   };
-  const currentMode: AIAgentMode = chat?.mode ?? "agent";
+  const showcase = !native && new URLSearchParams(location.search).get("showcase") === "agent";
+  const [showcaseMode, setShowcaseMode] = useState<AIAgentMode>("agent");
+  const currentMode: AIAgentMode = showcase ? showcaseMode : chat?.mode ?? "agent";
   async function handleCreateCheckpoint() {
     if (!chat) return;
     try {
@@ -560,7 +562,7 @@ export default function AIChatPanel({
         </button>
       </div>
 
-      {screen === "skills" && <AISkillsView />}
+      {screen === "skills" && <AISkillsView sessionId={chat?.id} />}
 
       {screen === "sessions" && (
         <AISessionsView
@@ -633,7 +635,8 @@ export default function AIChatPanel({
                 aria-selected={currentMode === mode}
                 className={`ai-mode-tab ${currentMode === mode ? "active " + mode : ""}`}
                 onClick={() => {
-                  if (chat) setAIMode(chat.id, mode);
+                  if (showcase) setShowcaseMode(mode);
+                  else setAIMode(chat?.id ?? newAIChat(chosen), mode);
                 }}
                 title={AGENT_MODE_PROMPTS[mode]}
               >
@@ -746,7 +749,9 @@ export default function AIChatPanel({
         >
           {!chat?.messages.length ? (
             <div className="ai-empty-conversation">
-              <DevyyLogo size={26} />
+              <span className="agent-welcome-mark"><DevyyLogo size={23} /></span>
+              <strong>Start a conversation</strong>
+              <p>Ask about your code, plan a change, or give Devyy a task to work through.</p>
             </div>
           ) : (
             chat.messages.map((message, index) => {

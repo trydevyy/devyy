@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useSyncExternalStore } from "react";
+import { parse } from "yaml";
 import { readLocal } from "./types";
 
 export type SkillToggle = "auto" | "on" | "off";
@@ -41,7 +42,8 @@ const BUILTIN_SKILLS: AISkill[] = [
     id: "hit-vcs",
     name: "hit-vcs",
     title: "Hit High-Performance VCS",
-    description: "Accelerated source control workflows using Hit: instant status, checkpointing, and branch operations.",
+    description:
+      "Accelerated source control workflows using Hit: instant status, checkpointing, and branch operations.",
     version: "1.0.0",
     author: "Hit Core Team",
     source: "builtin",
@@ -61,7 +63,8 @@ const BUILTIN_SKILLS: AISkill[] = [
     id: "qa-auditor",
     name: "qa-auditor",
     title: "Quality Assurance & Verifier",
-    description: "Automated regression testing, type checking, compiler verification, and test execution.",
+    description:
+      "Automated regression testing, type checking, compiler verification, and test execution.",
     version: "1.1.0",
     author: "Devyy Team",
     source: "builtin",
@@ -81,7 +84,8 @@ const BUILTIN_SKILLS: AISkill[] = [
     id: "rust-developer",
     name: "rust-developer",
     title: "Rust System Engineer",
-    description: "Specialized idioms, borrow checker mastery, Tauri v2 bindings, and Cargo workspace architecture.",
+    description:
+      "Specialized idioms, borrow checker mastery, Tauri v2 bindings, and Cargo workspace architecture.",
     version: "1.0.2",
     author: "Devyy Team",
     source: "builtin",
@@ -100,7 +104,8 @@ const BUILTIN_SKILLS: AISkill[] = [
     id: "fullstack-react",
     name: "fullstack-react",
     title: "Fullstack React & TypeScript",
-    description: "React 19, Vite, state synchronization, Codemirror integration, and performant UI patterns.",
+    description:
+      "React 19, Vite, state synchronization, Codemirror integration, and performant UI patterns.",
     version: "1.2.0",
     author: "Devyy Team",
     source: "builtin",
@@ -119,7 +124,8 @@ const BUILTIN_SKILLS: AISkill[] = [
     id: "refactoring-pro",
     name: "refactoring-pro",
     title: "Minimal Diff Refactoring",
-    description: "Surgical code modifications, preserving existing comments and conventions without full rewrites.",
+    description:
+      "Surgical code modifications, preserving existing comments and conventions without full rewrites.",
     version: "1.0.0",
     author: "Devyy Team",
     source: "builtin",
@@ -140,48 +146,51 @@ const BUILTIN_SKILLS: AISkill[] = [
  * Parses official SKILL.md format (YAML frontmatter + Markdown body)
  */
 export function parseSkillMd(content: string, fallbackId = ""): AISkill {
-  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  const metadata: Record<string, unknown> = {};
-  let body = content;
-
-  if (frontmatterMatch) {
-    const rawYaml = frontmatterMatch[1];
-    body = frontmatterMatch[2].trim();
-    rawYaml.split("\n").forEach((line) => {
-      const colonIdx = line.indexOf(":");
-      if (colonIdx > 0) {
-        const key = line.slice(0, colonIdx).trim();
-        let value = line.slice(colonIdx + 1).trim();
-        // Simple YAML array or string parsing
-        if (value.startsWith("[") && value.endsWith("]")) {
-          try {
-            metadata[key] = JSON.parse(value);
-          } catch {
-            metadata[key] = value.slice(1, -1).split(",").map((s) => s.trim());
-          }
-        } else {
-          // Strip surrounding quotes
-          if (
-            (value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))
-          ) {
-            value = value.slice(1, -1);
-          }
-          metadata[key] = value;
-        }
-      }
-    });
+  const frontmatter = content
+    .trimStart()
+    .match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!frontmatter)
+    throw new Error("Include YAML frontmatter between two --- lines.");
+  const metadata: unknown = parse(frontmatter[1], { maxAliasCount: 0 });
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    throw new Error("Skill metadata must be a YAML mapping.");
   }
-
-  const id = String(metadata.id || metadata.name || fallbackId || `skill-${Date.now()}`);
-  const name = String(metadata.name || id);
-  const title = String(metadata.title || name);
-  const description = String(metadata.description || "");
-  const version = String(metadata.version || "1.0.0");
-  const author = String(metadata.author || "Community");
-  const permissions = Array.isArray(metadata.permissions) ? (metadata.permissions as string[]) : [];
-  const dependencies = Array.isArray(metadata.dependencies) ? (metadata.dependencies as string[]) : [];
-  const tags = Array.isArray(metadata.tags) ? (metadata.tags as string[]) : [];
+  const fields = metadata as Record<string, unknown>;
+  const details =
+    typeof fields.metadata === "object" && fields.metadata !== null
+      ? (fields.metadata as Record<string, unknown>)
+      : {};
+  const name = String(fields.name ?? fallbackId).trim();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64) {
+    throw new Error(
+      "Use a lowercase skill name with letters, numbers, and single hyphens.",
+    );
+  }
+  if (typeof fields.description !== "string" || !fields.description.trim()) {
+    throw new Error("Add a description to the skill metadata.");
+  }
+  const description = fields.description.trim();
+  const body = frontmatter[2].trim();
+  if (!body) throw new Error("Add instructions below the frontmatter.");
+  const id = name;
+  const title = String(fields.title ?? name);
+  const version = String(details.version ?? fields.version ?? "1.0.0");
+  const author = String(details.author ?? fields.author ?? "Community");
+  const list = (values: unknown) =>
+    Array.isArray(values)
+      ? values.filter((value): value is string => typeof value === "string")
+      : typeof values === "string"
+        ? values.split(/\s+/).filter(Boolean)
+        : [];
+  const permissions = [
+    ...new Set([...list(fields.permissions), ...list(fields["allowed-tools"])]),
+  ];
+  const dependencies = list(fields.dependencies);
+  const tags = list(fields.tags);
 
   return {
     id,
@@ -196,7 +205,7 @@ export function parseSkillMd(content: string, fallbackId = ""): AISkill {
     installed: true,
     content: body,
     tags,
-    toggle: "auto",
+    toggle: "off",
   };
 }
 
@@ -218,7 +227,10 @@ function loadSkills(): AISkill[] {
 
 let skillState: SkillStoreState = {
   skills: loadSkills(),
-  sessionToggles: readLocal<Record<string, SkillToggle>>(SESSION_TOGGLES_KEY, {}),
+  sessionToggles: readLocal<Record<string, SkillToggle>>(
+    SESSION_TOGGLES_KEY,
+    {},
+  ),
 };
 
 const listeners = new Set<() => void>();
@@ -226,9 +238,14 @@ const listeners = new Set<() => void>();
 function emit() {
   listeners.forEach((l) => l());
   try {
-    const userSkills = skillState.skills.filter((s) => s.source !== "builtin" || !s.installed);
+    const userSkills = skillState.skills.filter(
+      (s) => s.source !== "builtin" || !s.installed,
+    );
     localStorage.setItem(STORAGE_KEY, JSON.stringify(userSkills));
-    localStorage.setItem(SESSION_TOGGLES_KEY, JSON.stringify(skillState.sessionToggles));
+    localStorage.setItem(
+      SESSION_TOGGLES_KEY,
+      JSON.stringify(skillState.sessionToggles),
+    );
   } catch {}
 }
 
@@ -242,6 +259,9 @@ export function useSkills(): AISkill[] {
   );
 }
 
+const sessionKey = (skillId: string, sessionId?: string) =>
+  sessionId ? `${sessionId}:${skillId}` : skillId;
+
 export function useSessionSkillToggles(): Record<string, SkillToggle> {
   return useSyncExternalStore(
     (cb) => {
@@ -252,22 +272,25 @@ export function useSessionSkillToggles(): Record<string, SkillToggle> {
   );
 }
 
-export function setSkillToggle(skillId: string, toggle: SkillToggle) {
+export function setSkillToggle(
+  skillId: string,
+  toggle: SkillToggle,
+  sessionId?: string,
+) {
   skillState = {
     ...skillState,
     sessionToggles: {
       ...skillState.sessionToggles,
-      [skillId]: toggle,
+      [sessionKey(skillId, sessionId)]: toggle,
     },
-    skills: skillState.skills.map((s) =>
-      s.id === skillId ? { ...s, toggle } : s,
-    ),
   };
   emit();
 }
 
 export function installSkill(skill: AISkill) {
   const existing = skillState.skills.find((s) => s.id === skill.id);
+  if (existing?.source === "builtin")
+    throw new Error("That name belongs to a bundled skill.");
   if (existing) {
     skillState = {
       ...skillState,
@@ -287,9 +310,9 @@ export function installSkill(skill: AISkill) {
 export function removeSkill(skillId: string) {
   skillState = {
     ...skillState,
-    skills: skillState.skills.filter((s) => s.id !== skillId || s.source === "builtin").map((s) =>
-      s.id === skillId ? { ...s, installed: false } : s,
-    ),
+    skills: skillState.skills
+      .filter((s) => s.id !== skillId || s.source === "builtin")
+      .map((s) => (s.id === skillId ? { ...s, installed: false } : s)),
   };
   emit();
 }
@@ -297,16 +320,33 @@ export function removeSkill(skillId: string) {
 /**
  * Returns formatted instructions for active skills for prompt context
  */
-export function getActiveSkillsPrompt(promptText = ""): string {
+export function skillToggle(
+  skill: AISkill,
+  toggles: Record<string, SkillToggle>,
+  sessionId?: string,
+) {
+  return (
+    toggles[sessionKey(skill.id, sessionId)] ??
+    toggles[skill.id] ??
+    skill.toggle
+  );
+}
+
+export function getActiveSkillsPrompt(
+  promptText = "",
+  sessionId?: string,
+): string {
   const activeSkills = skillState.skills.filter((s) => {
     if (!s.installed) return false;
-    const toggle = skillState.sessionToggles[s.id] ?? s.toggle;
+    const toggle = skillToggle(s, skillState.sessionToggles, sessionId);
     if (toggle === "off") return false;
     if (toggle === "on") return true;
     // Auto: activate if prompt mentions relevant keywords/tags
     const lower = promptText.toLowerCase();
-    return s.tags.some((t) => lower.includes(t.toLowerCase())) ||
-      lower.includes(s.name.toLowerCase());
+    return (
+      s.tags.some((t) => lower.includes(t.toLowerCase())) ||
+      lower.includes(s.name.toLowerCase())
+    );
   });
 
   if (!activeSkills.length) return "";

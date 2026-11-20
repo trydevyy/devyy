@@ -134,7 +134,10 @@ function CLIFields({
     </>
   );
 }
-export function accountInfo(provider: AIProvider, account?: Record<string, unknown>) {
+export function accountInfo(
+  provider: AIProvider,
+  account?: Record<string, unknown>,
+) {
   const identity = (account?.account ?? account) as
     Record<string, unknown> | undefined;
   const connected = ["chatgpt"].includes(provider.kind)
@@ -172,11 +175,13 @@ export function accountInfo(provider: AIProvider, account?: Record<string, unkno
 export default function AIProviderDetail({
   provider,
   onRemoved,
+  onSaved,
   onUsage,
 }: {
   provider: AIProvider;
   onRemoved: () => void;
-  onUsage: (button: HTMLButtonElement) => void;
+  onSaved?: () => void;
+  onUsage?: (button: HTMLButtonElement) => void;
 }) {
   const { transition } = useSurfaceMotion();
   const state = useAI(),
@@ -323,17 +328,26 @@ export default function AIProviderDetail({
         requestId: string;
         kind: string;
         data: { phase?: string };
-      }>("devyy-ai", (event: { payload: { requestId: string; kind: string; data: { phase?: string } } }) => {
-        const payload = event.payload;
-        if (payload.requestId !== id || payload.kind !== "install") return;
-        setInstallPhase(
-          payload.data.phase === "verifying"
-            ? "Checking installation"
-            : payload.data.phase === "installing"
-              ? `Installing ${form.name}`
-              : "Downloading installer",
-        );
-      });
+      }>(
+        "devyy-ai",
+        (event: {
+          payload: {
+            requestId: string;
+            kind: string;
+            data: { phase?: string };
+          };
+        }) => {
+          const payload = event.payload;
+          if (payload.requestId !== id || payload.kind !== "install") return;
+          setInstallPhase(
+            payload.data.phase === "verifying"
+              ? "Checking installation"
+              : payload.data.phase === "installing"
+                ? `Installing ${form.name}`
+                : "Downloading installer",
+          );
+        },
+      );
       if (installCancelled.current) return;
       const result = await invoke<Record<string, string>>(
         "ai_install_runtime",
@@ -837,7 +851,7 @@ export default function AIProviderDetail({
         )}
       </div>
       <footer>
-        {custom && (
+        {custom && !onSaved && (
           <button
             className="ai-text-action ai-danger-action"
             disabled={!!busy || !native}
@@ -851,12 +865,14 @@ export default function AIProviderDetail({
             <Trash2 size={12} /> Remove
           </button>
         )}
-        <button
-          className="ai-text-action"
-          onClick={(event) => onUsage(event.currentTarget)}
-        >
-          <ChartNoAxesColumn size={13} /> Usage
-        </button>
+        {onUsage && (
+          <button
+            className="ai-text-action"
+            onClick={(event) => onUsage(event.currentTarget)}
+          >
+            <ChartNoAxesColumn size={13} /> Usage
+          </button>
+        )}
         {accountProvider && (
           <button
             className="setting-action"
@@ -874,6 +890,7 @@ export default function AIProviderDetail({
               await saveAIProvider(form, key);
               setKey("");
               setNotice("Provider saved");
+              onSaved?.();
             })
           }
         >

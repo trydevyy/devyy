@@ -818,7 +818,7 @@ export async function sendAIMessage(
   assistant.mode = currentMode;
   const modeInstruction = AGENT_MODE_PROMPTS[currentMode];
   const lastUserMsg = chat.messages[chat.messages.length - 1];
-  const skillsContext = getActiveSkillsPrompt(lastUserMsg?.content ?? "");
+  const skillsContext = getActiveSkillsPrompt(lastUserMsg?.content ?? "", chatId);
 
   const requestId = crypto.randomUUID();
   const providerId = chat.providerId;
@@ -969,6 +969,7 @@ export async function sendAIMessage(
         providerId,
         messages,
         cwd: cwd ?? null,
+        agentMode: currentMode,
         model: chat.model ?? null,
         effort:
           supportedEffort(

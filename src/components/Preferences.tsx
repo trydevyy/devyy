@@ -724,17 +724,8 @@ export default function Preferences({
                   <button onClick={() => setRecording(null)}>Cancel</button>
                 </div>
               )}
-              {!matches.length &&
-                !keys.length &&
-                (searching ||
-                  ![
-                    "about",
-                    "credits",
-                    "extensions",
-                    "languages",
-                    "setup",
-                    "ai",
-                  ].includes(category)) && (
+              {searching && !matches.length && !keys.length &&
+                !matchingExtensionSettings(installed, query).length && (
                   <div className="settings-empty">
                     <Search size={25} />
                     <strong>No matching settings</strong>

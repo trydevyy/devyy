@@ -16,7 +16,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Plus, RefreshCw } from "lucide-react";
+import { LoaderCircle, Plus, RefreshCw, X } from "lucide-react";
 import {
   aiAccount,
   loadAI,
@@ -45,10 +45,7 @@ export default function AIProviders() {
   useEffect(() => {
     void loadAI();
   }, []);
-  const providers =
-    draft && !state.providers.some((p) => p.id === draft.id)
-      ? [...state.providers, draft]
-      : state.providers;
+  const providers = state.providers;
   const chosen = providers.some((p) => p.id === selected)
     ? selected
     : providers[0]?.id;
@@ -92,15 +89,46 @@ export default function AIProviders() {
       enabled: true,
     };
     setDraft(provider);
-    setSelected(provider.id);
   }
   return (
     <div className="ai-provider-settings">
+      {draft && (
+        <dialog
+          className="devyy-confirm port-dialog provider-add-dialog"
+          aria-labelledby="provider-dialog-title"
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={(event) => {
+            event.preventDefault();
+            setDraft(undefined);
+          }}
+        >
+          <div className="dialog-heading">
+            <h2 id="provider-dialog-title">Add AI provider</h2>
+            <button
+              className="icon-button"
+              aria-label="Close provider form"
+              onClick={() => setDraft(undefined)}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <AIProviderDetail
+            provider={draft}
+            onRemoved={() => setDraft(undefined)}
+            onSaved={() => {
+              setSelected(draft.id);
+              setDraft(undefined);
+            }}
+          />
+        </dialog>
+      )}
       <div className="ai-provider-pages">
         <motion.div
           className="ai-provider-page"
-          inert={usage}
-          aria-hidden={usage}
+          inert={usage || Boolean(draft)}
+          aria-hidden={usage || Boolean(draft)}
           animate={
             usage
               ? {

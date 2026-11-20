@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -42,7 +43,7 @@ export interface ForwardedTunnel {
 }
 
 export default function PortsPanel({
-  onOpenAccount: _onOpenAccount,
+  onOpenAccount,
 }: {
   onOpenAccount?: () => void;
 }) {
@@ -57,16 +58,17 @@ export default function PortsPanel({
   // New port form state
   const [newPort, setNewPort] = useState<number | "">("");
   const [newProtocol, setNewProtocol] = useState<"http" | "https">("http");
-  const [newVisibility, setNewVisibility] = useState<"private" | "public">("private");
+  const [newVisibility, setNewVisibility] = useState<"private" | "public">(
+    "private",
+  );
   const [newLabel, setNewLabel] = useState("");
 
   async function refresh() {
     if (!native) return;
     setLoading(true);
-    setError("");
     try {
       const list = await accountRequest<ForwardedTunnel[]>("/tunnels");
-      setTunnels(list);
+      setTunnels(Array.isArray(list) ? list : []);
     } catch {
       setTunnels([]);
     } finally {
@@ -105,7 +107,12 @@ export default function PortsPanel({
   async function handleAddPort(e: React.FormEvent) {
     e.preventDefault();
     if (!newPort || typeof newPort !== "number") return;
+    if (!native) {
+      setError("Open Devyy on your desktop to forward a port.");
+      return;
+    }
     await work(async () => {
+      const serverUrl = syncOptions().server;
       let created: ForwardedTunnel;
       try {
         created = await accountRequest<ForwardedTunnel>("/tunnels", "POST", {
@@ -120,17 +127,23 @@ export default function PortsPanel({
         );
       }
 
-      const syncUrl = syncOptions().server.replace(/\/+$/, "");
-      const wsUrl = syncUrl
-        .replace(/^http:/, "ws:")
-        .replace(/^https:/, "wss:") + `/api/tunnels/${created.id}/ws`;
-
-      await invoke("port_forward", {
-        id: created.id,
-        port: newPort,
-        serverWsUrl: wsUrl,
-        protocol: newProtocol,
-      });
+      try {
+        await invoke("port_forward", {
+          tunnelId: created.id,
+          port: newPort,
+          serverUrl,
+          protocol: newProtocol,
+        });
+      } catch (cause) {
+        try {
+          await accountRequest(`/tunnels/${created.id}`, "DELETE");
+        } catch {
+          throw new Error(
+            "The port could not connect. Refresh the list to manage the registered tunnel.",
+          );
+        }
+        throw cause;
+      }
 
       setShowAdd(false);
       setNewPort("");
@@ -144,15 +157,11 @@ export default function PortsPanel({
       await accountRequest(`/tunnels/${t.id}`, "PATCH", {
         protocol: nextProtocol,
       });
-      await invoke("remote_stop", { id: t.id }).catch(() => {});
-      const syncUrl = syncOptions().server.replace(/\/+$/, "");
-      const wsUrl = syncUrl
-        .replace(/^http:/, "ws:")
-        .replace(/^https:/, "wss:") + `/api/tunnels/${t.id}/ws`;
+      await invoke("remote_stop", { id: `port-${t.id}` });
       await invoke("port_forward", {
-        id: t.id,
+        tunnelId: t.id,
         port: t.port,
-        serverWsUrl: wsUrl,
+        serverUrl: syncOptions().server,
         protocol: nextProtocol,
       });
     });
@@ -169,22 +178,18 @@ export default function PortsPanel({
 
   async function removeTunnel(t: ForwardedTunnel) {
     await work(async () => {
-      await invoke("remote_stop", { id: t.id }).catch(() => {});
-      await accountRequest(`/tunnels/${t.id}`, "DELETE").catch(() => {});
+      await invoke("remote_stop", { id: `port-${t.id}` });
+      await accountRequest(`/tunnels/${t.id}`, "DELETE");
     });
   }
 
   async function reconnect(t: ForwardedTunnel) {
     await work(async () => {
-      await invoke("remote_stop", { id: t.id }).catch(() => {});
-      const syncUrl = syncOptions().server.replace(/\/+$/, "");
-      const wsUrl = syncUrl
-        .replace(/^http:/, "ws:")
-        .replace(/^https:/, "wss:") + `/api/tunnels/${t.id}/ws`;
+      await invoke("remote_stop", { id: `port-${t.id}` });
       await invoke("port_forward", {
-        id: t.id,
+        tunnelId: t.id,
         port: t.port,
-        serverWsUrl: wsUrl,
+        serverUrl: syncOptions().server,
         protocol: t.protocol,
       });
     });
@@ -214,6 +219,7 @@ export default function PortsPanel({
       {/* Sub-header matching editor panel style */}
       <div className="ports-subbar">
         <div className="ports-subbar-left">
+          <Radio size={14} aria-hidden="true" />
           <span className="ports-subbar-title">Forwarded Ports</span>
           <span className="ports-count-tag">{tunnels.length}</span>
           <div className="ports-filter-wrapper">
@@ -243,7 +249,10 @@ export default function PortsPanel({
             className="icon-button"
             title="Forward a Port"
             aria-label="Forward a Port"
-            onClick={() => setShowAdd((v) => !v)}
+            onClick={() => {
+              setError("");
+              setShowAdd(true);
+            }}
           >
             <Plus size={14} />
           </button>
@@ -260,72 +269,105 @@ export default function PortsPanel({
         </div>
       </div>
 
-      {/* Inline Add Port Form */}
-      {showAdd && (
-        <form className="ports-inline-form" onSubmit={handleAddPort}>
-          <div className="ports-inline-inputs">
-            <input
-              type="number"
-              placeholder="Port (e.g. 3000)"
-              min={1}
-              max={65535}
-              autoFocus
-              value={newPort}
-              onChange={(e) =>
-                setNewPort(e.target.value ? Number(e.target.value) : "")
-              }
-              className="ports-input port-number"
-            />
+      {showAdd &&
+        createPortal(
+          <dialog
+            className="devyy-confirm port-dialog"
+            aria-labelledby="port-dialog-title"
+            ref={(node) => {
+              if (node && !node.open) node.showModal();
+            }}
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!busy) setShowAdd(false);
+            }}
+          >
+            <form onSubmit={handleAddPort}>
+              <div className="devyy-dialog-symbol">
+                <Radio size={18} />
+              </div>
+              <h2 id="port-dialog-title">Forward a port</h2>
+              <p>Give a local HTTP service a shareable address.</p>
+              <div className="ports-inline-inputs port-dialog-fields">
+                <label>
+                  Local port
+                  <input
+                    type="number"
+                    placeholder="Port (e.g. 3000)"
+                    min={1}
+                    max={65535}
+                    autoFocus
+                    value={newPort}
+                    onChange={(e) =>
+                      setNewPort(e.target.value ? Number(e.target.value) : "")
+                    }
+                    className="ports-input port-number"
+                  />
+                </label>
+                <label>
+                  Protocol
+                  <select
+                    value={newProtocol}
+                    onChange={(e) =>
+                      setNewProtocol(e.target.value as "http" | "https")
+                    }
+                    className="ports-select"
+                  >
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                  </select>
+                </label>
 
-            <select
-              value={newProtocol}
-              onChange={(e) => setNewProtocol(e.target.value as "http" | "https")}
-              className="ports-select"
-            >
-              <option value="http">HTTP</option>
-              <option value="https">HTTPS</option>
-            </select>
+                <label>
+                  Access
+                  <select
+                    value={newVisibility}
+                    onChange={(e) =>
+                      setNewVisibility(e.target.value as "private" | "public")
+                    }
+                    className="ports-select"
+                  >
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                  </select>
+                </label>
 
-            <select
-              value={newVisibility}
-              onChange={(e) =>
-                setNewVisibility(e.target.value as "private" | "public")
-              }
-              className="ports-select"
-            >
-              <option value="private">Private</option>
-              <option value="public">Public</option>
-            </select>
+                <label>
+                  Label
+                  <input
+                    type="text"
+                    placeholder="Optional"
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    className="ports-input port-label"
+                  />
+                </label>
+              </div>
 
-            <input
-              type="text"
-              placeholder="Label (optional)"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              className="ports-input port-label"
-            />
-          </div>
+              {error && <p role="alert">{error}</p>}
+              <div className="ports-inline-actions">
+                <button
+                  type="submit"
+                  className="ports-action-btn primary"
+                  disabled={busy || !newPort}
+                >
+                  Forward Port
+                </button>
+                <button
+                  type="button"
+                  className="ports-action-btn ghost"
+                  disabled={busy}
+                  onClick={() => setShowAdd(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </dialog>,
+          document.body,
+        )}
 
-          <div className="ports-inline-actions">
-            <button
-              type="submit"
-              className="ports-action-btn primary"
-              disabled={busy || !newPort}
-            >
-              Forward Port
-            </button>
-            <button
-              type="button"
-              className="ports-action-btn ghost"
-              onClick={() => setShowAdd(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {error && (
+      {error && !showAdd && (
         <div className="ports-error-row">
           <span>{error}</span>
           <button type="button" onClick={() => setError("")}>
@@ -335,24 +377,30 @@ export default function PortsPanel({
       )}
 
       {/* Main Content Area */}
-      {tunnels.length === 0 && !showAdd ? (
+      {tunnels.length === 0 ? (
         <div className="panel-empty ports-empty">
           <span className="success-circle">
             <Radio size={14} />
           </span>
           <div>
-            <strong>No forwarded ports</strong>
-            <p>
-              Forward local HTTP or HTTPS ports to access development servers remotely or share them with others.
-            </p>
+            <strong>Forwarded ports</strong>
+            <p>Share a running development server over HTTP or HTTPS.</p>
           </div>
           <button
             type="button"
             className="ports-empty-btn"
-            onClick={() => setShowAdd(true)}
+            onClick={() => {
+              setError("");
+              setShowAdd(true);
+            }}
           >
             <Plus size={12} /> Forward a Port
           </button>
+          {native && onOpenAccount && (
+            <button className="ports-account-link" onClick={onOpenAccount}>
+              Account &amp; sync
+            </button>
+          )}
         </div>
       ) : (
         <div className="ports-table-scroll">

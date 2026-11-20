@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Sparkles,
   Search,
@@ -34,10 +35,12 @@ import {
   installSkill,
   removeSkill,
   parseSkillMd,
+  skillToggle,
+  type AISkill,
   type SkillToggle,
 } from "../lib/aiSkills";
 
-export default function AISkillsView() {
+export default function AISkillsView({ sessionId }: { sessionId?: string }) {
   const skills = useSkills();
   const toggles = useSessionSkillToggles();
   const [query, setQuery] = useState("");
@@ -45,6 +48,13 @@ export default function AISkillsView() {
   const [importing, setImporting] = useState(false);
   const [importContent, setImportContent] = useState("");
   const [importError, setImportError] = useState("");
+  const [review, setReview] = useState<AISkill>();
+
+  function closeImport() {
+    setImporting(false);
+    setReview(undefined);
+    setImportError("");
+  }
 
   const filtered = skills.filter((s) => {
     const q = query.toLowerCase();
@@ -62,9 +72,12 @@ export default function AISkillsView() {
       return;
     }
     try {
-      const parsed = parseSkillMd(importContent);
-      installSkill(parsed);
-      setImporting(false);
+      if (!review) {
+        setReview(parseSkillMd(importContent));
+        return;
+      }
+      installSkill(review);
+      closeImport();
       setImportContent("");
     } catch (e) {
       setImportError(`Failed to parse SKILL.md: ${String(e)}`);
@@ -92,25 +105,53 @@ export default function AISkillsView() {
         </button>
       </div>
 
-      {importing && (
-        <div className="ai-skill-import-modal">
-          <div className="ai-skill-import-header">
-            <strong>Import SKILL.md</strong>
-            <button
-              className="icon-button"
-              onClick={() => setImporting(false)}
-              aria-label="Close import"
-            >
-              <X size={14} />
-            </button>
-          </div>
-          <p className="muted">
-            Paste the contents of an official <code>SKILL.md</code> file with frontmatter metadata and instructions.
-          </p>
-          <textarea
-            value={importContent}
-            onChange={(e) => setImportContent(e.target.value)}
-            placeholder={`---
+      {importing &&
+        createPortal(
+          <dialog
+            className="devyy-confirm port-dialog ai-skill-import-modal"
+            aria-label="Import skill"
+            ref={(node) => {
+              if (node && !node.open) node.showModal();
+            }}
+            onCancel={(event) => {
+              event.preventDefault();
+              closeImport();
+            }}
+          >
+            <div className="ai-skill-import-header">
+              <strong>Import SKILL.md</strong>
+              <button
+                className="icon-button"
+                onClick={closeImport}
+                aria-label="Close import"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <p className="muted">
+              Paste the contents of an official <code>SKILL.md</code> file with
+              frontmatter metadata and instructions.
+            </p>
+            {review ? (
+              <div className="skill-review">
+                <strong>
+                  {review.title} ? {review.version}
+                </strong>
+                <p>{review.description}</p>
+                {review.permissions.length > 0 && (
+                  <p>Declared tools ? {review.permissions.join(", ")}</p>
+                )}
+                {review.dependencies.length > 0 && (
+                  <p>Dependencies ? {review.dependencies.join(", ")}</p>
+                )}
+                <pre>{review.content}</pre>
+              </div>
+            ) : (
+              <textarea
+                aria-label="SKILL.md contents"
+                value={importContent}
+                onChange={(e) => setImportContent(e.target.value)}
+                placeholder={`---
 name: my-custom-skill
 title: Custom Framework Helper
 description: Provides guidelines for building internal microservices
@@ -124,25 +165,30 @@ dependencies:
 
 ### Instructions
 - Follow repository patterns...`}
-            rows={8}
-            className="ai-skill-textarea"
-          />
-          {importError && <p className="ai-error">{importError}</p>}
-          <div className="ai-skill-import-actions">
-            <button className="primary" onClick={handleImport}>
-              <Check size={13} /> Install Skill
-            </button>
-            <button className="secondary" onClick={() => setImporting(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+                rows={8}
+                className="ai-skill-textarea"
+              />
+            )}
+            {importError && <p className="ai-error">{importError}</p>}
+            <div className="ai-skill-import-actions">
+              <button className="primary" onClick={handleImport}>
+                <Check size={13} /> {review ? "Install skill" : "Review skill"}
+              </button>
+              <button className="secondary" onClick={closeImport}>
+                Cancel
+              </button>
+            </div>
+          </dialog>,
+          document.body,
+        )}
 
       <div className="ai-skills-list">
         {filtered.map((skill) => {
-          const currentToggle: SkillToggle =
-            toggles[skill.id] ?? skill.toggle ?? "auto";
+          const currentToggle: SkillToggle = skillToggle(
+            skill,
+            toggles,
+            sessionId,
+          );
           const isExpanded = expandedSkill === skill.id;
 
           return (
@@ -179,7 +225,9 @@ dependencies:
                         key={mode}
                         type="button"
                         className={`ai-skill-toggle-btn ${currentToggle === mode ? "active " + mode : ""}`}
-                        onClick={() => setSkillToggle(skill.id, mode)}
+                        onClick={() =>
+                          setSkillToggle(skill.id, mode, sessionId)
+                        }
                         title={`Set ${skill.title} to ${mode.toUpperCase()}`}
                       >
                         {mode.toUpperCase()}
@@ -194,9 +242,7 @@ dependencies:
                 <button
                   type="button"
                   className="ai-skill-expand-btn"
-                  onClick={() =>
-                    setExpandedSkill(isExpanded ? null : skill.id)
-                  }
+                  onClick={() => setExpandedSkill(isExpanded ? null : skill.id)}
                 >
                   {isExpanded ? (
                     <>
@@ -258,9 +304,7 @@ dependencies:
                     <span className="ai-skill-detail-title">
                       <FileCode size={12} /> Skill Instructions:
                     </span>
-                    <pre className="ai-skill-content-pre">
-                      {skill.content}
-                    </pre>
+                    <pre className="ai-skill-content-pre">{skill.content}</pre>
                   </div>
                 </div>
               )}

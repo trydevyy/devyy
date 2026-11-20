@@ -55,7 +55,9 @@ export default function AIWorkspace({
 }) {
   const installed = useExtensions(),
     host = useExtensionHost();
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(() =>
+    new URLSearchParams(location.search).get("showcase") === "agent",
+  ),
     [selection, setSelection] = useState("chat"),
     [width, setWidth] = useState(() => {
       try {

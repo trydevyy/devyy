@@ -125,7 +125,8 @@ import {
 import { initializeExtensions, useExtensions } from "./lib/extensions";
 import Preferences from "./components/Preferences";
 import RemoteExplorer from "./components/RemoteExplorer";
-import {useAccountSync} from "./lib/account";
+import { useAccountSync } from "./lib/account";
+import AccountAvatar from "./components/AccountAvatar";
 import AIWorkspace from "./components/AIWorkspace";
 import AIPanelToggle from "./components/AIPanelToggle";
 import ExtensionIcon from "./components/ExtensionIcon";
@@ -203,10 +204,11 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const emptyLines: number[] = [];
 const emptyDiagnostics: LspDiagnostic[] = [];
 const playground =
-  import.meta.env.DEV &&
+  (import.meta.env.DEV || (!native && import.meta.env.VITE_DEVYY_PLAYGROUND === "1")) &&
   new URLSearchParams(location.search).get("playground") === "1";
+const showcase = playground ? new URLSearchParams(location.search).get("showcase") : null;
 const initialDemo = playground
-  ? readLocal<Record<string, string>>("devyy.playground", seed)
+  ? (showcase ? seed : readLocal<Record<string, string>>("devyy.playground", seed))
   : {};
 const initialTab: Tab = {
   path: "src/main.rs",
@@ -283,7 +285,8 @@ export default function App() {
     return () => window.removeEventListener("devyy-extension-event", focus);
   }, []);
   const [setupOpen, setSetupOpen] = useState(
-    () => !readLocal("devyy.setupCompleted", false),
+    () => !(playground && import.meta.env.VITE_DEVYY_PLAYGROUND === "1") &&
+      !readLocal("devyy.setupCompleted", false),
   );
   function finishSetup() {
     localStorage.setItem("devyy.setupCompleted", "true");
@@ -345,7 +348,7 @@ export default function App() {
     if (mode === "split") setFileSplits((groups) => separateTab(groups, path));
   }
   const [runMode, setRunMode] = useState<"run" | "debug">("run");
-  const [section, setSection] = useState<Section>("files"),
+  const [section, setSection] = useState<Section>(showcase === "remote" ? "remote" : "files"),
     [sidebar, setSidebar] = useState(playground),
     [panel, setPanel] = useState(playground),
     [panelTab, setPanelTab] = useState<
@@ -691,7 +694,7 @@ export default function App() {
     localStorage.setItem("devyy.settings", JSON.stringify(settings));
   }, [settings]);
   useEffect(() => {
-    if (playground)
+    if (playground && !showcase)
       localStorage.setItem("devyy.playground", JSON.stringify(demo));
   }, [demo]);
   const paletteOpen = palette !== null;
@@ -729,6 +732,20 @@ export default function App() {
   }, [paletteOpen, settingsOpen, help, dialog, setupOpen]);
   useAppearance(settings, notify);
   useAccountSync(settings, setSettings);
+  useEffect(() => {
+    if (!showcase || showcase === "hero" || window.parent === window ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const targets = showcase === "agent"
+      ? ['.ai-mode-tab:nth-child(2)', '.ai-mode-tab:nth-child(3)']
+      : showcase === "remote"
+        ? ['.remote-subbar .primary', '.port-dialog .dialog-heading button']
+        : ['button[aria-label="Toggle sidebar"]', 'button[aria-label="Toggle sidebar"]'];
+    let index = 0;
+    const timer = window.setInterval(() => {
+      document.querySelector<HTMLButtonElement>(targets[index++ % targets.length])?.click();
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     if (!settings.followSystemTheme) return;
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -944,7 +961,7 @@ export default function App() {
       showToast.error(`Could not open dropped file: ${String(err)}`);
     }
   }
-  async function openFolder(path?: string) {
+  async function openFolder(path?: string, remoteName?: string) {
     if (
       debugSession.running &&
       !(await ask("Stop debugging and open another folder?", {
@@ -985,6 +1002,7 @@ export default function App() {
     setWorkspaceScan(true);
     try {
       const next = await invoke<Workspace>("open_workspace", { path: chosen });
+      if (remoteName) next.name = remoteName;
       const stopped = Promise.allSettled([invoke("debug_stop")]);
       clearLanguageServers();
       setBreakpoints({});
@@ -1014,7 +1032,7 @@ export default function App() {
       setMatches([]);
       setPendingRun(null);
       setTerminalId(null);
-      setRecent((old) => {
+      if (!remoteName) setRecent((old) => {
         const list = [chosen, ...old.filter((p) => p !== chosen)].slice(0, 5);
         localStorage.setItem("devyy.recent", JSON.stringify(list));
         return list;
@@ -1040,6 +1058,7 @@ export default function App() {
         .then((indexed) => {
           if (wsRef.current.root !== next.root || indexed.root !== next.root)
             return;
+          if (remoteName) indexed.name = remoteName;
           setWorkspace(indexed);
           wsRef.current = indexed;
         })
@@ -2100,30 +2119,7 @@ export default function App() {
             uri: fileUri(root.replace(/[\\/]$/, "") + "/" + path),
             text: target.content,
           }).catch(() => {});
-          // Sync saved changes back to remote SSH server if running in a remote workspace
-          void (async () => {
-            try {
-              const metaDoc = await invoke<{ content: string; modified: string }>("read_file", {
-                path: ".devyy-remote.json",
-              });
-              if (metaDoc && metaDoc.content) {
-                const meta = JSON.parse(metaDoc.content);
-                if (meta.host && meta.user) {
-                  await invoke("ssh_sync_file", {
-                    host: meta.host,
-                    user: meta.user,
-                    sshPort: meta.sshPort || 22,
-                    remotePath: meta.remotePath || "/root",
-                    localFile: root.replace(/[\\/]$/, "") + "/" + path,
-                    relativePath: path,
-                    password: meta.password || null,
-                  });
-                }
-              }
-            } catch {
-              // Not a remote workspace or sync error
-            }
-          })();
+
         }
         if (root === wsRef.current.root) {
           setTabs((old) =>
@@ -4398,7 +4394,7 @@ export default function App() {
             <Asterisk size={19} strokeWidth={2.2} />
             <span>devyy</span>
           </button>
-          <span className="title-divider" />
+          <span className="title-divider" data-tauri-drag-region />
           <Popover.Root
             open={workspaceMenuOpen}
             onOpenChange={setWorkspaceMenuOpen}
@@ -4466,7 +4462,7 @@ export default function App() {
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
-          <span className="title-divider" />
+          <span className="title-divider" data-tauri-drag-region />
           <DesktopMenuBar
             onMenu={openMenu}
             menus={[
@@ -4578,7 +4574,12 @@ export default function App() {
           <span>Search files and commands</span>
           <kbd>{displayBinding(bindings.files)}</kbd>
         </button>
-        <div className="window-controls">
+        <div className="window-controls" onMouseDown={(event) => {
+          if (native && document.documentElement.dataset.platform !== "macos" && event.button === 0 && event.target === event.currentTarget) {
+            event.preventDefault();
+            void getCurrentWindow().startDragging().catch(() => {});
+          }
+        }}>
           {(workspace.root !== "demo" || playground) && (
             <>
               <button
@@ -4593,7 +4594,7 @@ export default function App() {
                 <GitBranch size={13} />
                 <span>{git?.branch ?? "local"}</span>
               </button>
-              <span className="title-divider" />
+              <span className="title-divider" data-tauri-drag-region />
             </>
           )}
           <button
@@ -4747,7 +4748,7 @@ export default function App() {
             ))}
           </div>
           <div className="activity-bottom">
-            <button title="Devyy account" aria-label="Devyy account" onClick={()=>{setSettingsPage("account");setSettingsOpen(true);}}><span className="account-activity-icon">@</span></button>
+            <button title="Devyy account" aria-label="Devyy account" onClick={()=>{setSettingsPage("account");setSettingsOpen(true);}}><AccountAvatar /></button>
             <button
               title="Keyboard shortcuts & help"
               aria-label="Help"
@@ -4973,7 +4974,7 @@ export default function App() {
                   setSettingsPage("account");
                   setSettingsOpen(true);
                 }}
-                onOpenFolder={(path) => void openFolder(path)}
+                onOpenFolder={(path, label) => void openFolder(path, label)}
               />
             </div>
           )}

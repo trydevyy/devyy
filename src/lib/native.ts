@@ -14,12 +14,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen as listenNative } from "@tauri-apps/api/event";
 import { serverLanguages } from "./languageServers";
 import { activateExtensionLanguage } from "./extensionHost";
 import type { Position, LspDiagnostic } from "./types";
 export const native = isTauri();
-export { invoke, listen };
+export { invoke };
+export const listen: typeof listenNative = native ? listenNative : async () => () => {};
 interface ServerCapabilities {
   semanticTokensProvider?: {
     legend?: { tokenTypes: string[]; tokenModifiers: string[] };

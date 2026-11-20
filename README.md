@@ -285,11 +285,11 @@ This exercises repeated enables, light/dark theme changes, disabling the materia
 
 ## Scope and limits
 
-This is an initial editor implementation, not feature parity with VS Code. The bounded extension adapter does not provide full VS Code API compatibility. There is no remote/SSH/container workspace support, collaborative editing, graphical merge editor, notebook engine, semantic refactoring UI, or built-in Git synchronization. You can use the terminal for your existing tools.
+This is an initial editor implementation, not feature parity with VS Code. The bounded extension adapter does not provide full VS Code API compatibility. Container workspaces, collaborative editing, a graphical merge editor, notebooks, semantic refactoring UI, and automatic Git synchronization remain outside this implementation. You can use the terminal for your existing tools.
 
 Native editing is limited to UTF-8 text files up to 5 MB. Listings stop at 30,000 entries and 20 directory levels; search checks text files up to 1 MB and returns at most 500 matching lines. Searches are plain text; in-file find supports regular expressions. File and folder deletion is permanent and requires a Devyy confirmation. Folders include their contents; workspace-root deletion and paths outside the workspace are rejected. Workspace files reload on window focus when clean; the explorer has explicit refresh rather than a continuous filesystem watcher. External-change checks are optimistic, not filesystem locks.
 
-The development-only browser playground supports local editing and preferences. It deliberately does not pretend to access your filesystem, spawn processes, or report invented Git or compiler results.
+The browser playground supports local editing and preferences. It deliberately does not pretend to access your filesystem, spawn processes, or report invented Git or compiler results.
 
 ## Layout
 
@@ -339,3 +339,7 @@ file/permission errors. Invalid tool JSON is returned to the model as a tool err
 so it can correct the request. OpenCode chat and discovery use its authenticated
 managed CLI service and a temporary project configuration with matching `PWD`;
 Devyy never copies account credentials or manually constructs its auth headers.
+
+### Live SSH workspaces
+
+Install SSHFS on Linux, or WinFsp and SSHFS-Win on Windows, and add the server in Remote Explorer. Devyy opens a live mount for reading, editing, and searching files. The integrated terminal starts an SSH shell. Source control and agent command tools execute through non-interactive OpenSSH and require key or agent authentication. Use the remote terminal for interactive authentication and remote debugging.

@@ -44,6 +44,7 @@ export default function Select({
   ...attributes
 }: Props) {
   const [local, setLocal] = useState(String(defaultValue ?? ""));
+  const [dialog, setDialog] = useState<HTMLDialogElement>();
   const items: Item[] = [];
   function collect(nodes: ReactNode, group?: string) {
     Children.forEach(nodes, (node) => {
@@ -89,6 +90,7 @@ export default function Select({
       }}
     >
       <Primitive.Trigger
+        ref={(node) => { if (node) setDialog(node.closest("dialog") ?? undefined); }}
         {...(attributes as React.ButtonHTMLAttributes<HTMLButtonElement>)}
         id={id}
         className={`devyy-select ${className ?? ""}`}
@@ -101,7 +103,7 @@ export default function Select({
           <ChevronDown size={13} />
         </Primitive.Icon>
       </Primitive.Trigger>
-      <Primitive.Portal>
+      <Primitive.Portal container={dialog}>
         <Primitive.Content
           className="devyy-select-popup"
           position="popper"
