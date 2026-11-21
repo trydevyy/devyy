@@ -19,7 +19,7 @@ const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 test("first-run setup applies appearance and editor choices, completes once, and can reopen", async ({
   page,
-}) => {
+}, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript(() => {
@@ -32,17 +32,19 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await page.goto("/?playground=1");
   const setup = page.getByRole("dialog", { name: "Set up devyy", exact: true });
   await expect(setup).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Sign in to Devyy" })).toBeVisible();
+  await setup.getByRole("button", { name: "Continue as guest" }).click();
   await setup.getByRole("button", { name: "Blue accent", exact: true }).click();
   await expect(page.locator("html")).toHaveCSS("--accent", "#a7bcff");
   await setup.getByRole("button", { name: "Light", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
-  await page.screenshot({ path: "artifacts/devyy-setup-light.png" });
+  await page.screenshot({ path: testInfo.outputPath("devyy-setup-light.png") });
   await setup.getByRole("button", { name: "Dark", exact: true }).click();
   await setup
     .getByRole("button", { name: "Neutral accent", exact: true })
     .click();
   await expect(page.locator("html")).toHaveCSS("--accent", "#f2f2f2");
-  await page.screenshot({ path: "artifacts/devyy-setup.png" });
+  await page.screenshot({ path: testInfo.outputPath("devyy-setup.png") });
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await setup
     .getByRole("slider", { name: "Setup editor font size", exact: true })
@@ -60,7 +62,7 @@ test("first-run setup applies appearance and editor choices, completes once, and
   ).toBeVisible();
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
-    setup.getByRole("region", { name: "GitHub and Git" }),
+    setup.getByRole("region", { name: "Source control" }),
   ).toBeVisible();
   await setup
     .getByRole("button", { name: "Start coding", exact: true })

@@ -559,6 +559,7 @@ test("streams native chat, attaches explicit file context, reviews changes, and 
       ).aiFixture.calls.find((c) => c.command === "ai_chat")?.args.request,
   );
   expect(JSON.stringify(sent)).toContain("<devyy_file_context>");
+  await page.getByLabel("Conversation actions", { exact: true }).click();
   await page.getByRole("button", { name: "AI usage", exact: true }).click();
   await page.getByRole("tab", { name: "tokens", exact: true }).click();
   await expect(page.getByText("120", { exact: true })).toBeVisible();
@@ -1560,20 +1561,22 @@ test("workspace access requires consent and agent proposals are reviewed before 
   );
   await start(page);
   const access = page.getByRole("combobox", { name: "Agent workspace access" });
-  await expect(access).toHaveAttribute("data-value", "attached");
-  await chooseOption(access, "full");
+  await page.getByRole("button", { name: /Agent options:/ }).click();
+  await expect(access).toHaveValue("attached");
+  await access.selectOption("full");
   const consent = page.getByRole("dialog", {
     name: "Workspace access",
     exact: true,
   });
   await expect(consent).toContainText("including ignored files");
   await consent.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(access).toHaveAttribute("data-value", "attached");
-  await chooseOption(access, "full");
+  await page.getByRole("button", { name: /Agent options:/ }).click();
+  await expect(access).toHaveValue("attached");
+  await access.selectOption("full");
   await consent
     .getByRole("button", { name: "Allow full workspace access", exact: true })
     .click();
-  await expect(access).toHaveAttribute("data-value", "full");
+  await expect(page.getByRole("button", { name: /Agent options:/ })).toHaveAccessibleName("Agent options: Agent, Full workspace");
   await page
     .getByRole("textbox", { name: "Message Devyy AI" })
     .fill("Inspect the workspace and propose a focused edit");
@@ -1588,7 +1591,7 @@ test("workspace access requires consent and agent proposals are reviewed before 
     "I inspected main.rs and staged two proposals for review.",
   );
   await control(page, "finish");
-  await page.screenshot({ path: "artifacts/devyy-ai-agent.png" });
+
   const proposal = page
     .locator(".ai-proposal")
     .filter({ hasText: "src/main.rs" });
@@ -1644,8 +1647,9 @@ test("workspace access requires consent and agent proposals are reviewed before 
       ),
     )
     .toBe(true);
-  await chooseOption(access, "attached");
-  await expect(access).toHaveAttribute("data-value", "attached");
+  await page.getByRole("button", { name: /Agent options:/ }).click();
+  await access.selectOption("attached");
+  await expect(access).toHaveValue("attached");
 });
 
 test("workspace shell and first document appear while indexing and services remain pending", async ({
