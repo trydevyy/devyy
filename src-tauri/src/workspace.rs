@@ -38,6 +38,8 @@ pub struct WorkspaceInfo {
     pub name: String,
     pub files: Vec<Entry>,
     pub logo: Option<String>,
+    #[serde(rename = "remotePath", skip_serializing_if = "Option::is_none")]
+    pub remote_path: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Document {
@@ -64,9 +66,6 @@ pub fn root(state: &Workspace) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .clone()
         .ok_or_else(|| "Open a folder first".to_string())?;
-    if let Some(ssh) = crate::remote::ssh_workspace(&path) {
-        ssh.ensure_mounted()?;
-    }
     Ok(path)
 }
 pub fn display_path(path: &Path) -> String {
@@ -214,6 +213,9 @@ pub async fn list_directory(
     state: State<'_, Workspace>,
 ) -> Result<Vec<Entry>, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.directory(&path).await;
+    }
     background(move || directory_entries(&base, &path)).await?
 }
 
@@ -317,6 +319,7 @@ fn workspace_info(base: &Path) -> WorkspaceInfo {
             .into(),
         files,
         logo,
+        remote_path: None,
     }
 }
 #[tauri::command]
@@ -324,6 +327,12 @@ pub async fn open_workspace(
     path: String,
     state: State<'_, Workspace>,
 ) -> Result<WorkspaceInfo, String> {
+    let requested = PathBuf::from(&path);
+    if let Some(ssh) = crate::ssh::workspace(&requested) {
+        let info = ssh.info(&requested, 2, 2048).await?;
+        set_root(&state, requested)?;
+        return Ok(info);
+    }
     let (base, info) = background(move || {
         let base = PathBuf::from(path)
             .canonicalize()
@@ -333,7 +342,10 @@ pub async fn open_workspace(
             .canonicalize()
             .is_ok_and(|legacy| base.starts_with(legacy))
         {
-            return Err("This was a downloaded SSH workspace. Open the server again in Remote Explorer.".into());
+            return Err(
+                "This was a downloaded SSH workspace. Open the server again in Remote Explorer."
+                    .into(),
+            );
         }
         if !base.is_dir() {
             return Err("Choose a folder".to_string());
@@ -347,27 +359,50 @@ pub async fn open_workspace(
                 .to_string_lossy()
                 .into(),
             logo: project_logo(&base, &files),
+            remote_path: None,
             files,
         };
         Ok::<_, String>((base, info))
     })
     .await??;
-    *state.0.lock().map_err(|e| e.to_string())? = Some(base);
+    set_root(&state, base)?;
     Ok(info)
 }
+fn set_root(state: &Workspace, path: PathBuf) -> Result<(), String> {
+    let previous = state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .replace(path.clone());
+    if let Some(previous) = previous.filter(|previous| previous != &path) {
+        crate::ssh::release(&previous);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn refresh_workspace(state: State<'_, Workspace>) -> Result<WorkspaceInfo, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.info(&base, 3, 2048).await;
+    }
     background(move || workspace_info(&base)).await
 }
 #[tauri::command]
 pub async fn list_files(state: State<'_, Workspace>) -> Result<Vec<Entry>, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.entries(12, 10000).await;
+    }
     background(move || explorer_entries(&base, 20, 30_000)).await
 }
 #[tauri::command]
 pub async fn read_file(path: String, state: State<'_, Workspace>) -> Result<Document, String> {
-    read_document(&root(&state)?, &path)
+    let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.read(&path).await;
+    }
+    read_document(&base, &path)
 }
 fn read_document(base: &Path, path: &str) -> Result<Document, String> {
     let full = resolve(base, path, false)?;
@@ -390,7 +425,11 @@ pub async fn write_file(
     expected: String,
     state: State<'_, Workspace>,
 ) -> Result<String, String> {
-    write_document(&root(&state)?, &path, &content, &expected)
+    let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.write(&path, &content, &expected).await;
+    }
+    write_document(&base, &path, &content, &expected)
 }
 fn write_document(
     base: &Path,
@@ -425,7 +464,11 @@ pub async fn create_file(
     directory: bool,
     state: State<'_, Workspace>,
 ) -> Result<(), String> {
-    let full = resolve(&root(&state)?, &path, true)?;
+    let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.create(&path, directory).await;
+    }
+    let full = resolve(&base, &path, true)?;
     if directory {
         fs::create_dir(full).map_err(|e| e.to_string())
     } else {
@@ -444,6 +487,9 @@ pub async fn rename_file(
     state: State<'_, Workspace>,
 ) -> Result<(), String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.rename(&path, &new_path).await;
+    }
     let from = resolve(&base, &path, false)?;
     let to = resolve(&base, &new_path, true)?;
     if to.exists() {
@@ -454,6 +500,9 @@ pub async fn rename_file(
 #[tauri::command]
 pub async fn delete_file(path: String, state: State<'_, Workspace>) -> Result<(), String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.delete(&path).await;
+    }
     tauri::async_runtime::spawn_blocking(move || delete_path(&base, &path))
         .await
         .map_err(|e| e.to_string())?
@@ -474,6 +523,9 @@ pub async fn search_workspace(
     state: State<'_, Workspace>,
 ) -> Result<Vec<SearchMatch>, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return ssh.search(options).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         if options.query.is_empty() {
             return Vec::new();
@@ -531,6 +583,16 @@ pub async fn read_preview_image(
     state: State<'_, Workspace>,
 ) -> Result<String, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        let mime = mime_guess::from_path(&path)
+            .first()
+            .filter(|mime| mime.type_() == "image")
+            .ok_or("Unsupported image format")?;
+        return Ok(format!(
+            "data:{mime};base64,{}",
+            STANDARD.encode(ssh.bytes(&path, 8 * 1024 * 1024).await?)
+        ));
+    }
     tauri::async_runtime::spawn_blocking(move || preview_image(&base, &path))
         .await
         .map_err(|e| e.to_string())?
@@ -571,6 +633,16 @@ pub async fn read_preview_media(
     state: State<'_, Workspace>,
 ) -> Result<String, String> {
     let base = root(&state)?;
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        let mime = mime_guess::from_path(&path)
+            .first()
+            .filter(|mime| matches!(mime.type_().as_str(), "audio" | "video"))
+            .ok_or("Unsupported media format")?;
+        return Ok(format!(
+            "data:{mime};base64,{}",
+            STANDARD.encode(ssh.bytes(&path, 32 * 1024 * 1024).await?)
+        ));
+    }
     background(move || {
         let full = resolve(&base, &path, false)?;
         let mime = match full

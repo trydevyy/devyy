@@ -357,6 +357,52 @@ pub async fn set_default_app(
         )
     }
 }
+#[tauri::command]
+pub async fn set_all_default_apps(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            for &(ext, _) in TYPES {
+                let _ = mac::set(ext);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            for &(ext, _) in TYPES {
+                let _ = register_linux(ext);
+                if let Ok(m) = mime(ext) {
+                    let _ = crate::process::command("xdg-mime")
+                        .args(["default", "devyy.desktop", m])
+                        .status();
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            for &(ext, _) in TYPES {
+                let _ = register_windows(ext);
+            }
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    #[cfg(windows)]
+    {
+        app.opener()
+            .open_url(
+                "ms-settings:defaultapps?registeredAppUser=Devyy",
+                None::<&str>,
+            )
+            .map_err(|e| e.to_string())?;
+        return Ok(serde_json::json!({"changed":false,"openedSettings":true}));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(serde_json::json!({"changed":true,"openedSettings":false}))
+    }
+}
 #[derive(Default)]
 pub struct OpenTargets(pub std::sync::Mutex<Vec<String>>);
 pub fn launch_paths(

@@ -42,10 +42,8 @@ pub fn ai_workspace_access<R: tauri::Runtime>(
     mode: Option<String>,
 ) -> Result<String, String> {
     let base = workspace::root(&workspace)?;
-    if PathBuf::from(root)
-        .canonicalize()
-        .map_err(|e| e.to_string())?
-        != base
+    if workspace::display_path(&base) != root
+        && PathBuf::from(root).canonicalize().ok().as_ref() != Some(&base)
     {
         return Err("The workspace changed".into());
     }
@@ -85,10 +83,8 @@ pub fn context<R: tauri::Runtime>(
         return Ok(None);
     };
     let base = workspace::root(&app.state::<workspace::Workspace>())?;
-    if PathBuf::from(cwd)
-        .canonicalize()
-        .map_err(|e| e.to_string())?
-        != base
+    if workspace::display_path(&base) != cwd.as_str()
+        && PathBuf::from(cwd).canonicalize().ok().as_ref() != Some(&base)
     {
         return Err(
             "The workspace changed. Send your message again in the current workspace.".into(),
@@ -118,6 +114,16 @@ impl Context {
         Ok(path)
     }
     fn read(&self, relative: &str) -> Result<String, String> {
+        if let Some(ssh) = crate::ssh::workspace(&self.base) {
+            if self.mode != "full" && sensitive(relative) {
+                return Err("This file requires Full workspace access".into());
+            }
+            let data = tauri::async_runtime::block_on(ssh.bytes(relative, LIMIT as u64))?;
+            if data.contains(&0) {
+                return Err("Binary files cannot be read by the agent".into());
+            }
+            return String::from_utf8(data).map_err(|_| "File is not UTF-8 text".into());
+        }
         let path = self.path(relative, false)?;
         let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
         if !metadata.is_file() || metadata.len() > LIMIT as u64 {
@@ -130,6 +136,17 @@ impl Context {
         String::from_utf8(data).map_err(|_| "File is not UTF-8 text".into())
     }
     fn listing(&self, relative: &str) -> Result<Vec<String>, String> {
+        if let Some(ssh) = crate::ssh::workspace(&self.base) {
+            return Ok(
+                tauri::async_runtime::block_on(ssh.entries_at(relative, 16, 4000))?
+                    .into_iter()
+                    .filter(|entry| {
+                        !entry.directory && (self.mode == "full" || !sensitive(&entry.path))
+                    })
+                    .map(|entry| entry.path)
+                    .collect(),
+            );
+        }
         let base = if relative.is_empty() {
             self.base.clone()
         } else {
@@ -281,11 +298,7 @@ impl Context {
                     if scanned >= 500 || bytes >= 16 * 1024 * 1024 || matches.len() >= 100 {
                         break;
                     }
-                    let full = match self.path(&file, false) {
-                        Ok(p) => p,
-                        Err(_) => continue,
-                    };
-                    let Ok(text) = std::fs::read_to_string(&full) else {
+                    let Ok(text) = self.read(&file) else {
                         continue;
                     };
                     scanned += 1;
@@ -325,14 +338,13 @@ impl Context {
                 } else {
                     "-c"
                 };
-                let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
-                    ssh.command_at(&self.base, command)?
+                let output = if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                    ssh.run_blocking(command)
                 } else {
                     let mut process = crate::process::command(shell);
                     process.arg(arg_flag).arg(command).current_dir(&self.base);
-                    process
-                };
-                let output = bounded_command(&mut process)?;
+                    bounded_command(&mut process)
+                }?;
 
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -369,6 +381,17 @@ impl Context {
                 if modified.len() > LIMIT || modified.contains('\0') {
                     return Err("Proposed text must be at most 256 KiB".into());
                 }
+                if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                    let create = !tauri::async_runtime::block_on(ssh.exists(path))?;
+                    let original = if create {
+                        String::new()
+                    } else {
+                        self.read(path)?
+                    };
+                    return Ok(
+                        json!({"id":uuid::Uuid::new_v4().to_string(),"path":path,"original":original,"modified":modified,"create":create,"workspace":workspace::display_path(&self.base),"status":"pending"}),
+                    );
+                }
                 let full = self.path(path, true)?;
                 let create = !full.exists();
                 let original = if create {
@@ -385,6 +408,20 @@ impl Context {
                     return Err("Full workspace access is required to write files".into());
                 }
                 let content = args["content"].as_str().ok_or("Provide file content")?;
+                if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                    tauri::async_runtime::block_on(async {
+                        ssh.ensure_parent(path).await?;
+                        let expected = if ssh.exists(path).await? {
+                            ssh.read(path).await?.modified
+                        } else {
+                            "devyy:new".into()
+                        };
+                        ssh.write(path, content, &expected).await
+                    })?;
+                    return Ok(
+                        json!({"path": path, "bytesWritten": content.len(), "success": true}),
+                    );
+                }
                 let full = self.path(path, true)?;
                 if let Some(parent) = full.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -398,6 +435,13 @@ impl Context {
                 }
                 let from = args["from"].as_str().ok_or("Provide source path")?;
                 let to = args["to"].as_str().ok_or("Provide destination path")?;
+                if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                    tauri::async_runtime::block_on(async {
+                        ssh.ensure_parent(to).await?;
+                        ssh.rename(from, to).await
+                    })?;
+                    return Ok(json!({"from": from, "to": to, "success": true}));
+                }
                 let from_full = self.path(from, false)?;
                 let to_full = self.path(to, true)?;
                 if let Some(parent) = to_full.parent() {
@@ -409,6 +453,10 @@ impl Context {
             "delete_file" => {
                 if self.mode != "full" {
                     return Err("Full workspace access is required to delete files".into());
+                }
+                if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                    tauri::async_runtime::block_on(ssh.delete(path))?;
+                    return Ok(json!({"path": path, "deleted": true}));
                 }
                 let full = self.path(path, false)?;
                 if full.is_dir() {
@@ -476,18 +524,23 @@ impl Context {
                 }
             }
             "qa_check" => {
-                let has_cargo = self.base.join("Cargo.toml").exists();
-                let has_package = self.base.join("package.json").exists();
+                let exists = |path: &str| -> Result<bool, String> {
+                    if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                        return tauri::async_runtime::block_on(ssh.exists(path));
+                    }
+                    Ok(self.base.join(path).exists())
+                };
+                let has_cargo = exists("Cargo.toml")?;
+                let has_package = exists("package.json")?;
                 let mut results = Vec::new();
                 if has_cargo {
-                    let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
-                        ssh.command_at(&self.base, "cargo check")?
+                    let output = if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                        ssh.run_blocking("cargo check")
                     } else {
                         let mut process = crate::process::command("cargo");
                         process.arg("check").current_dir(&self.base);
-                        process
+                        bounded_command(&mut process)
                     };
-                    let output = bounded_command(&mut process);
                     if let Ok(res) = output {
                         let stderr = String::from_utf8_lossy(&res.stderr);
                         results.push(json!({
@@ -501,14 +554,13 @@ impl Context {
                     }
                 }
                 if has_package {
-                    let mut process = if let Some(ssh) = crate::remote::ssh_workspace(&self.base) {
-                        ssh.command_at(&self.base, "npm run check")?
+                    let output = if let Some(ssh) = crate::ssh::workspace(&self.base) {
+                        ssh.run_blocking("npm run check")
                     } else {
                         let mut process = crate::process::command("npm");
                         process.args(["run", "check"]).current_dir(&self.base);
-                        process
+                        bounded_command(&mut process)
                     };
-                    let output = bounded_command(&mut process);
                     if let Ok(res) = output {
                         let out = format!(
                             "{}\n{}",
@@ -1232,7 +1284,8 @@ pub async fn chat<R: tauri::Runtime>(
             .to_string_lossy(),
         context.mode
     );
-    if let Ok(guidance) = context.read("AGENTS.md") {
+    let project = context.clone();
+    if let Ok(Ok(guidance)) = tokio::task::spawn_blocking(move || project.read("AGENTS.md")).await {
         instructions.push_str(
             "\nProject guidance (subject to the permission and tool boundaries above):\n",
         );

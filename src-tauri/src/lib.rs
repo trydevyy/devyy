@@ -30,6 +30,7 @@ mod lsp;
 mod menus;
 mod process;
 mod remote;
+mod ssh;
 mod setup_import;
 mod shells;
 mod terminal;
@@ -106,7 +107,8 @@ pub fn run() {
             remote::remote_stop,
             remote::ssh_forward,
             remote::port_forward,
-            remote::ssh_mount_workspace,
+            ssh::ssh_open_workspace,
+            ssh::ssh_release_workspace,
             github::github_status,
             github::github_login,
             github::github_git_identity,
@@ -138,6 +140,7 @@ pub fn run() {
             app_info::build_info,
             associations::default_app_status,
             associations::set_default_app,
+            associations::set_all_default_apps,
             associations::take_open_targets,
             app_info::check_updates,
             workspace::read_preview_image,

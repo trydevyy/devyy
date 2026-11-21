@@ -39,7 +39,11 @@ fn random() -> String {
     SystemRandom::new().fill(&mut value).unwrap();
     URL_SAFE_NO_PAD.encode(value)
 }
-pub fn server(value: &str) -> Result<String, String> {
+pub const ACCOUNT_ORIGIN: &str = "https://api.devyy.dev";
+const WEBSITE_ORIGIN: &str = "https://www.devyy.dev";
+
+#[cfg(test)]
+fn server(value: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(value).map_err(|_| "Enter a valid Devyy server URL")?;
     if url.username() != ""
         || url.password().is_some()
@@ -100,10 +104,9 @@ async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
 }
 #[tauri::command]
 pub fn account_begin(
-    server_url: String,
     state: tauri::State<'_, Accounts>,
 ) -> Result<Value, String> {
-    let server = server(&server_url)?;
+    let server = ACCOUNT_ORIGIN.to_owned();
     let verifier = random();
     let nonce = random();
     let challenge =
@@ -121,12 +124,7 @@ pub fn account_begin(
             started: Instant::now(),
         },
     );
-    let web_origin = if let Some(stripped) = server.strip_prefix("https://api.") {
-        format!("https://{stripped}")
-    } else {
-        server.clone()
-    };
-    let mut url = reqwest::Url::parse(&format!("{web_origin}/authorize")).unwrap();
+    let mut url = reqwest::Url::parse(&format!("{WEBSITE_ORIGIN}/authorize/")).unwrap();
     url.query_pairs_mut()
         .append_pair("state", &nonce)
         .append_pair("challenge", &challenge)
@@ -173,12 +171,11 @@ pub async fn account_finish(url: String, app: tauri::AppHandle) -> Result<Value,
 }
 #[tauri::command]
 pub async fn account_request(
-    server_url: String,
     path: String,
     method: String,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    let server = server(&server_url)?;
+    let server = ACCOUNT_ORIGIN.to_owned();
     let allowed = matches!(
         path.as_str(),
         "/me" | "/sync" | "/sessions" | "/logout" | "/tunnels"
@@ -190,7 +187,7 @@ pub async fn account_request(
                     .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
         })
     });
-    if !allowed || !["GET", "PUT", "POST", "DELETE"].contains(&method.as_str()) {
+    if !allowed || !["GET", "PUT", "POST", "PATCH", "DELETE"].contains(&method.as_str()) {
         return Err("Unsupported account operation".into());
     }
     let token = token(&server)?;
@@ -213,8 +210,8 @@ pub async fn account_request(
     .await
 }
 #[tauri::command]
-pub async fn account_disconnect(server_url: String) -> Result<(), String> {
-    let server = server(&server_url)?;
+pub async fn account_disconnect() -> Result<(), String> {
+    let server = ACCOUNT_ORIGIN.to_owned();
     if let Ok(token) = token(&server) {
         let _ = client()?
             .post(format!("{server}/api/logout"))
@@ -232,9 +229,9 @@ mod tests {
     use super::*;
     #[test]
     fn account_origins_are_bounded() {
-        assert!(server("https://devyy.xyz").is_ok());
-        assert!(server("https://x.devyy.xyz/path").is_err());
-        assert!(server("https://user:pass@devyy.xyz").is_err());
+        assert!(server("https://www.devyy.dev").is_ok());
+        assert!(server("https://x.devyy.dev/path").is_err());
+        assert!(server("https://user:pass@devyy.dev").is_err());
         assert!(server("http://example.com").is_err());
     }
 }

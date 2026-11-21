@@ -93,7 +93,7 @@ pub async fn debug_start<R: tauri::Runtime>(
         return Err("Stop the current debug session first".into());
     }
     let base = root(&workspace)?;
-    if crate::remote::ssh_workspace(&base).is_some() {
+    if crate::ssh::workspace(&base).is_some() {
         return Err("Use the remote terminal to start a debugger on this SSH server.".into());
     }
     let adapter = tauri::async_runtime::spawn_blocking(move || -> Result<Arc<Adapter>, String> {

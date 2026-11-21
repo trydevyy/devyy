@@ -189,18 +189,22 @@ pub async fn vcs_checkpoint(
 }
 
 fn output(base: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let ssh = crate::remote::ssh_workspace(base);
+    let ssh = crate::ssh::workspace(base);
     let use_hit = ssh.is_none() && is_hit_enabled();
     let mut cmd = if let Some(ssh) = &ssh {
         let arguments = args
             .iter()
-            .map(|arg| crate::remote::shell_quote(arg))
+            .map(|arg| crate::ssh::quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        ssh.command_at(
-            base,
-            &format!("GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git {arguments}"),
-        )?
+        let script = format!("GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git {arguments}");
+        let (code, stdout, stderr) =
+            tauri::async_runtime::block_on(ssh.run(&ssh.relative_to(base), &script))?;
+        return if code == 0 {
+            Ok(stdout)
+        } else {
+            Err(String::from_utf8_lossy(&stderr).trim().to_owned())
+        };
     } else {
         crate::process::command("git")
     };
@@ -427,6 +431,15 @@ fn diff_files(base: &Path, path: &str, staged: bool) -> Result<DiffFiles, String
     )?;
     let modified = if staged {
         read_blob(base, &format!(":{prefix}{path}"))?
+    } else if let Some(ssh) = crate::ssh::workspace(base) {
+        let path = format!("{}{path}", prefix);
+        tauri::async_runtime::block_on(async {
+            if ssh.exists(&path).await? {
+                ssh.bytes(&path, 2 * 1024 * 1024).await
+            } else {
+                Ok(Vec::new())
+            }
+        })?
     } else if base.join(path).exists() {
         let full = resolve(base, path, false)?;
         if std::fs::metadata(&full).map_err(|e| e.to_string())?.len() > 2 * 1024 * 1024 {
@@ -508,14 +521,17 @@ fn repository_base(base: &Path, repository: Option<&str>) -> Result<std::path::P
     let Some(repository) = repository.filter(|path| !path.is_empty()) else {
         return Ok(base.to_owned());
     };
+    if crate::ssh::workspace(base).is_some() {
+        validate_path(repository)?;
+        let path = base.join(repository);
+        git(&path, &["rev-parse", "--show-toplevel"])?;
+        return Ok(path);
+    }
     let path = resolve(base, repository, false)?
         .canonicalize()
         .map_err(|e| e.to_string())?;
     if !path.join(".git").exists() {
         return Err("This submodule has not been initialized".into());
-    }
-    if crate::remote::ssh_workspace(&path).is_some() {
-        return Ok(path);
     }
     let top = git(&path, &["rev-parse", "--show-toplevel"])?;
     if Path::new(top.trim())

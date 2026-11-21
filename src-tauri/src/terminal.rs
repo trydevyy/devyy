@@ -44,6 +44,7 @@ pub struct Session {
 pub struct Terminals {
     sessions: Mutex<HashMap<u32, Session>>,
     next: AtomicU32,
+    remote: Mutex<HashMap<u32, tokio::sync::mpsc::Sender<RemoteTerminalEvent>>>,
 }
 #[derive(Clone, Serialize)]
 struct Output {
@@ -59,16 +60,19 @@ pub async fn terminal_create<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let base = if workspace
+    let has_workspace = workspace
         .0
         .lock()
         .map_err(|error| error.to_string())?
-        .is_some()
-    {
+        .is_some();
+    let base = if has_workspace {
         root(&workspace)?
     } else {
         app.path().home_dir().map_err(|error| error.to_string())?
     };
+    if let Some(ssh) = crate::ssh::workspace(&base) {
+        return create_remote_terminal(app, ssh, cols, rows).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         create_session(app, base, cols, rows, profile, options)
     })
@@ -83,7 +87,6 @@ fn create_session<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let ssh = crate::remote::ssh_workspace(&base);
     let state = app.state::<Terminals>();
     let pty = native_pty_system()
         .openpty(PtySize {
@@ -94,53 +97,34 @@ fn create_session<R: tauri::Runtime>(
         })
         .map_err(|e| e.to_string())?;
     let options = options.unwrap_or_default();
-    let mut cmd = if let Some(ssh) = ssh {
-        let mut command =
-            CommandBuilder::new(crate::process::executable("ssh").unwrap_or_else(|| "ssh".into()));
-        command.args([
-            "-tt",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            "-p",
-            &ssh.port.to_string(),
-            &ssh.destination(),
-        ]);
-        command.arg(format!(
-            "cd {} && exec \"$SHELL\" -l",
-            ssh.remote_directory(&base)
-        ));
-        command
-    } else {
-        let shell = crate::shells::select(profile.as_deref())?;
-        let mut cmd = CommandBuilder::new(options.shell_path.as_deref().unwrap_or(&shell.path));
-        if let Some(args) = options.shell_args {
-            if let Some(args) = args.as_array() {
-                cmd.args(args.iter().filter_map(|s| s.as_str()));
-            } else if let Some(args) = args.as_str() {
-                cmd.arg(args);
-            }
-        } else if options.shell_path.is_none() {
-            cmd.args(&shell.args);
+    let shell = crate::shells::select(profile.as_deref())?;
+    let mut cmd = CommandBuilder::new(options.shell_path.as_deref().unwrap_or(&shell.path));
+    if let Some(args) = options.shell_args {
+        if let Some(args) = args.as_array() {
+            cmd.args(args.iter().filter_map(|s| s.as_str()));
+        } else if let Some(args) = args.as_str() {
+            cmd.arg(args);
         }
-        let cwd = options
-            .cwd
-            .as_ref()
-            .and_then(|v| v.as_str().or_else(|| v["fsPath"].as_str()))
-            .map(std::path::PathBuf::from)
-            .unwrap_or(base);
-        cmd.cwd(cwd);
-        if options.strict_env.unwrap_or(false) {
-            cmd.env_clear();
+    } else if options.shell_path.is_none() {
+        cmd.args(&shell.args);
+    }
+    let cwd = options
+        .cwd
+        .as_ref()
+        .and_then(|v| v.as_str().or_else(|| v["fsPath"].as_str()))
+        .map(std::path::PathBuf::from)
+        .unwrap_or(base);
+    cmd.cwd(cwd);
+    if options.strict_env.unwrap_or(false) {
+        cmd.env_clear();
+    }
+    for (key, value) in options.env.unwrap_or_default() {
+        if let Some(value) = value {
+            cmd.env(key, value);
+        } else {
+            cmd.env_remove(key);
         }
-        for (key, value) in options.env.unwrap_or_default() {
-            if let Some(value) = value {
-                cmd.env(key, value);
-            } else {
-                cmd.env_remove(key);
-            }
-        }
-        cmd
-    };
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     let child = pty.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -177,8 +161,89 @@ fn create_session<R: tauri::Runtime>(
     });
     Ok(id)
 }
+enum RemoteTerminalEvent {
+    Input(String),
+    Resize(u16, u16),
+}
+
+async fn create_remote_terminal<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    ssh: std::sync::Arc<crate::ssh::SshWorkspace>,
+    cols: u16,
+    rows: u16,
+) -> Result<u32, String> {
+    use russh::ChannelMsg;
+    let mut channel = ssh
+        .session
+        .channel_open_session()
+        .await
+        .map_err(|error| error.to_string())?;
+    channel
+        .request_pty(
+            true,
+            "xterm-256color",
+            u32::from(cols.max(1)),
+            u32::from(rows.max(1)),
+            0,
+            0,
+            &[],
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    channel
+        .exec(true, ssh.shell_command("", "exec \"${SHELL:-/bin/sh}\" -l"))
+        .await
+        .map_err(|error| error.to_string())?;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let state = app.state::<Terminals>();
+    let id = state.next.fetch_add(1, Ordering::Relaxed) + 1;
+    state
+        .remote
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(id, tx);
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                action = rx.recv() => match action {
+                    Some(RemoteTerminalEvent::Input(text)) => if channel.data_bytes(text.into_bytes()).await.is_err() { break; },
+                    Some(RemoteTerminalEvent::Resize(cols, rows)) => if channel.window_change(u32::from(cols.max(1)), u32::from(rows.max(1)), 0, 0).await.is_err() { break; },
+                    None => break,
+                },
+                output = channel.wait() => match output {
+                    Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. }) => {
+                        let _ = app.emit("terminal-output", Output { id, data: data.to_vec() });
+                    }
+                    Some(ChannelMsg::Failure) => {
+                        let _ = app.emit("terminal-output", Output { id, data: b"SSH server rejected the terminal request.\r\n".to_vec() });
+                        break;
+                    }
+                    Some(ChannelMsg::Eof | ChannelMsg::Close) | None => break,
+                    _ => {}
+                },
+            }
+        }
+        let _ = channel.close().await;
+        if let Ok(mut terminals) = app.state::<Terminals>().remote.lock() {
+            terminals.remove(&id);
+        }
+        let _ = app.emit("terminal-exit", id);
+    });
+    Ok(id)
+}
+
 #[tauri::command]
 pub fn terminal_write(id: u32, data: String, state: State<Terminals>) -> Result<(), String> {
+    if let Some(remote) = state
+        .remote
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&id)
+    {
+        return remote
+            .try_send(RemoteTerminalEvent::Input(data))
+            .map_err(|error| error.to_string());
+    }
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     let session = sessions.get_mut(&id).ok_or("Terminal has closed")?;
     session
@@ -194,6 +259,16 @@ pub fn terminal_resize(
     rows: u16,
     state: State<Terminals>,
 ) -> Result<(), String> {
+    if let Some(remote) = state
+        .remote
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&id)
+    {
+        return remote
+            .try_send(RemoteTerminalEvent::Resize(cols, rows))
+            .map_err(|error| error.to_string());
+    }
     state
         .sessions
         .lock()
@@ -211,6 +286,11 @@ pub fn terminal_resize(
 }
 #[tauri::command]
 pub fn terminal_close(id: u32, state: State<Terminals>) -> Result<(), String> {
+    state
+        .remote
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&id);
     if let Some(mut session) = state
         .sessions
         .lock()
@@ -235,6 +315,14 @@ impl Drop for Terminals {
 
 #[tauri::command]
 pub fn terminal_pid(id: u32, state: State<Terminals>) -> Result<Option<u32>, String> {
+    if state
+        .remote
+        .lock()
+        .map_err(|error| error.to_string())?
+        .contains_key(&id)
+    {
+        return Ok(None);
+    }
     let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     Ok(sessions
         .get(&id)
