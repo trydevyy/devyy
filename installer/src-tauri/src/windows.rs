@@ -102,6 +102,57 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         .0
         .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
         .map_err(|e| e.to_string())?;
+
+    // Register file associations for Devyy
+    const EXTENSIONS: &[&str] = &[
+        "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
+        "txt",
+    ];
+    let (capabilities, _) = user
+        .create_subkey("Software\\Devyy\\Capabilities")
+        .map_err(|e| e.to_string())?;
+    capabilities
+        .set_value("ApplicationName", &"Devyy")
+        .map_err(|e| e.to_string())?;
+    capabilities
+        .set_value(
+            "ApplicationDescription",
+            &"A focused development environment and IDE",
+        )
+        .map_err(|e| e.to_string())?;
+    let (file_assoc, _) = user
+        .create_subkey("Software\\Devyy\\Capabilities\\FileAssociations")
+        .map_err(|e| e.to_string())?;
+    let (reg_apps, _) = user
+        .create_subkey("Software\\RegisteredApplications")
+        .map_err(|e| e.to_string())?;
+    reg_apps
+        .set_value("Devyy", &"Software\\Devyy\\Capabilities")
+        .map_err(|e| e.to_string())?;
+
+    for ext in EXTENSIONS {
+        let progid = format!("Devyy.{ext}");
+        let (progid_key, _) = user
+            .create_subkey(format!("Software\\Classes\\{progid}"))
+            .map_err(|e| e.to_string())?;
+        progid_key
+            .set_value("", &format!("Devyy {ext} file"))
+            .map_err(|e| e.to_string())?;
+        progid_key
+            .create_subkey("shell\\open\\command")
+            .map_err(|e| e.to_string())?
+            .0
+            .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
+            .map_err(|e| e.to_string())?;
+        let (open_with, _) = user
+            .create_subkey(format!("Software\\Classes\\.{ext}\\OpenWithProgids"))
+            .map_err(|e| e.to_string())?;
+        open_with.set_value(&progid, &"").map_err(|e| e.to_string())?;
+        file_assoc
+            .set_value(format!(".{ext}"), &progid)
+            .map_err(|e| e.to_string())?;
+    }
+
     script(include_str!("../../scripts/shortcuts.ps1"), manifest)
 }
 pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(), String> {
@@ -139,6 +190,21 @@ pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(),
     {
         user.delete_subkey_all(protocol)
             .map_err(|e| e.to_string())?;
+    }
+    const EXTENSIONS: &[&str] = &[
+        "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
+        "txt",
+    ];
+    for ext in EXTENSIONS {
+        let progid = format!("Devyy.{ext}");
+        let _ = user.delete_subkey_all(format!("Software\\Classes\\{progid}"));
+        if let Ok(open_with) = user.open_subkey(format!("Software\\Classes\\.{ext}\\OpenWithProgids")) {
+            let _ = open_with.delete_value(&progid);
+        }
+    }
+    let _ = user.delete_subkey_all("Software\\Devyy");
+    if let Ok(reg_apps) = user.open_subkey("Software\\RegisteredApplications") {
+        let _ = reg_apps.delete_value("Devyy");
     }
     script(include_str!("../../scripts/remove-shortcuts.ps1"), manifest)
 }
