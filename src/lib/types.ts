@@ -23,6 +23,7 @@ export interface Workspace {
   name: string;
   files: FileEntry[];
   logo?: string | null;
+  remotePath?: string;
 }
 export interface Tab {
   path: string;

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
@@ -122,6 +123,7 @@ export default function AIProviders() {
               setDraft(undefined);
             }}
           />
+          <DialogToastHost id="aiproviders" />
         </dialog>
       )}
       <div className="ai-provider-pages">
@@ -179,9 +181,7 @@ export default function AIProviders() {
             </button>
           </header>
           {(error || state.error) && (
-            <p className="ai-error" role="alert">
-              {error || state.error}
-            </p>
+            <ErrorToast message={error || state.error} />
           )}
           <div className="ai-provider-workspace">
             <nav className="ai-provider-list" aria-label="AI providers">

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Code, ImageOff, Maximize, Minus, Plus } from "lucide-react";
 import { invoke } from "../lib/native";
@@ -115,7 +116,7 @@ export default function FilePreview({
           <div className="file-preview-error" role="status">
             <ImageOff size={26} />
             <strong>Preview unavailable</strong>
-            <p>{error}</p>
+            <ErrorToast message={error} />
           </div>
         ) : !url ? (
           <p role="status">Loading preview…</p>

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import {
   ChevronDown,
@@ -293,9 +294,7 @@ function ContributedView({
       <div className="extension-view-body" hidden={!expanded}>
         {webview ? (
           error ? (
-            <p className="extension-view-note" role="alert">
-              {error}
-            </p>
+            <ErrorToast message={error} />
           ) : (
             <ExtensionWebviews
               placement="view"

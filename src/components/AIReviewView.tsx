@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useState } from "react";
 import {
   CheckCheck,
@@ -143,7 +144,7 @@ export default function AIReviewView({
         </div>
       </div>
 
-      {qaError && <p className="ai-error">{qaError}</p>}
+      {qaError && <ErrorToast message={qaError} />}
 
       {qaResults.length > 0 && (
         <div className="ai-qa-results-card">

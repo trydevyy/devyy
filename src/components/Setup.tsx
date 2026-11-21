@@ -28,6 +28,7 @@ import {
   Puzzle,
   Sun,
   Github,
+  UserRound,
 } from "lucide-react";
 import AIProviders from "./AIProviders";
 import { Bot } from "lucide-react";
@@ -38,7 +39,9 @@ import ExtensionManager from "./ExtensionManager";
 import SettingsImport from "./SettingsImport";
 import GitHubSettings from "./GitHubSettings";
 import CompletionSettings from "./CompletionSettings";
+import AccountSignIn, { useAccountProfile } from "./AccountSignIn";
 const steps = [
+  { name: "Devyy account", icon: UserRound },
   { name: "Appearance", icon: Palette },
   { name: "Editor", icon: Code2 },
   { name: "Import", icon: Download },
@@ -56,11 +59,12 @@ export default function Setup({
   onFinish: () => void;
 }) {
   const [step, setStep] = useState(0);
+  const profile = useAccountProfile();
   const [suggestions, setSuggestions] = useState<string[]>([]);
   return (
     <ModalBackdrop className="setup-backdrop">
       <section
-        className={`setup-dialog ${step === 4 ? "setup-providers" : ""}`}
+        className={`setup-dialog ${step === 5 ? "setup-providers" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Set up devyy"
@@ -72,14 +76,10 @@ export default function Setup({
           </div>
           <div className="setup-introduction">
             <h1>
-              A workspace
-              <br />
-              of your own.
+              Set up Devyy
             </h1>
             <p>
-              A few choices to get comfortable.
-              <br />
-              Everything can be changed later.
+              Choose how Devyy works on this device.
             </p>
           </div>
           <nav aria-label="Setup steps">
@@ -90,10 +90,10 @@ export default function Setup({
                 onClick={() => setStep(i)}
               >
                 <span className="setup-step-number">
-                  {i < step ? <Check size={12} /> : i + 1}
+                  <item.icon size={14} />
                 </span>
                 <span>{item.name}</span>
-                {step === i && <ArrowRight size={13} />}
+
               </button>
             ))}
           </nav>
@@ -104,20 +104,13 @@ export default function Setup({
         <div className="setup-main">
           <header>
             <span>{steps[step].name}</span>
-            <span
-              className="setup-progress"
-              aria-label={`Step ${step + 1} of ${steps.length}`}
-            >
-              {steps.map((item, i) => (
-                <i key={item.name} className={i <= step ? "complete" : ""} />
-              ))}
-            </span>
           </header>
           <div className="setup-scroll" key={step}>
             <h2>
               {
                 [
-                  "Find your focus.",
+                  "Sign in to Devyy",
+                  "Choose your appearance",
                   "Make room for your code.",
                   "Pick up where you left off.",
                   "Add the tools you use.",
@@ -129,7 +122,8 @@ export default function Setup({
             <p className="setup-description">
               {
                 [
-                  "Choose your appearance. The workspace updates as you go.",
+                  "Continue as a guest to set up a local workspace.",
+                  "The workspace updates as you go.",
                   "Set the type and spacing that feel right to you.",
                   "Import compatible preferences from an editor on this machine.",
                   "Browse Open VSX for languages, syntax, snippets, and themes.",
@@ -138,7 +132,8 @@ export default function Setup({
                 ][step]
               }
             </p>
-            {step === 0 && (
+            {step === 0 && <AccountSignIn profile={profile} />}
+            {step === 1 && (
               <>
                 <div
                   className="setup-theme-choices"
@@ -221,7 +216,7 @@ export default function Setup({
                 </div>
               </>
             )}
-            {step === 1 && (
+            {step === 2 && (
               <>
                 <EditorPreview settings={settings} />
                 <CompletionSettings
@@ -301,16 +296,16 @@ export default function Setup({
                 </div>
               </>
             )}
-            {step === 2 && (
+            {step === 3 && (
               <SettingsImport
                 settings={settings}
                 onChange={onChange}
                 onSuggestions={setSuggestions}
               />
             )}
-            {step === 3 && <ExtensionManager suggested={suggestions} />}
-            {step === 4 && <AIProviders />}
-            {step === 5 && <GitHubSettings />}
+            {step === 4 && <ExtensionManager suggested={suggestions} />}
+            {step === 5 && <AIProviders />}
+            {step === 6 && <GitHubSettings />}
           </div>
           <footer>
             <button
@@ -326,7 +321,7 @@ export default function Setup({
                 step === steps.length - 1 ? onFinish() : setStep((s) => s + 1)
               }
             >
-              {step === steps.length - 1 ? "Start coding" : "Continue"}
+              {step === steps.length - 1 ? "Start coding" : step === 0 && !profile ? "Continue as guest" : "Continue"}
               {step === steps.length - 1 ? (
                 <Check size={14} />
               ) : (

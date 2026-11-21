@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import ProviderSignIn from "./ProviderSignIn";
 import Select from "./ui/Select";
@@ -97,9 +98,7 @@ function CLIFields({
           }}
         />
         {error && (
-          <small className="ai-error" role="alert">
-            {error}
-          </small>
+          <ErrorToast message={error} />
         )}
       </div>
       <div className="ai-provider-field">
@@ -840,9 +839,7 @@ export default function AIProviderDetail({
           </AnimatePresence>
         </section>
         {error && (
-          <p className="ai-error" role="alert">
-            {error}
-          </p>
+          <ErrorToast message={error} />
         )}
         {notice && (
           <p className="ai-provider-notice" role="status">

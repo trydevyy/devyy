@@ -29,11 +29,13 @@ import {
   Github,
   LoaderCircle,
   RefreshCw,
-  Zap,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { invoke, listen, native } from "../lib/native";
+import { showError } from "./ui/ErrorToast";
+import { toast } from "sonner";
+import Select from "./ui/Select";
 import { useConfirm } from "./ui/Confirm";
 import type { Settings } from "../lib/types";
 
@@ -70,8 +72,6 @@ export default function GitHubSettings({
     hitVersion: "0.1.0",
   });
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -82,11 +82,10 @@ export default function GitHubSettings({
   async function refresh() {
     if (!native) return;
     setBusy("status");
-    setError("");
     try {
       const [ghVal, vcsVal] = await Promise.all([
-        invoke<GitHubStatus>("github_status").catch(() => undefined),
-        invoke<VcsInfo>("vcs_status").catch(() => undefined),
+        invoke<GitHubStatus>("github_status"),
+        invoke<VcsInfo>("vcs_status"),
       ]);
       if (!mounted.current) return;
       if (ghVal) {
@@ -101,7 +100,7 @@ export default function GitHubSettings({
         }
       }
     } catch (error) {
-      if (mounted.current) setError(String(error));
+      if (mounted.current) showError(error);
     } finally {
       if (mounted.current) setBusy("");
     }
@@ -119,8 +118,6 @@ export default function GitHubSettings({
 
   async function selectVcsProvider(provider: "hit" | "git") {
     setBusy("vcs");
-    setError("");
-    setNotice("");
     try {
       const active = await invoke<string>("vcs_set_provider", { provider });
       const nextProvider = active === "git" ? "git" : "hit";
@@ -128,13 +125,13 @@ export default function GitHubSettings({
       if (onChange) {
         onChange((prev) => ({ ...prev, vcsProvider: nextProvider }));
       }
-      setNotice(
+      toast.success(
         nextProvider === "hit"
-          ? "Switched to Hit (high-performance default)"
-          : "Switched to Git (standard version control)",
+          ? "Using Hit for source control"
+          : "Using Git for source control",
       );
     } catch (err) {
-      setError(String(err));
+      showError(err);
     } finally {
       setBusy("");
     }
@@ -147,15 +144,13 @@ export default function GitHubSettings({
     setStatus((old) =>
       old ? { ...old, gitName: nextName, gitEmail: nextEmail } : old,
     );
-    setNotice("Commit identity saved");
+    toast.success("Commit identity saved");
   }
 
   async function login() {
     const requestId = crypto.randomUUID();
     active.current = requestId;
     setBusy("login");
-    setError("");
-    setNotice("");
     setCode("");
     let unlisten: (() => void) | undefined;
     try {
@@ -165,7 +160,7 @@ export default function GitHubSettings({
           if (payload.requestId === requestId && mounted.current) {
             setCode(payload.code);
             void openUrl("https://github.com/login/device").catch((error) => {
-              if (mounted.current) setError(String(error));
+              if (mounted.current) showError(error);
             });
           }
         },
@@ -178,7 +173,7 @@ export default function GitHubSettings({
       if (!mounted.current) return;
       setStatus(value);
       setCode("");
-      setNotice("GitHub connected");
+      toast.success("GitHub connected");
       if (
         value.gitInstalled &&
         value.account &&
@@ -194,7 +189,7 @@ export default function GitHubSettings({
         setEmail(value.gitEmail || value.account?.email || "");
       }
     } catch (error) {
-      if (mounted.current) setError(String(error));
+      if (mounted.current) showError(error);
     } finally {
       unlisten?.();
       active.current = undefined;
@@ -206,213 +201,147 @@ export default function GitHubSettings({
   }
 
   const browse = (url: string) =>
-    void openUrl(url).catch((error) => setError(String(error)));
+    void openUrl(url).catch((error) => showError(error));
 
   const activeProvider = settings?.vcsProvider ?? vcsInfo.provider;
 
-  return (
-    <section className="github-settings" aria-label="Source control">
-      {/* Provider Switcher: Hit (Default, Faster) vs Git */}
-      <div className="vcs-provider-card">
-        <div className="vcs-provider-header">
-          <GitBranch size={22} className="vcs-main-icon" />
-          <span>
-            <strong>Source control provider</strong>
-            <small>
-              Choose the engine Devyy uses for repository operations.
-            </small>
-          </span>
-          <span
-            className={`vcs-active-pill ${activeProvider === "hit" ? "hit" : "git"}`}
-          >
-            {activeProvider === "hit" ? "Hit active" : "Git active"}
-          </span>
-        </div>
-        <div className="vcs-provider-options">
-          <button
-            type="button"
-            className={`vcs-provider-btn ${activeProvider === "hit" ? "selected" : ""}`}
-            onClick={() => void selectVcsProvider("hit")}
-            disabled={!!busy}
-            aria-pressed={activeProvider === "hit"}
-          >
-            <div className="vcs-btn-title">
-              <span className="vcs-indicator">
-                {activeProvider === "hit" ? "●" : "○"}
-              </span>
-              <strong>Hit</strong>
-              <span className="vcs-badge fast">
-                <Zap size={11} /> Fast (Default)
-              </span>
-            </div>
-            <p className="vcs-btn-desc">
-              Devyy?s bundled Git-compatible engine, with index preloading and
-              filesystem caching.
-            </p>
-          </button>
-          <button
-            type="button"
-            className={`vcs-provider-btn ${activeProvider === "git" ? "selected" : ""}`}
-            onClick={() => void selectVcsProvider("git")}
-            aria-pressed={activeProvider === "git"}
-            disabled={!!busy}
-          >
-            <div className="vcs-btn-title">
-              <span className="vcs-indicator">
-                {activeProvider === "git" ? "●" : "○"}
-              </span>
-              <strong>Git</strong>
-              <span className="vcs-badge standard">Standard</span>
-            </div>
-            <p className="vcs-btn-desc">
-              Use your system Git installation and its existing configuration
-              and hooks.
-            </p>
-          </button>
-        </div>
-      </div>
+  const tools = [
+    {
+      name: "Git",
+      available: status?.gitInstalled || vcsInfo.gitAvailable,
+      version: vcsInfo.gitVersion,
+      link: "https://git-scm.com/downloads",
+    },
+    {
+      name: "GitHub CLI",
+      available: status?.cliInstalled,
+      version: null,
+      link: "https://cli.github.com/",
+    },
+  ];
 
-      <div className="github-integration-card">
-        <div className="github-account-header">
-          <Github size={28} />
-          <span>
-            <strong>{status?.account?.login ?? "GitHub"}</strong>
-            <small>
-              {status?.connected
-                ? "Connected through GitHub CLI"
-                : "Connect repositories and authenticate over HTTPS"}
-            </small>
-          </span>
+  return (
+    <section className="workbench-settings" aria-label="Source control">
+      <section
+        className="workbench-settings-section"
+        aria-labelledby="commit-author-heading"
+      >
+        <header>
+          <div>
+            <h3 id="commit-author-heading">Commit author</h3>
+            <p>
+              Applied to new commits unless a repository has its own author
+              settings.
+            </p>
+          </div>
+        </header>
+        <form
+          className="scm-identity-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setBusy("identity");
+            void identity(name.trim(), email.trim())
+              .catch(showError)
+              .finally(() => setBusy(""));
+          }}
+        >
+          <label>
+            Name
+            <input
+              aria-label="Commit author name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Your name"
+            />
+          </label>
+          <label>
+            Email
+            <input
+              aria-label="Commit author email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          <button
+            className="setting-action"
+            disabled={!native || !!busy || !name.trim() || !email.includes("@")}
+          >
+            <Check size={13} /> Save commit author
+          </button>
+        </form>
+      </section>
+      <section
+        className="workbench-settings-section"
+        aria-labelledby="github-heading"
+      >
+        <header>
+          <div className="workbench-section-title">
+            <Github size={18} />
+            <div>
+              <h3 id="github-heading">GitHub</h3>
+              <p>
+                {status?.account?.login
+                  ? `Signed in as ${status.account.login}`
+                  : "Sign in to access GitHub repositories over HTTPS."}
+              </p>
+            </div>
+          </div>
           <button
             className="icon-button"
+            title="Check GitHub status"
             aria-label="Check status"
-            disabled={!!busy || !native}
+            disabled={!native || !!busy}
             onClick={() => void refresh()}
           >
             <RefreshCw
-              size={15}
+              size={14}
               className={busy === "status" ? "spinning" : ""}
             />
           </button>
-        </div>
-        {!native && (
-          <p className="muted">
-            Open the desktop app to connect GitHub and configure source control.
-          </p>
-        )}
-
-        {/* System Tooling & Dependencies */}
-        <div className="github-dependencies">
-          {[
-            {
-              label: "Hit",
-              installed: true,
-              version: vcsInfo.hitVersion,
-              description:
-                "Compiled directly into Devyy — blazingly fast source control engine",
-              active: activeProvider === "hit",
-            },
-            {
-              label: "Git",
-              installed: status?.gitInstalled || vcsInfo.gitAvailable,
-              version: vcsInfo.gitVersion,
-              url: "https://git-scm.com/downloads",
-              description: "System Git binary for standard version control",
-              active: activeProvider === "git",
-            },
-            {
-              label: "GitHub CLI",
-              installed: status?.cliInstalled,
-              url: "https://cli.github.com/",
-              description: "Browser sign-in and secure credential storage",
-            },
-          ].map((item) => (
-            <div key={item.label}>
+        </header>
+        {!status?.connected && busy !== "login" && (
+          <div className="scm-github-connect">
+            <label className="workbench-setting-line">
               <span>
-                <strong>
-                  {item.label}
-                  {item.active && (
-                    <span className="vcs-tag-active">Active</span>
-                  )}
-                </strong>
-                <small>
-                  {item.description}
-                  {item.version && ` (${item.version})`}
-                </small>
+                <strong>Use GitHub credentials for Git</strong>
+                <small>Applies to HTTPS operations in Hit and Git.</small>
               </span>
-              {!status && !vcsInfo ? (
-                <span className="github-installed">
-                  {native ? "Checking…" : "Desktop app"}
-                </span>
-              ) : item.installed ? (
-                <span className="github-installed">
-                  <Check size={13} /> Installed
-                </span>
-              ) : item.url ? (
-                <button
-                  className="setting-action"
-                  onClick={() => browse(item.url!)}
-                  disabled={!native}
-                >
-                  <Download size={13} /> Download {item.label}
-                </button>
-              ) : (
-                <span className="github-installed">Built-in</span>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Connect GitHub */}
-        {!status?.connected && (
-          <div className="github-connect">
-            <label>
               <input
                 type="checkbox"
                 checked={credentials}
                 onChange={(event) => setCredentials(event.target.checked)}
                 disabled={!!busy}
               />
-              Use this account for Git & Hit HTTPS authentication
             </label>
             <button
-              className="primary"
+              className="setting-action"
               disabled={!native || !status?.cliInstalled || !!busy}
               onClick={() => void login()}
             >
-              {busy === "login" ? (
-                <LoaderCircle size={14} className="spinning" />
-              ) : (
-                <Github size={14} />
-              )}{" "}
-              Continue with GitHub
+              <Github size={14} /> Continue with GitHub
             </button>
-            <small>
-              GitHub CLI opens its official browser authorization. Source
-              control also works locally without signing in.
-            </small>
+            {native && status && !status.cliInstalled && (
+              <p className="workbench-muted">
+                Install GitHub CLI to enable browser sign-in.
+              </p>
+            )}
           </div>
         )}
-
         {busy === "login" && (
-          <div className="github-device-flow" role="status">
+          <div className="scm-github-auth" role="status">
             {code ? (
               <>
                 <span>Enter this code on GitHub</span>
-                <div>
-                  <code>{code}</code>
-                  <button
-                    className="icon-button"
-                    aria-label="Copy GitHub code"
-                    onClick={() =>
-                      void writeText(code).catch((error) =>
-                        setError(String(error)),
-                      )
-                    }
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
+                <code>{code}</code>
+                <button
+                  className="icon-button"
+                  aria-label="Copy GitHub code"
+                  onClick={() => void writeText(code).catch(showError)}
+                >
+                  <Copy size={14} />
+                </button>
                 <button
                   className="setting-action"
                   onClick={() => browse("https://github.com/login/device")}
@@ -421,82 +350,88 @@ export default function GitHubSettings({
                 </button>
               </>
             ) : (
-              <span>Waiting for GitHub authorization…</span>
+              <span>
+                <LoaderCircle size={14} className="spinning" /> Waiting for
+                browser authorization
+              </span>
             )}
             <button
-              className="secondary"
+              className="setting-action"
               onClick={() => {
                 if (active.current)
-                  void invoke("ai_cancel", { requestId: active.current });
+                  void invoke("ai_cancel", { requestId: active.current }).catch(
+                    showError,
+                  );
               }}
             >
               Cancel sign-in
             </button>
           </div>
         )}
-      </div>
-
-      {/* Commit Identity */}
-      {(status?.gitInstalled || vcsInfo.hitAvailable) && (
-        <form
-          className="github-identity"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void (async () => {
-              setBusy("identity");
-              setError("");
-              try {
-                await identity(name, email);
-              } catch (e) {
-                setError(String(e));
-              } finally {
-                setBusy("");
-              }
-            })();
-          }}
-        >
-          <h4>Commit author identity</h4>
-          <p className="muted">
-            Used for commits in Hit and Git. Repository settings take
-            precedence.
-          </p>
-          <label>
-            Name
-            <input
-              aria-label="Commit author name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label>
-            Email
-            <input
-              aria-label="Commit author email"
-              type="text"
-              inputMode="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <button
-            className="setting-action"
-            disabled={!!busy || !name.trim() || !email.includes("@")}
+      </section>
+      <section
+        className="workbench-settings-section"
+        aria-labelledby="git-tools-heading"
+      >
+        <header>
+          <div className="workbench-section-title">
+            <GitBranch size={18} />
+            <div>
+              <h3 id="git-tools-heading">Git tools</h3>
+              <p>
+                Choose what Devyy uses to work with repositories on this device.
+              </p>
+            </div>
+          </div>
+        </header>
+        <div className="workbench-setting-line">
+          <span>
+            <strong>Source control provider</strong>
+            <small>
+              {activeProvider === "hit"
+                ? "Hit is included with Devyy."
+                : "Uses your system Git installation."}
+            </small>
+          </span>
+          <Select
+            aria-label="Source control provider"
+            value={activeProvider}
+            disabled={!native || !!busy}
+            onChange={(event) =>
+              void selectVcsProvider(event.target.value as "git" | "hit")
+            }
           >
-            <Check size={13} /> Save commit author
-          </button>
-        </form>
-      )}
-
-      {notice && (
-        <p role="status" className="ai-provider-notice">
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p className="ai-error" role="alert">
-          {error}
-        </p>
-      )}
+            <option value="hit">Hit</option>
+            <option value="git">Git</option>
+          </Select>
+        </div>
+        {tools.map((tool) => (
+          <div className="workbench-setting-line" key={tool.name}>
+            <span>
+              <strong>{tool.name}</strong>
+              <small>
+                {tool.version ||
+                  (tool.available
+                    ? "Installed"
+                    : native && !status
+                      ? "Checking installation"
+                      : "Required for this integration")}
+              </small>
+            </span>
+            {tool.available ? (
+              <Check size={15} aria-label="Installed" />
+            ) : (
+              <button
+                className="setting-action"
+                disabled={!native}
+                onClick={() => browse(tool.link)}
+              >
+                <Download size={13} /> Download {tool.name}
+              </button>
+            )}
+          </div>
+        ))}
+      </section>
     </section>
   );
 }

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -198,9 +199,7 @@ export default function AIContextPicker({
                 )}
               </div>
               {error && (
-                <p role="alert" className="ai-error">
-                  {error}
-                </p>
+                <ErrorToast message={error} />
               )}
               <footer>
                 <button

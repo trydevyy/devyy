@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
+import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence } from "motion/react";
 import AIThinking from "./AIThinking";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -23,7 +25,6 @@ import {
   Copy,
   FilePlus2,
   GitBranch,
-  History,
   Paperclip,
   Pencil,
   Plus,
@@ -37,10 +38,9 @@ import {
   MessageSquare,
   Sparkles,
   CheckCheck,
-  HelpCircle,
-  ListTodo,
   Bot,
   Bookmark,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   chooseAIModel,
@@ -60,7 +60,6 @@ import {
   type AIMessage,
   type AIProposal,
   type AIAgentMode,
-  AGENT_MODE_PROMPTS,
 } from "../lib/ai";
 import {
   hasAIContextDrag,
@@ -74,7 +73,6 @@ import {
 } from "../lib/aiContext";
 import AIContextPicker, { AttachmentIcon } from "./AIContextPicker";
 import AIModelPicker from "./AIModelPicker";
-import DevyyLogo from "./DevyyLogo";
 import AIWorkspaceAccess from "./AIWorkspaceAccess";
 import AIUsage from "./AIUsage";
 import { native, invoke } from "../lib/native";
@@ -124,7 +122,8 @@ export default function AIChatPanel({
     } catch {}
     return null;
   });
-  const [screen, setScreen] = useState<"chat" | "skills" | "sessions" | "review">("chat");
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [screen, setScreen] = useState<"chat" | "skills" | "review">("chat");
   const [draft, setDraft] = useState(""),
     [attached, setAttached] = useState<AIAttachment[]>([]),
     [queuedMessages, setQueuedMessages] = useState<
@@ -530,91 +529,58 @@ export default function AIChatPanel({
       }}
       onDrop={(event) => void drop(event)}
     >
-      {/* 4 Main Screens: Chat, Skills, Sessions, Review */}
-      <div className="ai-screen-nav">
-        <button
-          type="button"
-          className={`ai-screen-nav-btn ${screen === "chat" ? "active" : ""}`}
-          onClick={() => setScreen("chat")}
-        >
-          <MessageSquare size={13} /> Chat
-        </button>
-        <button
-          type="button"
-          className={`ai-screen-nav-btn ${screen === "skills" ? "active" : ""}`}
-          onClick={() => setScreen("skills")}
-        >
-          <Sparkles size={13} /> Skills
-        </button>
-        <button
-          type="button"
-          className={`ai-screen-nav-btn ${screen === "sessions" ? "active" : ""}`}
-          onClick={() => setScreen("sessions")}
-        >
-          <History size={13} /> Sessions
-        </button>
-        <button
-          type="button"
-          className={`ai-screen-nav-btn ${screen === "review" ? "active" : ""}`}
-          onClick={() => setScreen("review")}
-        >
-          <CheckCheck size={13} /> Review
-        </button>
-      </div>
-
-      {screen === "skills" && <AISkillsView sessionId={chat?.id} />}
-
-      {screen === "sessions" && (
-        <AISessionsView
-          onSelectChat={(id) => {
-            selectAIChat(id);
-            setScreen("chat");
-          }}
-        />
-      )}
-
-      {screen === "review" && (
-        <AIReviewView
-          onReview={onReview}
-          onApproveAll={onApproveAll}
-        />
-      )}
-
-      {screen === "chat" && (
-        <>
           <div className="ai-chat-toolbar">
-            <button
-              className="ai-thread-title"
-              onClick={() => setScreen("sessions")}
-              title="Sessions"
-            >
-              <span>{chat?.title ?? "New conversation"}</span>
-              <ChevronDown size={12} />
-            </button>
-            <div>
+            <Popover.Root open={sessionsOpen} onOpenChange={setSessionsOpen}>
+              <Popover.Trigger className="ai-thread-title" title="Sessions">
+                <span>{chat?.title ?? "New conversation"}</span>
+                <ChevronDown size={12} />
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content className="agent-sessions-popover" aria-label="Sessions"
+                  align="start" sideOffset={6} collisionPadding={12} data-escape-scope="active">
+                  <AISessionsView onSelectChat={(id) => {
+                    selectAIChat(id);
+                    setScreen("chat");
+                    setSessionsOpen(false);
+                  }} />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+            <div className="agent-toolbar-actions">
+              {screen !== "chat" && (
+                <button className="icon-button" aria-label="Chat" title="Back to chat" onClick={() => setScreen("chat")}>
+                  <MessageSquare size={15} />
+                </button>
+              )}
+              <button className="icon-button" aria-label="Skills" title="Skills" aria-pressed={screen === "skills"}
+                onClick={() => setScreen(screen === "skills" ? "chat" : "skills")}>
+                <Sparkles size={15} />
+              </button>
+              <button className="icon-button" aria-label="Review" title="Review" aria-pressed={screen === "review"}
+                onClick={() => setScreen(screen === "review" ? "chat" : "review")}>
+                <CheckCheck size={15} />
+              </button>
               <button
                 className="icon-button"
                 aria-label="New AI conversation"
                 title="New conversation"
-                onClick={fresh}
+                onClick={() => { fresh(); setScreen("chat"); }}
               >
                 <Plus size={15} />
               </button>
-              <button
-                className="icon-button"
-                aria-label="Create Hit/Git Checkpoint"
-                title="Create Hit/Git Checkpoint"
-                onClick={() => void handleCreateCheckpoint()}
-              >
-                <Bookmark size={15} />
-              </button>
-              <button
-                className="icon-button"
-                aria-label="AI usage"
-                onClick={() => setUsage(true)}
-              >
-                <ChartNoAxesColumn size={15} />
-              </button>
+              <details className="agent-thread-menu">
+                <summary className="icon-button" aria-label="Conversation actions"><MoreHorizontal size={15} /></summary>
+                <div>
+                  <button onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    void handleCreateCheckpoint();
+                  }}><Bookmark size={14} /> Save checkpoint</button>
+                  <button aria-label="AI usage" onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    setUsage(true);
+                  }}><ChartNoAxesColumn size={14} /> Usage</button>
+                </div>
+              </details>
               <button
                 className="icon-button"
                 aria-label="AI provider settings"
@@ -625,29 +591,10 @@ export default function AIChatPanel({
             </div>
           </div>
 
-          {/* 4 Agent Modes Selector: Ask / Plan / Agent / Review */}
-          <div className="ai-mode-bar" role="tablist" aria-label="Agent Mode">
-            {(["ask", "plan", "agent", "review"] as AIAgentMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                role="tab"
-                aria-selected={currentMode === mode}
-                className={`ai-mode-tab ${currentMode === mode ? "active " + mode : ""}`}
-                onClick={() => {
-                  if (showcase) setShowcaseMode(mode);
-                  else setAIMode(chat?.id ?? newAIChat(chosen), mode);
-                }}
-                title={AGENT_MODE_PROMPTS[mode]}
-              >
-                {mode === "ask" && <HelpCircle size={12} />}
-                {mode === "plan" && <ListTodo size={12} />}
-                {mode === "agent" && <Bot size={12} />}
-                {mode === "review" && <CheckCheck size={12} />}
-                <span>{mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
-              </button>
-            ))}
-          </div>
+      {screen === "skills" && <AISkillsView sessionId={chat?.id} />}
+      {screen === "review" && <AIReviewView onReview={onReview} onApproveAll={onApproveAll} />}
+      {screen === "chat" && (
+        <>
       {history ? (
         <div className="ai-history">
           <div className="ai-history-search">
@@ -749,9 +696,8 @@ export default function AIChatPanel({
         >
           {!chat?.messages.length ? (
             <div className="ai-empty-conversation">
-              <span className="agent-welcome-mark"><DevyyLogo size={23} /></span>
               <strong>Start a conversation</strong>
-              <p>Ask about your code, plan a change, or give Devyy a task to work through.</p>
+              <p>Ask a question or describe the change you want to make.</p>
             </div>
           ) : (
             chat.messages.map((message, index) => {
@@ -920,9 +866,7 @@ export default function AIChatPanel({
                     </section>
                   )}
                   {message.error && (
-                    <p className="ai-error" role="alert">
-                      {message.error}
-                    </p>
+                    <small className="ai-stopped">Response failed</small>
                   )}
                   {message.stopped && (
                     <small className="ai-stopped">Stopped</small>
@@ -1002,11 +946,8 @@ export default function AIChatPanel({
         </div>
       )}
       <div className="ai-compose-area">
-        {(error || ai.error) && (
-          <p className="ai-error" role="alert">
-            {error || ai.error}
-          </p>
-        )}
+        <ErrorToast message={visible ? error || ai.error : undefined} />
+        <ErrorToast message={visible && chat?.messages.at(-1)?.error && Date.now() - (chat.messages.at(-1)?.startedAt ?? 0) < 600_000 ? chat.messages.at(-1)?.error : undefined} />
         {editing && (
           <div className="ai-editing-message">
             <Pencil size={11} /> Editing message
@@ -1262,7 +1203,15 @@ export default function AIChatPanel({
               </span>
             )}
           </div>
-          <AIWorkspaceAccess root={visible ? cwd : undefined} />
+          <AIWorkspaceAccess
+            root={visible ? cwd : undefined}
+            agentMode={currentMode}
+            running={!!running}
+            onAgentModeChange={(mode) => {
+              if (showcase) setShowcaseMode(mode);
+              else setAIMode(chat?.id ?? newAIChat(chosen), mode);
+            }}
+          />
         </div>
         <input
           ref={fileInput}

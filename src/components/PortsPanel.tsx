@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Globe,
   Lock,
+  MoreHorizontal,
   Plus,
   Radio,
   RefreshCw,
@@ -30,7 +31,12 @@ import {
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, listen, native } from "../lib/native";
-import { accountRequest, syncOptions } from "../lib/account";
+import { toast } from "sonner";
+import Select from "./ui/Select";
+import { DialogToastHost, showError } from "./ui/ErrorToast";
+import { useConfirm } from "./ui/Confirm";
+import { useAccountProfile } from "./AccountSignIn";
+import { accountRequest } from "../lib/account";
 
 export interface ForwardedTunnel {
   id: string;
@@ -50,7 +56,9 @@ export default function PortsPanel({
   const [tunnels, setTunnels] = useState<ForwardedTunnel[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const profile = useAccountProfile();
+  const signedIn = Boolean(profile);
+  const confirm = useConfirm();
   const [showAdd, setShowAdd] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -64,13 +72,16 @@ export default function PortsPanel({
   const [newLabel, setNewLabel] = useState("");
 
   async function refresh() {
-    if (!native) return;
+    if (!native || !signedIn) {
+      setTunnels([]);
+      return;
+    }
     setLoading(true);
     try {
       const list = await accountRequest<ForwardedTunnel[]>("/tunnels");
       setTunnels(Array.isArray(list) ? list : []);
-    } catch {
-      setTunnels([]);
+    } catch (cause) {
+      showError(cause);
     } finally {
       setLoading(false);
     }
@@ -80,25 +91,25 @@ export default function PortsPanel({
     void refresh();
     let stops: (() => void)[] = [];
     let disposed = false;
-    for (const event of ["devyy-remote-changed", "devyy-account-changed"]) {
-      void listen(event, () => void refresh()).then((stop) =>
-        disposed ? stop() : stops.push(stop),
-      );
-    }
+    void listen("devyy-remote-changed", () => void refresh())
+      .then((stop) => {
+        if (disposed) stop();
+        else stops.push(stop);
+      })
+      .catch(showError);
     return () => {
       disposed = true;
       stops.forEach((s) => s());
     };
-  }, []);
+  }, [signedIn]);
 
   async function work(fn: () => Promise<unknown>) {
     setBusy(true);
-    setError("");
     try {
       await fn();
       await refresh();
     } catch (e) {
-      setError(String(e));
+      showError(e);
     } finally {
       setBusy(false);
     }
@@ -108,11 +119,10 @@ export default function PortsPanel({
     e.preventDefault();
     if (!newPort || typeof newPort !== "number") return;
     if (!native) {
-      setError("Open Devyy on your desktop to forward a port.");
+      showError("Open Devyy on your desktop to forward a port.");
       return;
     }
     await work(async () => {
-      const serverUrl = syncOptions().server;
       let created: ForwardedTunnel;
       try {
         created = await accountRequest<ForwardedTunnel>("/tunnels", "POST", {
@@ -131,7 +141,6 @@ export default function PortsPanel({
         await invoke("port_forward", {
           tunnelId: created.id,
           port: newPort,
-          serverUrl,
           protocol: newProtocol,
         });
       } catch (cause) {
@@ -148,6 +157,9 @@ export default function PortsPanel({
       setShowAdd(false);
       setNewPort("");
       setNewLabel("");
+      setNewVisibility("private");
+      setNewProtocol("http");
+      toast.success(`Forwarding localhost:${newPort}`);
     });
   }
 
@@ -161,7 +173,6 @@ export default function PortsPanel({
       await invoke("port_forward", {
         tunnelId: t.id,
         port: t.port,
-        serverUrl: syncOptions().server,
         protocol: nextProtocol,
       });
     });
@@ -169,6 +180,16 @@ export default function PortsPanel({
 
   async function toggleVisibility(t: ForwardedTunnel) {
     const nextVisibility = t.visibility === "private" ? "public" : "private";
+    if (
+      nextVisibility === "public" &&
+      !(await confirm({
+        title: "Make this port public?",
+        description:
+          "Anyone with the forwarded address will be able to open it.",
+        confirmLabel: "Make public",
+      }))
+    )
+      return;
     await work(async () => {
       await accountRequest(`/tunnels/${t.id}`, "PATCH", {
         visibility: nextVisibility,
@@ -177,6 +198,15 @@ export default function PortsPanel({
   }
 
   async function removeTunnel(t: ForwardedTunnel) {
+    if (
+      !(await confirm({
+        title: `Stop sharing port ${t.port}?`,
+        description: "Its forwarded address will stop working.",
+        confirmLabel: "Stop sharing",
+        danger: true,
+      }))
+    )
+      return;
     await work(async () => {
       await invoke("remote_stop", { id: `port-${t.id}` });
       await accountRequest(`/tunnels/${t.id}`, "DELETE");
@@ -189,17 +219,19 @@ export default function PortsPanel({
       await invoke("port_forward", {
         tunnelId: t.id,
         port: t.port,
-        serverUrl: syncOptions().server,
         protocol: t.protocol,
       });
     });
   }
 
   function copyAddress(id: string, url: string) {
-    void navigator.clipboard.writeText(url).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 1800);
-    });
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 1800);
+      })
+      .catch(showError);
   }
 
   const filtered = tunnels.filter((t) => {
@@ -215,60 +247,155 @@ export default function PortsPanel({
   });
 
   return (
-    <div className="ports-panel">
-      {/* Sub-header matching editor panel style */}
-      <div className="ports-subbar">
-        <div className="ports-subbar-left">
-          <Radio size={14} aria-hidden="true" />
-          <span className="ports-subbar-title">Forwarded Ports</span>
-          <span className="ports-count-tag">{tunnels.length}</span>
-          <div className="ports-filter-wrapper">
-            <Search size={11} className="ports-filter-icon" />
+    <section
+      className="ports-panel ports-workbench"
+      aria-label="Forwarded ports"
+    >
+      <div className="ports-workbench-toolbar">
+        {tunnels.length > 0 && (
+          <label className="ssh-filter">
+            <Search size={14} />
             <input
-              type="text"
-              placeholder="Filter ports…"
+              aria-label="Filter ports"
+              placeholder="Filter ports"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="ports-filter-input"
+              onChange={(event) => setFilter(event.target.value)}
             />
-            {filter && (
-              <button
-                type="button"
-                className="ports-filter-clear"
-                onClick={() => setFilter("")}
-              >
-                <X size={10} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="ports-subbar-actions">
-          <button
-            type="button"
-            className="icon-button"
-            title="Forward a Port"
-            aria-label="Forward a Port"
-            onClick={() => {
-              setError("");
-              setShowAdd(true);
-            }}
-          >
-            <Plus size={14} />
+          </label>
+        )}
+        {(!native || signedIn) && (
+          <button className="setting-action" onClick={() => setShowAdd(true)}>
+            <Plus size={13} /> Forward a port
           </button>
-          <button
-            type="button"
-            className="icon-button"
-            title="Refresh"
-            aria-label="Refresh ports"
-            disabled={loading}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          </button>
-        </div>
+        )}
+        <button
+          className="icon-button"
+          title="Refresh ports"
+          aria-label="Refresh ports"
+          disabled={loading || !signedIn}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw size={13} className={loading ? "spinning" : ""} />
+        </button>
       </div>
-
+      {!tunnels.length && (
+        <div className="ports-workbench-empty">
+          <Radio size={19} />
+          <div>
+            <strong>
+              {loading
+                ? "Loading ports"
+                : native && !signedIn
+                  ? "Sign in to forward a port"
+                  : "No forwarded ports"}
+            </strong>
+            <p>
+              {native && !signedIn
+                ? "Use your Devyy account to create and manage forwarded addresses."
+                : "Share a local HTTP or HTTPS service from this panel."}
+            </p>
+          </div>
+          {native && !signedIn && (
+            <button className="setting-action" onClick={onOpenAccount}>
+              Open Account &amp; sync
+            </button>
+          )}
+        </div>
+      )}
+      {tunnels.length > 0 && !filtered.length && (
+        <p className="ports-workbench-empty">No matching ports.</p>
+      )}
+      {filtered.length > 0 && (
+        <ul className="ports-workbench-list">
+          {filtered.map((port) => (
+            <li key={port.id}>
+              <div className="port-endpoint" title={`localhost:${port.port}`}>
+                <strong>{port.label || `localhost:${port.port}`}</strong>
+                <small>
+                  {port.protocol.toUpperCase()},{" "}
+                  {port.visibility === "private" ? "Private" : "Public"}
+                </small>
+              </div>
+              <button
+                className="port-address"
+                disabled={!port.connected}
+                title={port.visibility === "private"
+                  ? "Open in a browser signed in to your Devyy account"
+                  : port.url}
+                onClick={() => void openUrl(port.url).catch(showError)}
+              >
+                <span>{port.url}</span>
+                <ExternalLink size={12} />
+              </button>
+              <span className="port-availability">
+                {port.connected ? <Check size={13} /> : <X size={13} />}
+                {port.connected ? "Connected" : "Offline"}
+              </span>
+              <button
+                className="icon-button"
+                title="Copy address"
+                aria-label="Copy address"
+                onClick={() => copyAddress(port.id, port.url)}
+              >
+                {copiedId === port.id ? (
+                  <Check size={14} />
+                ) : (
+                  <Copy size={14} />
+                )}
+              </button>
+              <details className="agent-thread-menu ports-row-menu">
+                <summary
+                  className="icon-button"
+                  aria-label={`Actions for port ${port.port}`}
+                >
+                  <MoreHorizontal size={16} />
+                </summary>
+                <div
+                  onClick={(event) =>
+                    event.currentTarget
+                      .closest("details")
+                      ?.removeAttribute("open")
+                  }
+                >
+                  {!port.connected && (
+                    <button
+                      disabled={busy}
+                      onClick={() => void reconnect(port)}
+                    >
+                      Reconnect
+                    </button>
+                  )}
+                  <button
+                    disabled={busy}
+                    onClick={() => void toggleVisibility(port)}
+                  >
+                    {port.visibility === "private" ? (
+                      <Globe size={13} />
+                    ) : (
+                      <Lock size={13} />
+                    )}
+                    {port.visibility === "private"
+                      ? "Make public"
+                      : "Make private"}
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => void toggleProtocol(port)}
+                  >
+                    Switch to {port.protocol === "http" ? "HTTPS" : "HTTP"}
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => void removeTunnel(port)}
+                  >
+                    <Trash2 size={13} /> Stop sharing
+                  </button>
+                </div>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
       {showAdd &&
         createPortal(
           <dialog
@@ -283,244 +410,90 @@ export default function PortsPanel({
             }}
           >
             <form onSubmit={handleAddPort}>
-              <div className="devyy-dialog-symbol">
-                <Radio size={18} />
-              </div>
               <h2 id="port-dialog-title">Forward a port</h2>
-              <p>Give a local HTTP service a shareable address.</p>
-              <div className="ports-inline-inputs port-dialog-fields">
+              <p>Enter the port your local service is listening on.</p>
+              <div className="port-dialog-fields">
                 <label>
                   Local port
                   <input
                     type="number"
-                    placeholder="Port (e.g. 3000)"
+                    required
                     min={1}
                     max={65535}
                     autoFocus
+                    placeholder="3000"
                     value={newPort}
-                    onChange={(e) =>
-                      setNewPort(e.target.value ? Number(e.target.value) : "")
+                    onChange={(event) =>
+                      setNewPort(
+                        event.target.value ? Number(event.target.value) : "",
+                      )
                     }
-                    className="ports-input port-number"
+                  />
+                </label>
+                <label>
+                  Label
+                  <input
+                    placeholder="Optional"
+                    value={newLabel}
+                    onChange={(event) => setNewLabel(event.target.value)}
                   />
                 </label>
                 <label>
                   Protocol
-                  <select
+                  <Select
+                    aria-label="Protocol"
                     value={newProtocol}
-                    onChange={(e) =>
-                      setNewProtocol(e.target.value as "http" | "https")
+                    onChange={(event) =>
+                      setNewProtocol(event.target.value as "http" | "https")
                     }
-                    className="ports-select"
                   >
                     <option value="http">HTTP</option>
                     <option value="https">HTTPS</option>
-                  </select>
+                  </Select>
                 </label>
-
                 <label>
                   Access
-                  <select
+                  <Select
+                    aria-label="Access"
                     value={newVisibility}
-                    onChange={(e) =>
-                      setNewVisibility(e.target.value as "private" | "public")
+                    onChange={(event) =>
+                      setNewVisibility(
+                        event.target.value as "private" | "public",
+                      )
                     }
-                    className="ports-select"
                   >
                     <option value="private">Private</option>
                     <option value="public">Public</option>
-                  </select>
-                </label>
-
-                <label>
-                  Label
-                  <input
-                    type="text"
-                    placeholder="Optional"
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    className="ports-input port-label"
-                  />
+                  </Select>
                 </label>
               </div>
-
-              {error && <p role="alert">{error}</p>}
+              <p>
+                {newVisibility === "private"
+                  ? "Only your Devyy account can open this address."
+                  : "Anyone with the address can open this service."}
+              </p>
               <div className="ports-inline-actions">
                 <button
-                  type="submit"
-                  className="ports-action-btn primary"
-                  disabled={busy || !newPort}
-                >
-                  Forward Port
-                </button>
-                <button
                   type="button"
-                  className="ports-action-btn ghost"
+                  className="button"
                   disabled={busy}
                   onClick={() => setShowAdd(false)}
                 >
                   Cancel
                 </button>
+                <button
+                  type="submit"
+                  className="button primary"
+                  disabled={busy || !newPort}
+                >
+                  {busy ? "Connecting?" : "Forward port"}
+                </button>
               </div>
             </form>
+            <DialogToastHost id="port-form" />
           </dialog>,
           document.body,
         )}
-
-      {error && !showAdd && (
-        <div className="ports-error-row">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError("")}>
-            <X size={12} />
-          </button>
-        </div>
-      )}
-
-      {/* Main Content Area */}
-      {tunnels.length === 0 ? (
-        <div className="panel-empty ports-empty">
-          <span className="success-circle">
-            <Radio size={14} />
-          </span>
-          <div>
-            <strong>Forwarded ports</strong>
-            <p>Share a running development server over HTTP or HTTPS.</p>
-          </div>
-          <button
-            type="button"
-            className="ports-empty-btn"
-            onClick={() => {
-              setError("");
-              setShowAdd(true);
-            }}
-          >
-            <Plus size={12} /> Forward a Port
-          </button>
-          {native && onOpenAccount && (
-            <button className="ports-account-link" onClick={onOpenAccount}>
-              Account &amp; sync
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="ports-table-scroll">
-          <table className="ports-table">
-            <thead>
-              <tr>
-                <th style={{ width: "130px" }}>Port</th>
-                <th style={{ width: "85px" }}>Protocol</th>
-                <th>Forwarded Address</th>
-                <th style={{ width: "110px" }}>Visibility</th>
-                <th style={{ width: "100px" }}>Status</th>
-                <th style={{ width: "80px", textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t) => (
-                <tr key={t.id} className="ports-tr">
-                  <td className="ports-td-port">
-                    <span className="ports-mono-port">localhost:{t.port}</span>
-                    {t.label && t.label !== `localhost:${t.port}` && (
-                      <span className="ports-meta-label">{t.label}</span>
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="ports-tag-btn"
-                      title={`Protocol: ${t.protocol.toUpperCase()}. Click to switch to ${t.protocol === "http" ? "HTTPS" : "HTTP"}`}
-                      disabled={busy}
-                      onClick={() => void toggleProtocol(t)}
-                    >
-                      {t.protocol.toUpperCase()}
-                    </button>
-                  </td>
-                  <td className="ports-td-address">
-                    <span className="ports-url" title={t.url}>
-                      {t.url}
-                    </span>
-                    <button
-                      type="button"
-                      className="icon-button ports-mini-icon"
-                      title="Copy Address"
-                      aria-label="Copy Address"
-                      onClick={() => copyAddress(t.id, t.url)}
-                    >
-                      {copiedId === t.id ? (
-                        <Check size={12} className="ports-copied" />
-                      ) : (
-                        <Copy size={12} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button ports-mini-icon"
-                      title="Open in Browser"
-                      aria-label="Open in Browser"
-                      disabled={!t.connected}
-                      onClick={() => void openUrl(t.url)}
-                    >
-                      <ExternalLink size={12} />
-                    </button>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className={`ports-vis-btn ${t.visibility}`}
-                      title={`Visibility: ${t.visibility}. Click to switch to ${t.visibility === "private" ? "Public" : "Private"}`}
-                      disabled={busy}
-                      onClick={() => void toggleVisibility(t)}
-                    >
-                      {t.visibility === "private" ? (
-                        <>
-                          <Lock size={10} /> Private
-                        </>
-                      ) : (
-                        <>
-                          <Globe size={10} /> Public
-                        </>
-                      )}
-                    </button>
-                  </td>
-                  <td>
-                    <span
-                      className={`ports-dot-status ${t.connected ? "connected" : "offline"}`}
-                    >
-                      <span className="ports-status-dot" />
-                      {t.connected ? "Connected" : "Offline"}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <div className="ports-cell-actions">
-                      {!t.connected && (
-                        <button
-                          type="button"
-                          className="ports-reconnect-btn"
-                          disabled={busy}
-                          onClick={() => void reconnect(t)}
-                          title="Reconnect"
-                        >
-                          Reconnect
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="icon-button ports-delete-icon"
-                        title={`Stop forwarding port ${t.port}`}
-                        aria-label={`Stop forwarding port ${t.port}`}
-                        disabled={busy}
-                        onClick={() => void removeTunnel(t)}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+    </section>
   );
 }

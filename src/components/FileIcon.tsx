@@ -65,7 +65,8 @@ export default function FileIcon({
       expanded,
     );
   const icons = manifest.icons as Record<string, string>,
-    src = (id: string) => `/file-icons/${icons[id] ?? icons.file}`;
+    src = (id: string) =>
+      `${import.meta.env.BASE_URL}file-icons/${icons[id] ?? icons.file}`;
   return (
     <span
       className="file-icon material-file-icon"

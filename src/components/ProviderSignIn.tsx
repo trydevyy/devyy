@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useMemo, useRef, useState } from "react";
 import { Clipboard, ExternalLink } from "lucide-react";
 import Terminal, { type TerminalHandle } from "./Terminal";
@@ -142,9 +143,7 @@ export default function ProviderSignIn({
         </section>
       )}
       {error && (
-        <p className="ai-error" role="alert">
-          {error}
-        </p>
+        <ErrorToast message={error} />
       )}
     </div>
   );

@@ -342,4 +342,4 @@ Devyy never copies account credentials or manually constructs its auth headers.
 
 ### Live SSH workspaces
 
-Install SSHFS on Linux, or WinFsp and SSHFS-Win on Windows, and add the server in Remote Explorer. Devyy opens a live mount for reading, editing, and searching files. The integrated terminal starts an SSH shell. Source control and agent command tools execute through non-interactive OpenSSH and require key or agent authentication. Use the remote terminal for interactive authentication and remote debugging.
+Add the server in Remote Explorer and connect with a password or a private key. Devyy verifies the host fingerprint and uses its embedded SSH client for remote files, terminal sessions, Git, agent commands, and SSH tunnels. Use the remote terminal to launch ecosystem tools such as a debugger on the server.

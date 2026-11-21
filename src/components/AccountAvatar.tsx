@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
-import { accountRequest, useSyncOptions } from "../lib/account";
+import { accountRequest, ACCOUNT_ORIGIN } from "../lib/account";
 import { native } from "../lib/native";
 
 export default function AccountAvatar({ large = false }: { large?: boolean }) {
-  const { server } = useSyncOptions();
   const [profile, setProfile] = useState<{
     id: string;
     name: string;
@@ -37,7 +36,7 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
       window.removeEventListener("devyy-account-changed", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [server]);
+  }, []);
   return (
     <span
       className={
@@ -49,7 +48,7 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
         <img
           alt=""
           src={
-            server.replace(/\/$/, "") +
+            ACCOUNT_ORIGIN +
             "/api/avatar/" +
             encodeURIComponent(profile.id) +
             "?v=" +

@@ -2,18 +2,21 @@ import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   FolderOpen,
-  Pencil,
+  MoreHorizontal,
   Plus,
   Radio,
   RefreshCw,
+  Search,
   Server,
-  Square,
-  Trash2,
   X,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, listen, native } from "../lib/native";
+import { useConfirm } from "./ui/Confirm";
+import { DialogToastHost, showError } from "./ui/ErrorToast";
+import { toast } from "sonner";
 
-export interface SshServer {
+interface SshServer {
   id: string;
   label: string;
   host: string;
@@ -22,52 +25,53 @@ export interface SshServer {
   localPort: number;
   remotePort: number;
   remotePath: string;
+  identityFile?: string;
 }
-
 interface Connection {
   id: string;
   kind: string;
   label: string;
   localPort: number;
 }
+interface Auth {
+  password?: string;
+  passphrase?: string;
+  fingerprint?: string;
+}
+type Action = "open" | "tunnel";
 const storageKey = "devyy.ssh.servers";
-const example: SshServer = {
-  id: "example",
-  label: "Development server",
-  host: "dev.example.com",
-  user: "dev",
-  sshPort: 22,
-  localPort: 3000,
-  remotePort: 3000,
-  remotePath: "~/workspace",
-};
-const sessionPasswords = new Map<string, string>();
+const sessionAuth = new Map<string, Auth>();
 
-function storedServers(): SshServer[] {
+function loadServers(): SshServer[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(
-      ({
-        id,
-        label,
-        host,
-        user,
-        sshPort,
-        localPort,
-        remotePort,
-        remotePath,
-      }) => ({
-        id,
-        label,
-        host,
-        user,
-        sshPort,
-        localPort,
-        remotePort,
-        remotePath,
-      }),
-    );
+    const rows = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    return Array.isArray(rows)
+      ? rows
+          .filter((row) => row && typeof row.host === "string")
+          .map(
+            ({
+              id,
+              label,
+              host,
+              user,
+              sshPort,
+              localPort,
+              remotePort,
+              remotePath,
+              identityFile,
+            }) => ({
+              id,
+              label,
+              host,
+              user,
+              sshPort,
+              localPort,
+              remotePort,
+              remotePath,
+              identityFile,
+            }),
+          )
+      : [];
   } catch {
     return [];
   }
@@ -75,47 +79,51 @@ function storedServers(): SshServer[] {
 
 export default function RemoteExplorer({
   onOpenFolder,
+  activeLabel,
 }: {
-  onAccount?: () => void;
-  onOpenPorts?: () => void;
-  onOpenFolder?: (path: string, label: string) => void;
+  onOpenFolder: (path: string, label: string) => Promise<boolean>;
+  activeLabel?: string;
 }) {
-  const showcase =
-    !native &&
-    new URLSearchParams(location.search).get("showcase") === "remote";
-  const [servers, setServers] = useState<SshServer[]>(() =>
-    showcase ? [example] : storedServers(),
-  );
+  const confirm = useConfirm();
+  const [servers, setServers] = useState(loadServers);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [query, setQuery] = useState("");
+  const [menu, setMenu] = useState<string>();
   const [editor, setEditor] = useState<{
     server?: SshServer;
-    action: "save" | "open" | "tunnel";
+    action?: Action;
   }>();
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
+  const [keyPath, setKeyPath] = useState("");
+  const [trust, setTrust] = useState<{
+    server: SshServer;
+    action: Action;
+    auth: Auth;
+    fingerprint: string;
+  }>();
+  const [busy, setBusy] = useState<string>();
 
-  async function refresh() {
+  function refresh() {
     if (!native) return;
-    const list = await invoke<Connection[]>("remote_list");
-    setConnections(Array.isArray(list) ? list : []);
+    void invoke<Connection[]>("remote_list").then(
+      (list) => setConnections(Array.isArray(list) ? list : []),
+      showError,
+    );
   }
-
   useEffect(() => {
     if (!native) return;
-    // Rewrite old entries without stored plaintext passwords.
-    localStorage.setItem(storageKey, JSON.stringify(storedServers()));
+    localStorage.setItem(storageKey, JSON.stringify(loadServers()));
     let disposed = false;
-    let stop: (() => void) | undefined;
-    const update = () =>
-      void refresh().catch((cause) => setError(String(cause)));
-    update();
-    void listen("devyy-remote-changed", update).then((unlisten) => {
-      if (disposed) unlisten();
-      else stop = unlisten;
-    });
+    let unlisten: (() => void) | undefined;
+    refresh();
+    void listen("devyy-remote-changed", refresh)
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(showError);
     return () => {
       disposed = true;
-      stop?.();
+      unlisten?.();
     };
   }, []);
 
@@ -124,207 +132,263 @@ export default function RemoteExplorer({
     setServers(next);
   }
 
-  function connection(server: SshServer) {
+  function startEdit(server?: SshServer, action?: Action) {
+    setKeyPath(server?.identityFile ?? "");
+    setEditor({ server, action });
+    setMenu(undefined);
+  }
+
+  function tunnelFor(server: SshServer) {
     return connections.find(
-      (item) =>
-        item.kind === "ssh" &&
-        item.localPort === server.localPort &&
-        item.label === `${server.user}@${server.host}`,
+      (row) =>
+        row.kind === "ssh" &&
+        row.localPort === server.localPort &&
+        row.label === `${server.user}@${server.host}`,
     );
   }
 
   async function connect(
     server: SshServer,
-    action: "open" | "tunnel",
-    password?: string,
+    action: Action,
+    auth: Auth = sessionAuth.get(server.id) ?? {},
   ) {
-    if (!native) return;
-    setError("");
+    if (!native) {
+      showError("Open the desktop app to connect to SSH.");
+      return;
+    }
     setBusy(server.id);
     try {
+      const options = {
+        host: server.host,
+        user: server.user,
+        sshPort: server.sshPort,
+        identityFile: server.identityFile,
+        ...auth,
+      };
       if (action === "open") {
-        const path = await invoke<string>("ssh_mount_workspace", {
-          host: server.host,
-          user: server.user,
-          sshPort: server.sshPort,
+        const path = await invoke<string>("ssh_open_workspace", {
+          options,
           remotePath: server.remotePath,
-          password,
+          label: server.label,
         });
-        onOpenFolder?.(path, server.label);
+        if (!(await onOpenFolder(path, server.label))) {
+          await invoke("ssh_release_workspace", { path });
+          return;
+        }
+        toast.success(`Opened ${server.label}`);
       } else {
-        const active = connection(server);
-        if (active) await invoke("remote_stop", { id: active.id });
-        else await invoke("ssh_forward", { options: { ...server, password } });
-        await refresh();
+        const tunnel = tunnelFor(server);
+        if (tunnel) {
+          await invoke("remote_stop", { id: tunnel.id });
+          toast.success("SSH tunnel stopped");
+        } else {
+          await invoke("ssh_forward", {
+            options: {
+              ...options,
+              localPort: server.localPort,
+              remotePort: server.remotePort,
+            },
+          });
+          toast.success(`Listening on localhost:${server.localPort}`);
+        }
+        refresh();
       }
+      sessionAuth.set(server.id, {
+        password: auth.password,
+        passphrase: auth.passphrase,
+      });
       setEditor(undefined);
+      setTrust(undefined);
     } catch (cause) {
-      const message = String(cause);
-      setError(message);
-      if (
-        !password &&
-        /permission denied|AUTH_PASSWORD_REQUIRED/i.test(message)
-      )
-        setEditor({ server, action });
+      const error = String(cause);
+      if (error.startsWith("SSH_HOST_KEY:")) {
+        setEditor(undefined);
+        setTrust({
+          server,
+          action,
+          auth,
+          fingerprint: error.slice("SSH_HOST_KEY:".length),
+        });
+      } else if (error.startsWith("SSH_AUTH:")) {
+        setTrust(undefined);
+        if (editor?.action) showError(error.slice("SSH_AUTH:".length));
+        else startEdit(server, action);
+      } else {
+        showError(cause);
+      }
     } finally {
-      setBusy("");
+      setBusy(undefined);
     }
   }
 
-  function save(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor) return;
     const values = new FormData(event.currentTarget);
-    const value = (key: string) => String(values.get(key) ?? "").trim();
+    const text = (key: string) => String(values.get(key) ?? "").trim();
+    const previous = editor.server;
     const server: SshServer = {
-      id: editor.server?.id ?? crypto.randomUUID(),
-      host: value("host"),
-      user: value("user"),
-      label: value("label") || `${value("user")}@${value("host")}`,
-      remotePath: value("remotePath") || "~",
-      sshPort: Number(value("sshPort")),
-      localPort: Number(value("localPort")),
-      remotePort: Number(value("remotePort")),
+      id: previous?.id ?? crypto.randomUUID(),
+      label: text("label") || `${text("user")}@${text("host")}`,
+      host: text("host"),
+      user: text("user"),
+      remotePath: text("folder") || "~",
+      sshPort: Number(text("sshPort")) || 22,
+      localPort: Number(text("localPort")) || 3000,
+      remotePort: Number(text("remotePort")) || 3000,
+      identityFile: keyPath || undefined,
     };
-    if (!server.host || !server.user) {
-      setError("Enter both a hostname and SSH username.");
-      return;
-    }
-    const password = String(values.get("password") ?? "");
-    if (password) sessionPasswords.set(server.id, password);
-    else if (editor.action === "save") sessionPasswords.delete(server.id);
-    if (editor.action !== "save") {
+    if (editor.action && previous) {
       void connect(
-        server,
+        { ...previous, identityFile: server.identityFile },
         editor.action,
-        password || sessionPasswords.get(server.id),
+        {
+          password: String(values.get("password") ?? "") || undefined,
+          passphrase: String(values.get("passphrase") ?? "") || undefined,
+        },
       );
       return;
     }
+    if (!server.host || !server.user) {
+      showError("Enter the hostname and SSH username.");
+      return;
+    }
+    sessionAuth.delete(server.id);
     persist(
-      editor.server
+      previous
         ? servers.map((item) => (item.id === server.id ? server : item))
         : [...servers, server],
     );
     setEditor(undefined);
   }
 
+  const filtered = servers.filter((server) =>
+    `${server.label} ${server.user}@${server.host}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
   return (
-    <section className="remote-explorer" aria-label="SSH servers">
-      <div className="remote-intro">
-        <div className="workbench-symbol">
-          <Server size={18} />
-        </div>
-        <div>
-          <strong>SSH workspaces</strong>
-          <p>Open and edit files on a server.</p>
-        </div>
-      </div>
-      <div className="remote-subbar">
+    <section className="ssh-explorer" aria-label="SSH servers">
+      <div className="ssh-toolbar">
+        <label className="ssh-filter">
+          <Search size={14} />
+          <input
+            aria-label="Filter SSH servers"
+            placeholder="Filter SSH servers"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
         <button
-          className="button primary"
-          onClick={() => {
-            setError("");
-            setEditor({ action: "save" });
-          }}
+          className="icon-button"
+          title="Add SSH server"
+          aria-label="Add SSH server"
+          onClick={() => startEdit()}
         >
-          <Plus size={14} /> Add server
+          <Plus size={15} />
         </button>
         <button
           className="icon-button"
-          aria-label="Refresh SSH status"
-          onClick={() =>
-            void refresh().catch((cause) => setError(String(cause)))
-          }
+          title="Refresh SSH tunnels"
+          aria-label="Refresh SSH tunnels"
+          onClick={refresh}
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={13} />
         </button>
       </div>
-      <div className="remote-servers-list">
-        {servers.map((server) => (
-          <article className="remote-server-card" key={server.id}>
-            <div className="remote-server-top">
-              <span>
-                <strong>{server.label}</strong>
-                <code>
-                  {server.user}@{server.host}:{server.sshPort}
-                </code>
-              </span>
-              <div className="remote-server-top-actions">
-                <button
-                  className="icon-button"
-                  aria-label="Edit server"
-                  onClick={() => {
-                    setError("");
-                    setEditor({ server, action: "save" });
-                  }}
-                >
-                  <Pencil size={13} />
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Remove server"
-                  disabled={!!busy}
-                  onClick={async () => {
-                    try {
-                      const active = connection(server);
-                      if (active)
-                        await invoke("remote_stop", { id: active.id });
-                      sessionPasswords.delete(server.id);
-                      persist(servers.filter((item) => item.id !== server.id));
-                    } catch (cause) {
-                      setError(String(cause));
-                    }
-                  }}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-            <div className="remote-path">
-              <FolderOpen size={13} /> <code>{server.remotePath}</code>
-            </div>
-            <div className="remote-server-actions">
+      {!servers.length ? (
+        <div className="ssh-empty">
+          <p>Open files and a terminal on an SSH server.</p>
+          <button className="setting-action" onClick={() => startEdit()}>
+            <Plus size={13} /> Add server
+          </button>
+        </div>
+      ) : !filtered.length ? (
+        <p className="ssh-empty">No matching servers.</p>
+      ) : (
+        <ul className="ssh-list">
+          {filtered.map((server) => (
+            <li key={server.id}>
               <button
-                className="remote-action-btn primary"
+                className="ssh-server-link"
+                aria-current={activeLabel === server.label ? "true" : undefined}
                 disabled={!!busy}
-                onClick={() =>
-                  void connect(server, "open", sessionPasswords.get(server.id))
-                }
+                onClick={() => void connect(server, "open")}
+                title={server.remotePath}
               >
-                <FolderOpen size={13} />{" "}
-                {busy === server.id ? "Connecting…" : "Open workspace"}
-              </button>
-              <button
-                aria-label={connection(server) ? "Stop tunnel" : "Start tunnel"}
-                className="remote-action-btn"
-                disabled={!!busy}
-                onClick={() =>
-                  void connect(
-                    server,
-                    "tunnel",
-                    sessionPasswords.get(server.id),
-                  )
-                }
-              >
-                {connection(server) ? (
-                  <Square size={13} />
+                <Server size={15} />
+                <span>
+                  <strong>{server.label}</strong>
+                  <small>
+                    {server.user}@{server.host} · {server.remotePath}
+                  </small>
+                </span>
+                {busy === server.id ? (
+                  <RefreshCw size={13} className="spinning" />
                 ) : (
-                  <Radio size={13} />
-                )}{" "}
-                {connection(server) ? `:${server.localPort}` : "Tunnel"}
+                  <FolderOpen size={13} />
+                )}
               </button>
-            </div>
-          </article>
-        ))}
-        {!servers.length && (
-          <p className="remote-empty-card">Saved servers will appear here.</p>
-        )}
-      </div>
-      {!editor && error && (
-        <p className="remote-error-banner" role="alert">
-          {error}
-        </p>
+              <button
+                className="icon-button"
+                aria-label={`Actions for ${server.label}`}
+                aria-expanded={menu === server.id}
+                onClick={() =>
+                  setMenu(menu === server.id ? undefined : server.id)
+                }
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              {menu === server.id && (
+                <div className="ssh-row-actions">
+                  <button
+                    className="setting-action"
+                    disabled={!!busy}
+                    onClick={() => {
+                      setMenu(undefined);
+                      void connect(server, "tunnel");
+                    }}
+                  >
+                    <Radio size={13} />{" "}
+                    {tunnelFor(server) ? "Stop tunnel" : "Start tunnel"}
+                  </button>
+                  <button
+                    className="setting-action"
+                    onClick={() => startEdit(server)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="setting-action"
+                    onClick={() =>
+                      void (async () => {
+                        if (
+                          !(await confirm({
+                            title: `Remove ${server.label}?`,
+                            description:
+                              "Remove this server from the saved list.",
+                            confirmLabel: "Remove",
+                            danger: true,
+                          }))
+                        )
+                          return;
+                        const tunnel = tunnelFor(server);
+                        if (tunnel)
+                          await invoke("remote_stop", { id: tunnel.id });
+                        sessionAuth.delete(server.id);
+                        persist(
+                          servers.filter((item) => item.id !== server.id),
+                        );
+                      })().catch(showError)
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {editor &&
         createPortal(
@@ -339,11 +403,15 @@ export default function RemoteExplorer({
               if (!busy) setEditor(undefined);
             }}
           >
-            <form onSubmit={save}>
+            <form onSubmit={submit}>
               <div className="dialog-heading">
-                <div className="devyy-dialog-symbol">
-                  <Server size={19} />
-                </div>
+                <h2 id="ssh-dialog-title">
+                  {editor.action
+                    ? "Sign in to SSH"
+                    : editor.server
+                      ? "Edit SSH server"
+                      : "Add SSH server"}
+                </h2>
                 <button
                   type="button"
                   className="icon-button"
@@ -354,106 +422,201 @@ export default function RemoteExplorer({
                   <X size={16} />
                 </button>
               </div>
-              <h2 id="ssh-dialog-title">
-                {editor.action !== "save"
-                  ? "Authenticate to SSH"
-                  : editor.server
-                    ? "Edit SSH server"
-                    : "Add SSH server"}
-              </h2>
-              <p>Use an SSH key or enter a password for this session.</p>
-              <div className="port-dialog-fields">
-                <label>
-                  Hostname
-                  <input
-                    name="host"
-                    required
-                    autoFocus
-                    defaultValue={editor.server?.host}
-                    placeholder="dev.example.com"
-                  />
-                </label>
-                <label>
-                  SSH user
-                  <input
-                    name="user"
-                    required
-                    autoComplete="username"
-                    defaultValue={editor.server?.user}
-                  />
-                </label>
-                <label>
-                  Workspace folder
-                  <input
-                    name="remotePath"
-                    defaultValue={editor.server?.remotePath ?? "~"}
-                  />
-                </label>
-                <label>
-                  Display name
-                  <input
-                    name="label"
-                    defaultValue={editor.server?.label}
-                    placeholder="Optional"
-                  />
-                </label>
-                <label>
-                  SSH port
-                  <input
-                    type="number"
-                    name="sshPort"
-                    min={1}
-                    max={65535}
-                    required
-                    defaultValue={editor.server?.sshPort ?? 22}
-                  />
-                </label>
-                <label>
-                  Password
-                  <input type="password" name="password" autoComplete="off" />
-                </label>
-                <label>
-                  Local tunnel port
-                  <input
-                    type="number"
-                    name="localPort"
-                    min={1}
-                    max={65535}
-                    required
-                    defaultValue={editor.server?.localPort ?? 3000}
-                  />
-                </label>
-                <label>
-                  Remote tunnel port
-                  <input
-                    type="number"
-                    name="remotePort"
-                    min={1}
-                    max={65535}
-                    required
-                    defaultValue={editor.server?.remotePort ?? 3000}
-                  />
-                </label>
+              {editor.action ? (
+                <>
+                  <p>
+                    {editor.server?.user}@{editor.server?.host}
+                  </p>
+                  <div className="port-dialog-fields">
+                    <label>
+                      Server password
+                      <input
+                        autoFocus
+                        type="password"
+                        name="password"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Key passphrase
+                      <input
+                        type="password"
+                        name="passphrase"
+                        autoComplete="off"
+                      />
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <div className="port-dialog-fields">
+                  <label>
+                    Host
+                    <input
+                      name="host"
+                      autoFocus
+                      required
+                      defaultValue={editor.server?.host}
+                      placeholder="server.example.com"
+                    />
+                  </label>
+                  <label>
+                    Username
+                    <input
+                      name="user"
+                      required
+                      defaultValue={editor.server?.user}
+                    />
+                  </label>
+                  <label>
+                    Project folder
+                    <input
+                      name="folder"
+                      defaultValue={editor.server?.remotePath ?? "~"}
+                    />
+                  </label>
+                  <label>
+                    SSH port
+                    <input
+                      name="sshPort"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      defaultValue={editor.server?.sshPort ?? 22}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Display name
+                    <input
+                      name="label"
+                      defaultValue={editor.server?.label}
+                      placeholder="Optional"
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="ssh-key-setting">
+                <span title={keyPath}>
+                  {keyPath
+                    ? keyPath.replace(/.*[/\\]/, "")
+                    : "Default SSH keys"}
+                </span>
+                <button
+                  type="button"
+                  className="setting-action"
+                  onClick={() =>
+                    void open({
+                      title: "Choose a private SSH key",
+                      multiple: false,
+                    }).then((path) => {
+                      if (typeof path === "string") setKeyPath(path);
+                    }, showError)
+                  }
+                >
+                  Choose key
+                </button>
+                {keyPath && (
+                  <button
+                    type="button"
+                    className="setting-action"
+                    onClick={() => setKeyPath("")}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
-              {error && (
-                <p className="ai-error" role="alert">
-                  {error}
-                </p>
+              {!editor.action && (
+                <details className="workbench-exclusions">
+                  <summary>Tunnel ports</summary>
+                  <div className="port-dialog-fields">
+                    <label>
+                      Local port
+                      <input
+                        name="localPort"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        defaultValue={editor.server?.localPort ?? 3000}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Remote port
+                      <input
+                        name="remotePort"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        defaultValue={editor.server?.remotePort ?? 3000}
+                        required
+                      />
+                    </label>
+                  </div>
+                </details>
               )}
               <div className="ports-inline-actions">
                 <button
-                  className="button"
                   type="button"
+                  className="button"
                   disabled={!!busy}
                   onClick={() => setEditor(undefined)}
                 >
                   Cancel
                 </button>
                 <button className="button primary" disabled={!!busy}>
-                  {editor.action === "save" ? "Save server" : "Connect"}
+                  {busy
+                    ? "Connecting…"
+                    : editor.action
+                      ? "Connect"
+                      : "Save server"}
                 </button>
               </div>
             </form>
+            <DialogToastHost id="ssh-form" />
+          </dialog>,
+          document.body,
+        )}
+      {trust &&
+        createPortal(
+          <dialog
+            className="devyy-confirm port-dialog"
+            aria-labelledby="ssh-trust-title"
+            ref={(node) => {
+              if (node && !node.open) node.showModal();
+            }}
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!busy) setTrust(undefined);
+            }}
+          >
+            <h2 id="ssh-trust-title">Verify the SSH server</h2>
+            <p>
+              Compare this fingerprint with the one from {trust.server.host}{" "}
+              before connecting.
+            </p>
+            <code className="ssh-fingerprint">{trust.fingerprint}</code>
+            <div className="ports-inline-actions">
+              <button
+                className="button"
+                disabled={!!busy}
+                onClick={() => setTrust(undefined)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary"
+                disabled={!!busy}
+                onClick={() =>
+                  void connect(trust.server, trust.action, {
+                    ...trust.auth,
+                    fingerprint: trust.fingerprint,
+                  })
+                }
+              >
+                Trust and connect
+              </button>
+            </div>
+            <DialogToastHost id="ssh-trust" />
           </dialog>,
           document.body,
         )}

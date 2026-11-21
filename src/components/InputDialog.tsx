@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useState } from "react";
 import { Braces, X } from "lucide-react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -75,7 +76,7 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
           onChange={(e) => setValue(e.target.value)}
           required
         />
-        {error && <p className="form-error">{error}</p>}
+        {error && <ErrorToast message={error} />}
         <div className="form-actions">
           <button type="button" className="secondary" onClick={onClose}>
             Cancel

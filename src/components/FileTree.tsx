@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { writeAIContextDrag } from "../lib/aiContext";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -383,9 +384,7 @@ export default function FileTree(p: Props) {
         )}
       </div>
       {moveError && (
-        <p className="tree-move-error" role="alert">
-          {moveError}
-        </p>
+        <ErrorToast message={moveError} />
       )}
     </>
   );

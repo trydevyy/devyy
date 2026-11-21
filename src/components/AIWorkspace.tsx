@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { type AIProposal } from "../lib/ai";
@@ -356,8 +357,9 @@ export default function AIWorkspace({
         hidden={selection === "chat"}
       >
         {viewError && (
-          <div className="extension-view-note" role="alert">
-            <p>{viewError}</p>
+          <div className="extension-view-note">
+            <ErrorToast message={viewError} />
+            <p>Could not open this extension view.</p>
             <button
               className="setting-action"
               onClick={() => setViewRetry((n) => n + 1)}

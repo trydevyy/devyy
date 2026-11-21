@@ -13,14 +13,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
-import Select from "./ui/Select";
+import * as Popover from "@radix-ui/react-popover";
+import type { AIAgentMode } from "../lib/ai";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ShieldCheck, X } from "lucide-react";
+import { ChevronDown, ShieldCheck, X } from "lucide-react";
 import { invoke, native } from "../lib/native";
-export default function AIWorkspaceAccess({ root }: { root?: string }) {
+const modes = { agent: "Agent", ask: "Ask", plan: "Plan", review: "Review" };
+const permissions = { attached: "Attachments only", read: "Read workspace", full: "Full workspace" };
+
+export default function AIWorkspaceAccess({ root, agentMode, running, onAgentModeChange }: {
+  root?: string;
+  agentMode: AIAgentMode;
+  running: boolean;
+  onAgentModeChange: (mode: AIAgentMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState("attached"),
     [pending, setPending] = useState<string>(),
     [busy, setBusy] = useState(false),
@@ -50,7 +62,7 @@ export default function AIWorkspaceAccess({ root }: { root?: string }) {
   }, [root]);
   useEffect(() => {
     if (!pending) return;
-    previous.current = document.activeElement as HTMLElement;
+    previous.current = trigger.current;
     dialog.current?.querySelector<HTMLElement>("button")?.focus();
     return () => {
       if (previous.current?.isConnected) previous.current.focus();
@@ -76,26 +88,41 @@ export default function AIWorkspaceAccess({ root }: { root?: string }) {
   }
   return (
     <>
-      <label
-        className={`ai-access-control ${mode !== "attached" ? "granted" : ""}`}
-        title={error || "Workspace permissions for this Devyy session"}
-      >
-        <ShieldCheck size={13} />
-        <Select
-          aria-label="Agent workspace access"
-          value={mode}
-          disabled={!root || !native || busy}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (next === "attached") void grant(next);
-            else setPending(next);
-          }}
-        >
-          <option value="attached">Attachments only</option>
-          <option value="read">Read workspace</option>
-          <option value="full">Full workspace</option>
-        </Select>
-      </label>
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger ref={trigger} className="agent-options-trigger"
+          aria-label={`Agent options: ${modes[agentMode]}, ${permissions[mode as keyof typeof permissions] ?? permissions.attached}`}>
+          <span>{modes[agentMode]}</span>
+          <span className="agent-access-summary"><ShieldCheck size={13} />{permissions[mode as keyof typeof permissions] ?? permissions.attached}</span>
+          <ChevronDown size={12} />
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content className="agent-options-popover" aria-label="Agent options"
+            side="top" align="end" sideOffset={6} collisionPadding={12} data-escape-scope="active"
+            onCloseAutoFocus={(event) => { if (pending) event.preventDefault(); }}>
+            <label>
+              Mode
+              <select aria-label="Agent mode" value={agentMode} disabled={running}
+                onChange={(event) => onAgentModeChange(event.target.value as AIAgentMode)}>
+                {Object.entries(modes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>
+              Workspace permissions
+              <select aria-label="Agent workspace access" value={mode} disabled={!root || !native || busy}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (next === "attached") void grant(next);
+                  else {
+                    setOpen(false);
+                    setPending(next);
+                  }
+                }}>
+                {Object.entries(permissions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
       {createPortal(
         <AnimatePresence>
           {pending && (
@@ -167,9 +194,7 @@ export default function AIWorkspaceAccess({ root }: { root?: string }) {
                   Devyy session and can be revoked here.
                 </p>
                 {error && (
-                  <p className="ai-error" role="alert">
-                    {error}
-                  </p>
+                  <ErrorToast message={error} />
                 )}
                 <footer>
                   <button
@@ -198,9 +223,7 @@ export default function AIWorkspaceAccess({ root }: { root?: string }) {
         document.body,
       )}
       {error && !pending && (
-        <span className="ai-error" role="alert">
-          {error}
-        </span>
+        <ErrorToast message={error} />
       )}
     </>
   );

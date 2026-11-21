@@ -969,14 +969,14 @@ export default function App() {
         confirmLabel: "Open folder",
       }))
     )
-      return;
-    if (busyRef.current) return;
+      return false;
+    if (busyRef.current) return false;
     if (!native) {
       notify(
         "Open the Devyy desktop app to work with folders on your computer.",
         false,
       );
-      return;
+      return false;
     }
     if (
       dirty.size &&
@@ -989,7 +989,7 @@ export default function App() {
         },
       ))
     )
-      return;
+      return false;
     const chosen =
       path ??
       (await open({
@@ -997,7 +997,7 @@ export default function App() {
         multiple: false,
         title: "Open a project in devyy",
       }));
-    if (typeof chosen !== "string") return;
+    if (typeof chosen !== "string") return false;
     busyRef.current = true;
     setWorkspaceScan(true);
     try {
@@ -1063,8 +1063,10 @@ export default function App() {
           wsRef.current = indexed;
         })
         .catch((error) => log(String(error)));
+      return true;
     } catch (e) {
       notify(e);
+      return false;
     } finally {
       busyRef.current = false;
       workspaceWaiters.current.splice(0).forEach((resolve) => resolve());
@@ -1106,6 +1108,7 @@ export default function App() {
       activeRef.current = path;
       if (
         root !== "demo" &&
+        !wsRef.current.remotePath &&
         !existing.extensionUri &&
         !existing.previewKind &&
         !existing.webviewId
@@ -1183,6 +1186,7 @@ export default function App() {
         if (
           native &&
           wsRef.current.root !== "demo" &&
+          !wsRef.current.remotePath &&
           !tab.extensionUri &&
           !tab.previewKind &&
           !tab.webviewId &&
@@ -2601,13 +2605,18 @@ export default function App() {
     if (native)
       void getCurrentWindow()
         .onCloseRequested(async (e) => {
+          if (discard) {
+            void getCurrentWindow().destroy();
+            return;
+          }
           if (
-            discard ||
             !tabsRef.current.some(
               (t) => t.content !== t.saved || t.modified === "devyy:new",
             )
-          )
+          ) {
+            void getCurrentWindow().destroy();
             return;
+          }
           e.preventDefault();
           if (
             await ask("Discard unsaved changes and close devyy?", {
@@ -2617,7 +2626,7 @@ export default function App() {
             })
           ) {
             discard = true;
-            await getCurrentWindow().close();
+            void getCurrentWindow().destroy();
           }
         })
         .then((fn) => {
@@ -3786,7 +3795,7 @@ export default function App() {
     void navigator.clipboard
       .writeText(
         absolute && workspace.root !== "demo"
-          ? `${workspace.root}/${path}`
+          ? `${(workspace.remotePath ?? workspace.root).replace(/[\\/]$/, "")}/${path}`
           : path,
       )
       .then(() => notify("Path copied.", false))
@@ -4970,11 +4979,8 @@ export default function App() {
           {section === "remote" && (
             <div className="sidebar-content">
               <RemoteExplorer
-                onAccount={() => {
-                  setSettingsPage("account");
-                  setSettingsOpen(true);
-                }}
-                onOpenFolder={(path, label) => void openFolder(path, label)}
+                activeLabel={workspace.remotePath ? workspace.name : undefined}
+                onOpenFolder={openFolder}
               />
             </div>
           )}

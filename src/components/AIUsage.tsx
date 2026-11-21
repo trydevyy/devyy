@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
@@ -377,9 +378,7 @@ export default function AIUsage({
                 </div>
               )}
               {errors[provider.id] && (
-                <p className="ai-error" role="alert">
-                  {errors[provider.id]}
-                </p>
+                <ErrorToast message={errors[provider.id]} />
               )}
             </section>
           );

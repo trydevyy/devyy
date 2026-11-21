@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -169,7 +170,7 @@ dependencies:
                 className="ai-skill-textarea"
               />
             )}
-            {importError && <p className="ai-error">{importError}</p>}
+            {importError && <ErrorToast message={importError} />}
             <div className="ai-skill-import-actions">
               <button className="primary" onClick={handleImport}>
                 <Check size={13} /> {review ? "Install skill" : "Review skill"}
@@ -178,7 +179,8 @@ dependencies:
                 Cancel
               </button>
             </div>
-          </dialog>,
+            <DialogToastHost id="aiskillsview" />
+        </dialog>,
           document.body,
         )}
 

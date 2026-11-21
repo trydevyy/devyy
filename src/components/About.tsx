@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Asterisk, ArrowUpRight, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -116,7 +117,7 @@ export default function About() {
           </div>
         </dl>
       )}
-      {updateError && <p className="about-update-error">{updateError}</p>}
+      {updateError && <ErrorToast message={updateError} />}
       <div className="about-buttons">
         <button
           className="setting-action"

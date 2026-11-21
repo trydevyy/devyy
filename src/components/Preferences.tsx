@@ -115,7 +115,7 @@ export default function Preferences({
             .toLowerCase()
             .includes(t),
         )
-      : c.category === category,
+      : c.category === category && c.key !== "vcsProvider",
   );
   const keys = commandInfo.filter(([, label, group]) =>
     searching

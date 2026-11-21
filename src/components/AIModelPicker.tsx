@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import {
   effortLabel,
   reasoningOptions,
@@ -415,9 +416,7 @@ export default function AIModelPicker({
                     </div>
                   )}
                   {error && (
-                    <p className="ai-error" role="alert">
-                      {error}
-                    </p>
+                    <ErrorToast message={error} />
                   )}
                   {!busy && !error && !options.length && (
                     <p className="ai-picker-status">

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import {useEffect,useState} from 'react';
 import {GitBranch,Plus,RefreshCw} from 'lucide-react';
 import {invoke} from '../lib/native';
@@ -33,6 +34,6 @@ function Repository({module,refreshToken,onRefresh,onDiff}:{module:GitSubmodule;
  <textarea aria-label={`Commit message for ${module.path}`} placeholder="Commit message" value={message} onChange={e=>setMessage(e.target.value)}/>
  <button className="primary full" disabled={busy||(!update&&!state?.behind&&(!staged||!message.trim()))} onClick={()=>void (update?action('git_submodule_action',{action:'update',path:module.path}):state?.behind&&!staged?action('git_pull'):action('git_commit',{message}))}>{update?'Update submodule':state?.behind&&!staged?'Pull incoming changes':'Commit staged changes'}</button>
  {state?.changes.map(c=><div className="change-row" key={c.path}><button className="change-file" onClick={()=>onDiff(module.path,c.path,!!c.index.trim()&&c.index!=='?')}>{c.path.slice(module.path.length+1)}</button><button className="icon-button" aria-label={`Stage ${c.path}`} disabled={busy} onClick={()=>void action('git_stage',{path:c.path,staged:false})}><Plus size={12}/></button></div>)}
- {error&&<p role="alert" className="settings-note">{error}</p>}
+ {error&&<ErrorToast message={error} />}
  </div>}</section>;
 }

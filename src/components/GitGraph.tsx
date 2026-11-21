@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -227,9 +228,7 @@ export default function GitGraph({
           </button>
         </header>
         {error && (
-          <p className="scm-error" role="alert">
-            {error}
-          </p>
+          <ErrorToast message={error} />
         )}
         <div className="git-graph-body">
           <section

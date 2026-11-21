@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useRef, useState } from "react";
 import {
   Blocks,
@@ -221,7 +222,8 @@ export default function ExtensionManager({
         </div>
       ) : error ? (
         <div className="extensions-error" role="status">
-          <p>{error}</p>
+          <ErrorToast message={error} />
+          <p>Could not load extensions.</p>
           <button
             className="setting-action"
             onClick={() => setRetry((n) => n + 1)}

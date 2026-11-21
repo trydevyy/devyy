@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { discoverAIModels, loadAI, useAI } from "../lib/ai";
 import type { Settings } from "../lib/types";
@@ -51,9 +52,7 @@ export default function CompletionSettings({
       aria-label="AI completion settings"
     >
       {settings.aiCompletions && completion.error && (
-        <p className="ai-error" role="status">
-          {completion.error}
-        </p>
+        <ErrorToast message={completion.error} />
       )}
       {settings.aiCompletions && !settings.autocomplete && (
         <p className="muted">Enable Code suggestions to use AI completions.</p>
@@ -130,9 +129,7 @@ export default function CompletionSettings({
         />
       </div>
       {error && (
-        <p className="ai-error" role="alert">
-          {error}
-        </p>
+        <ErrorToast message={error} />
       )}
     </section>
   );

@@ -19,37 +19,20 @@ import { streamText } from "../lib/aiStreamText";
 import { useSurfaceMotion } from "../lib/motion";
 const LiveText = createContext(false);
 
-let globalWordBatchCounter = 0;
-let lastWordBatchTime = 0;
-
-function nextStreamWordDelay(): number {
-  const now = Date.now();
-  if (now - lastWordBatchTime > 260) {
-    globalWordBatchCounter = 0;
-  }
-  lastWordBatchTime = now;
-  const idx = globalWordBatchCounter++;
-  return Math.min(idx * 18, 280);
-}
-
 function StreamWord({ children, ...props }: ComponentProps<"span">) {
   const live = useContext(LiveText);
   const [reveal] = useState(live);
-  const [delay] = useState(() => (live ? nextStreamWordDelay() : 0));
   return (
-    <span
-      {...props}
-      className={reveal ? "ai-stream-word" : undefined}
-      style={reveal && delay > 0 ? { animationDelay: `${delay}ms` } : undefined}
-    >
+    <span {...props} className={reveal ? "ai-stream-word" : undefined}>
       {children}
     </span>
   );
 }
+
 const streamPlugins = [streamText];
 import Select from "./ui/Select";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, ExternalLink, Link2 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -121,6 +104,22 @@ function Reply({
   if (streaming) hasStreamed.current = true;
   const shouldReveal = hasStreamed.current && !instant;
   const [target, setTarget] = useState("");
+  const links = useMemo(() => {
+    if (streaming) return [];
+    const found = new Map<string, { label: string; domain: string }>();
+    const text = message.content.replace(/~~~[\s\S]*?~~~|```[\s\S]*?```/g, "");
+    for (const [, label, candidate] of text.matchAll(
+      /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    )) {
+      try {
+        const url = new URL(candidate);
+        if (!found.has(url.href))
+          found.set(url.href, { label, domain: url.hostname });
+      } catch {}
+      if (found.size === 8) break;
+    }
+    return Array.from(found);
+  }, [message.content, streaming]);
   const file =
     files?.length === 1 ? files[0] : files?.find((file) => file.id === target);
   const selected = file
@@ -194,6 +193,26 @@ function Reply({
           {message.content}
         </ReactMarkdown>
       </LiveText.Provider>
+      {links.length > 0 && (
+        <details className="agent-sources">
+          <summary>
+            <Link2 size={12} /> References ({links.length})
+          </summary>
+          <ul>
+            {links.map(([url, { label, domain }]) => (
+              <li key={url}>
+                <a href={url} target="_blank" rel="noreferrer">
+                  <span>
+                    {label}
+                    <small>{domain}</small>
+                  </span>
+                  <ExternalLink size={12} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

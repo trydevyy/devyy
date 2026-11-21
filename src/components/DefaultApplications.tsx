@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Check, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { invoke, native } from "../lib/native";
@@ -68,18 +69,55 @@ export default function DefaultApplications() {
       setBusy("");
     }
   }
+  async function changeAll() {
+    setBusy("all");
+    setError("");
+    setNotice("");
+    try {
+      const result = await invoke<{
+        changed: boolean;
+        openedSettings: boolean;
+      }>("set_all_default_apps");
+      setNotice(
+        result.openedSettings
+          ? "Select Devyy in Windows Default apps to finish setting all file types."
+          : result.changed
+            ? "Devyy is now the default application for supported file types."
+            : "The system hasn’t confirmed the associations.",
+      );
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
   return (
     <div className="default-applications">
       <header>
         <h3>Default applications</h3>
-        <button
-          className="setting-action"
-          disabled={!!busy || !native}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={13} />
-          Refresh
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            className="setting-action"
+            disabled={!!busy || !native}
+            onClick={() => void changeAll()}
+          >
+            {busy === "all" ? (
+              <LoaderCircle className="spinning" size={13} />
+            ) : (
+              <Check size={13} />
+            )}
+            Set all as default
+          </button>
+          <button
+            className="setting-action"
+            disabled={!!busy || !native}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={13} />
+            Refresh
+          </button>
+        </div>
       </header>
       <p className="settings-note">
         Choose which file types open in Devyy.{" "}
@@ -129,9 +167,7 @@ export default function DefaultApplications() {
         </p>
       )}
       {error && (
-        <p role="alert" className="ai-error">
-          {error}
-        </p>
+        <ErrorToast message={error} />
       )}
     </div>
   );

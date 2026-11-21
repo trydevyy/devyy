@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -105,7 +106,7 @@ export default function Credits() {
   }, []);
   return (
     <section className="credits" aria-label="Open source credits">
-      {error && <p role="alert">{error}</p>}
+      {error && <ErrorToast message={error} />}
       {notices ? (
         <>
           <Entry entry={notices.app} texts={notices.texts} project />

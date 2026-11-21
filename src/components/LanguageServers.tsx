@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
 import { Check, Plus, RotateCcw, Save, Search, X } from "lucide-react";
@@ -189,9 +190,7 @@ export default function LanguageServers() {
             Enable this language server
           </label>
           {error && (
-            <p role="alert" className="form-error">
-              {error}
-            </p>
+            <ErrorToast message={error} />
           )}
           <div className="server-edit-actions">
             <button className="primary" disabled={busy} type="submit">
@@ -208,7 +207,7 @@ export default function LanguageServers() {
         </form>
       ) : (
         <div>
-          {error && <p role="alert">{error}</p>}
+          {error && <ErrorToast message={error} />}
           {servers
             .filter((s) =>
               `${s.language} ${s.command}`.includes(query.toLowerCase()),

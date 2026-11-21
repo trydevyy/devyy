@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ErrorToast from "./ui/ErrorToast";
 import RepositorySections from "./RepositorySections";
 import Select from "./ui/Select";
 import { useEffect, useState } from "react";
@@ -340,11 +341,8 @@ export default function SourceControl({
       </nav>
       <div hidden={page !== "changes"} role="tabpanel" aria-label="Changes">
         <div className="scm-summary" aria-label="Change summary">
-          <strong>
-            {state.changes.length}{" "}
-            {state.changes.length === 1 ? "changed file" : "changed files"}
-          </strong>
-          <span>{staged.length} staged</span>
+          <strong>Commit</strong>
+          {staged.length > 0 && <span>{staged.length} staged</span>}
         </div>
         <textarea
           className="commit-message"
@@ -376,7 +374,7 @@ export default function SourceControl({
         {group(unstaged, false)}
         {!state.changes.length && (
           <p className="scm-clean">
-            <Check size={14} /> Working tree clean
+            <Check size={13} /> No local changes
           </p>
         )}
       </div>
@@ -454,9 +452,7 @@ export default function SourceControl({
         )}
       </div>
       {error && (
-        <p className="scm-error" role="status">
-          {error}
-        </p>
+        <ErrorToast message={error} />
       )}
     </div>
   );
