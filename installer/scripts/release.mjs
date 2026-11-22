@@ -61,6 +61,18 @@ if (process.platform === "darwin") {
     );
     const output = path.join(root, "src-tauri/target/release/bundle/installer");
     fs.mkdirSync(output, { recursive: true });
-    fs.copyFileSync(source, path.join(output, "Devyy-Setup.exe"));
+    const destination = path.join(output, "Devyy-Setup.exe");
+    // The build cache can restore a read-only executable, and Windows copies that attribute.
+    const staging = fs.mkdtempSync(path.join(output, ".setup-"));
+    const staged = path.join(staging, "Devyy-Setup.exe");
+    try {
+      fs.copyFileSync(source, staged);
+      fs.chmodSync(staged, 0o666);
+      if (fs.existsSync(destination)) fs.chmodSync(destination, 0o666);
+      fs.renameSync(staged, destination);
+      console.log(`Prepared Windows installer: ${destination}`);
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
   }
 }

@@ -103,6 +103,13 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
         .map_err(|e| e.to_string())?;
 
+    // Explorer can keep Applications\devyy.exe as the selected handler.
+    let application = "Software\\Classes\\Applications\\devyy.exe";
+    let (application_key, _) = user.create_subkey(application).map_err(|e| e.to_string())?;
+    application_key.set_value("FriendlyAppName", &"Devyy").map_err(|e| e.to_string())?;
+    application_key.create_subkey("shell\\open\\command").map_err(|e| e.to_string())?
+        .0.set_value("", &format!("\"{}\" \"%1\"", executable.display())).map_err(|e| e.to_string())?;
+
     // Register file associations for Devyy
     const EXTENSIONS: &[&str] = &[
         "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
@@ -190,6 +197,15 @@ pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(),
     {
         user.delete_subkey_all(protocol)
             .map_err(|e| e.to_string())?;
+    }
+    let application = r"Software\Classes\Applications\devyy.exe";
+    let expected = format!("\"{}\" \"%1\"", manifest.directory.join("app/devyy.exe").display());
+    if user.open_subkey(format!(r"{application}\shell\open\command"))
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("").ok())
+        .is_some_and(|command| command.eq_ignore_ascii_case(&expected))
+    {
+        user.delete_subkey_all(application).map_err(|e| e.to_string())?;
     }
     const EXTENSIONS: &[&str] = &[
         "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
