@@ -189,8 +189,12 @@ pub async fn port_forward(
     let task_id = id.clone();
     tauri::async_runtime::spawn(async move {
         let (mut tx, mut stream) = socket.split();
-        let (responses, mut queue) = tokio::sync::mpsc::channel::<Value>(32);
-        let slots = Arc::new(tokio::sync::Semaphore::new(8));
+        let (responses, mut queue) = tokio::sync::mpsc::channel::<Value>(64);
+        let slots = Arc::new(tokio::sync::Semaphore::new(16));
+        let active_ws_streams = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+            String,
+            tokio::sync::mpsc::Sender<Value>,
+        >::new()));
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(25))
@@ -199,7 +203,75 @@ pub async fn port_forward(
             .build()
             .unwrap();
         loop {
-            tokio::select! {_ =rx.changed()=>break,response=queue.recv()=>{let Some(response)=response else{break};if tx.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string().into())).await.is_err(){break;}},incoming=stream.next()=>{match incoming{Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{if text.len()>1500*1024{break;}let Ok(value)=serde_json::from_str::<Value>(&text) else{break;};let id=value["id"].as_str().unwrap_or("").to_owned();let Ok(slot)=slots.clone().try_acquire_owned()else{let _=responses.try_send(json!({"id":id,"status":503,"body":STANDARD.encode("Forwarding is busy"),"headers":[]}));continue;};let client=client.clone();let responses=responses.clone();tokio::spawn(async move{let _slot=slot;let result=forward_request(&client,port,is_https,&value).await.unwrap_or_else(|message|json!({"status":502,"body":STANDARD.encode(message),"headers":[]}));let mut result=result;result["id"]=json!(id);let _=responses.send(result).await;});},Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(bytes)))=>{let _=tx.send(tokio_tungstenite::tungstenite::Message::Pong(bytes)).await;},Some(Ok(tokio_tungstenite::tungstenite::Message::Pong(_)))=>{},_=>break}}}
+            tokio::select! {
+                _ = rx.changed() => break,
+                response = queue.recv() => {
+                    let Some(response) = response else { break; };
+                    if tx.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string().into())).await.is_err() {
+                        break;
+                    }
+                },
+                incoming = stream.next() => {
+                    match incoming {
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+                            if text.len() > 1500 * 1024 { break; }
+                            let Ok(value) = serde_json::from_str::<Value>(&text) else { break; };
+
+                            match value["type"].as_str() {
+                                Some("ws_open") => {
+                                    let stream_id = value["stream_id"].as_str().unwrap_or("").to_owned();
+                                    let path = value["path"].as_str().unwrap_or("/").to_owned();
+                                    let ws_streams = active_ws_streams.clone();
+                                    let to_server = responses.clone();
+                                    tokio::spawn(async move {
+                                        handle_local_ws(port, is_https, stream_id, path, ws_streams, to_server).await;
+                                    });
+                                }
+                                Some("ws_client_msg") => {
+                                    let stream_id = value["stream_id"].as_str().unwrap_or("");
+                                    let streams = active_ws_streams.lock().await;
+                                    if let Some(sender) = streams.get(stream_id) {
+                                        let _ = sender.try_send(value);
+                                    }
+                                }
+                                Some("ws_client_close") => {
+                                    let stream_id = value["stream_id"].as_str().unwrap_or("");
+                                    let mut streams = active_ws_streams.lock().await;
+                                    streams.remove(stream_id);
+                                }
+                                _ => {
+                                    let id = value["id"].as_str().unwrap_or("").to_owned();
+                                    let Ok(slot) = slots.clone().try_acquire_owned() else {
+                                        let _ = responses.try_send(json!({
+                                            "id": id,
+                                            "status": 503,
+                                            "body": STANDARD.encode("Forwarding is busy"),
+                                            "headers": []
+                                        }));
+                                        continue;
+                                    };
+                                    let client = client.clone();
+                                    let responses = responses.clone();
+                                    tokio::spawn(async move {
+                                        let _slot = slot;
+                                        let result = forward_request(&client, port, is_https, &value).await.unwrap_or_else(|message| {
+                                            json!({"status": 502, "body": STANDARD.encode(message), "headers": []})
+                                        });
+                                        let mut result = result;
+                                        result["id"] = json!(id);
+                                        let _ = responses.send(result).await;
+                                    });
+                                }
+                            }
+                        },
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(bytes))) => {
+                            let _ = tx.send(tokio_tungstenite::tungstenite::Message::Pong(bytes)).await;
+                        },
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Pong(_))) => {},
+                        _ => break
+                    }
+                }
+            }
         }
         let remotes = app.state::<Remotes>();
         let mut jobs = remotes.jobs.lock().unwrap();
@@ -292,4 +364,106 @@ async fn forward_request(
         body.extend_from_slice(&chunk);
     }
     Ok(json!({"status":status,"headers":headers,"body":STANDARD.encode(body)}))
+}
+
+async fn handle_local_ws(
+    port: u16,
+    is_https: bool,
+    stream_id: String,
+    path: String,
+    streams_map: Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<String, tokio::sync::mpsc::Sender<Value>>,
+        >,
+    >,
+    to_server: tokio::sync::mpsc::Sender<Value>,
+) {
+    let scheme = if is_https { "wss" } else { "ws" };
+    let url_str = format!("{scheme}://127.0.0.1:{port}{path}");
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let Ok(request) = url_str.into_client_request() else {
+        let _ = to_server
+            .send(json!({
+                "stream_id": stream_id,
+                "event": "close",
+            }))
+            .await;
+        return;
+    };
+
+    let connect_res = tokio_tungstenite::connect_async(request).await;
+    let (local_ws, _) = match connect_res {
+        Ok(ws) => ws,
+        Err(_) => {
+            let _ = to_server
+                .send(json!({
+                    "stream_id": stream_id,
+                    "event": "close",
+                }))
+                .await;
+            return;
+        }
+    };
+
+    let (mut local_sink, mut local_stream) = local_ws.split();
+    let (client_tx, mut client_rx) = tokio::sync::mpsc::channel::<Value>(64);
+
+    {
+        let mut map = streams_map.lock().await;
+        map.insert(stream_id.clone(), client_tx);
+    }
+
+    let s_id = stream_id.clone();
+    let to_srv = to_server.clone();
+
+    loop {
+        tokio::select! {
+            from_client = client_rx.recv() => {
+                let Some(msg) = from_client else { break; };
+                if let Some(text) = msg["data"].as_str() {
+                    if local_sink.send(tokio_tungstenite::tungstenite::Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                } else if let Some(bin_b64) = msg["data_bin"].as_str() {
+                    if let Ok(bin) = STANDARD.decode(bin_b64) {
+                        if local_sink.send(tokio_tungstenite::tungstenite::Message::Binary(bin.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            from_local = local_stream.next() => {
+                match from_local {
+                    Some(Ok(tokio_tungstenite::tungstenite::Message::Text(txt))) => {
+                        let _ = to_srv.send(json!({
+                            "stream_id": s_id,
+                            "event": "message",
+                            "data": txt.to_string(),
+                        })).await;
+                    }
+                    Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(bin))) => {
+                        let _ = to_srv.send(json!({
+                            "stream_id": s_id,
+                            "event": "message",
+                            "data_bin": STANDARD.encode(bin),
+                        })).await;
+                    }
+                    Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    {
+        let mut map = streams_map.lock().await;
+        map.remove(&s_id);
+    }
+
+    let _ = to_srv
+        .send(json!({
+            "stream_id": s_id,
+            "event": "close",
+        }))
+        .await;
 }

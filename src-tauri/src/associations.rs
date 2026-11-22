@@ -257,6 +257,11 @@ fn register_windows(extension: &str) -> Result<(), String> {
     let program = format!("Devyy.{extension}");
     let entries: Vec<(String, String, String)> = vec![
         (
+            r"HKCU\Software\Classes\Applications\devyy.exe\shell\open\command".into(),
+            String::new(),
+            format!("\"{}\" \"%1\"", exe.display()),
+        ),
+        (
             format!("HKCU\\Software\\Classes\\{program}"),
             String::new(),
             format!("Devyy {extension} file"),
@@ -406,12 +411,13 @@ pub async fn set_all_default_apps(app: AppHandle) -> Result<serde_json::Value, S
 #[derive(Default)]
 pub struct OpenTargets(pub std::sync::Mutex<Vec<String>>);
 pub fn launch_paths(
-    arguments: impl IntoIterator<Item = String>,
+    arguments: impl IntoIterator<Item = impl Into<std::ffi::OsString>>,
     cwd: &std::path::Path,
 ) -> Vec<String> {
     arguments
         .into_iter()
-        .filter(|argument| !argument.is_empty() && !argument.starts_with('-'))
+        .map(Into::into)
+        .filter(|argument| !argument.is_empty() && !argument.to_string_lossy().starts_with('-'))
         .map(|argument| {
             let path = std::path::PathBuf::from(argument);
             if path.is_absolute() {
@@ -472,8 +478,8 @@ mod tests {
         std::fs::write(&file, "source").unwrap();
         let targets = launch_paths(
             vec![
-                "source file.rs".into(),
-                "--wait".into(),
+                "source file.rs",
+                "--wait",
                 file.to_string_lossy().into(),
             ],
             cwd.path(),

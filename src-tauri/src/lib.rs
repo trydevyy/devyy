@@ -48,6 +48,7 @@ pub fn run() {
         );
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.show();
+            let _ = window.unminimize();
             let _ = window.set_focus();
         }
     }));
@@ -90,7 +91,12 @@ pub fn run() {
                     }
                 });
             }
-            associations::enqueue(app.handle(), std::env::args().skip(1).collect());
+            if let Ok(cwd) = std::env::current_dir() {
+                associations::enqueue(
+                    app.handle(),
+                    associations::launch_paths(std::env::args_os().skip(1), &cwd),
+                );
+            }
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = appearance::set_appearance(window, "midnight".into(), true) {
                     eprintln!("Native material unavailable; using a solid window: {error}");

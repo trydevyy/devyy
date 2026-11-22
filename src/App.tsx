@@ -22,7 +22,7 @@ import FilePreview from "./components/FilePreview";
 import { filePreviewKind } from "./lib/filePreview";
 import RunPanel from "./components/RunPanel";
 import { activeSurface, restoreFocus } from "./lib/focus";
-import { resolveOpenTarget, sameWorkspacePath } from "./lib/openTargets";
+import { resolveOpenTarget } from "./lib/openTargets";
 import {
   setAIProposalStatus,
   getPendingAIProposals,
@@ -2587,7 +2587,7 @@ export default function App() {
     return () => window.removeEventListener("focus", focusHandler);
   }, []);
   useEffect(() => {
-    let discard = false;
+    let confirmingClose = false;
     const before = (e: BeforeUnloadEvent) => {
       if (
         !native &&
@@ -2605,28 +2605,24 @@ export default function App() {
     if (native)
       void getCurrentWindow()
         .onCloseRequested(async (e) => {
-          if (discard) {
-            void getCurrentWindow().destroy();
-            return;
-          }
           if (
             !tabsRef.current.some(
               (t) => t.content !== t.saved || t.modified === "devyy:new",
             )
-          ) {
-            void getCurrentWindow().destroy();
-            return;
-          }
+          ) return;
           e.preventDefault();
-          if (
-            await ask("Discard unsaved changes and close devyy?", {
+          if (confirmingClose) return;
+          confirmingClose = true;
+          try {
+            if (await ask("Discard unsaved changes and close devyy?", {
               title: "Quit Devyy?",
               confirmLabel: "Discard and quit",
               danger: true,
-            })
-          ) {
-            discard = true;
-            void getCurrentWindow().destroy();
+            })) await getCurrentWindow().destroy();
+          } catch (error) {
+            showToast.error(String(error));
+          } finally {
+            confirmingClose = false;
           }
         })
         .then((fn) => {
@@ -3725,13 +3721,8 @@ export default function App() {
               );
             if (disposed) return;
             const action = resolveOpenTarget(target, wsRef.current.root);
-            if (action.folder) await openFolder(action.folder);
-            if (
-              action.file &&
-              (!action.folder ||
-                sameWorkspacePath(wsRef.current.root, action.folder))
-            )
-              await openFile(action.file);
+            if (action.folder && !(await openFolder(action.folder))) continue;
+            if (action.file) await openFile(action.file);
           }
         })
         .catch((error) => log(String(error)));
