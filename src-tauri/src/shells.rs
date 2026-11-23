@@ -59,6 +59,7 @@ fn profile(path: PathBuf, default: bool) -> ShellProfile {
         .to_ascii_lowercase();
     let name = match basename.as_str() {
         "zsh" => "zsh",
+        "bash" if cfg!(windows) => "Git Bash",
         "bash" => "Bash",
         "sh" => "POSIX shell",
         "fish" => "fish",
@@ -86,6 +87,51 @@ fn profile(path: PathBuf, default: bool) -> ShellProfile {
         is_default: default,
     }
 }
+#[cfg(windows)]
+fn git_bash() -> Option<PathBuf> {
+    use winreg::{
+        enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY},
+        RegKey,
+    };
+    let from_path = locate("git.exe").and_then(|git| {
+        git.ancestors()
+            .skip(1)
+            .take(3)
+            .find(|root| executable(&root.join("usr/bin/bash.exe")))
+            .map(Path::to_path_buf)
+    });
+    let from_registry = [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
+        .into_iter()
+        .flat_map(|hive| {
+            [KEY_READ, KEY_READ | KEY_WOW64_32KEY]
+                .into_iter()
+                .filter_map(move |flags| {
+                    let key = RegKey::predef(hive)
+                        .open_subkey_with_flags(r"SOFTWARE\GitForWindows", flags)
+                        .ok()?;
+                    key.get_value::<String, _>("InstallPath")
+                        .ok()
+                        .map(PathBuf::from)
+                })
+        });
+    let defaults = [
+        ("ProgramFiles", "Git"),
+        ("ProgramFiles(x86)", "Git"),
+        ("LOCALAPPDATA", "Programs/Git"),
+    ]
+    .into_iter()
+    .filter_map(|(variable, subdir)| {
+        std::env::var_os(variable).map(|home| PathBuf::from(home).join(subdir))
+    });
+    from_path
+        .into_iter()
+        .chain(from_registry)
+        .chain(defaults)
+        .filter(|root| executable(&root.join("usr/bin/bash.exe")))
+        .map(|root| root.join("bin/bash.exe"))
+        .find(|bash| executable(bash))
+}
+
 pub fn discover() -> Vec<ShellProfile> {
     let mut candidates = Vec::new();
     #[cfg(unix)]
@@ -124,13 +170,7 @@ pub fn discover() -> Vec<ShellProfile> {
         if let Some(shell) = std::env::var_os("COMSPEC") {
             candidates.push(PathBuf::from(shell));
         }
-        for name in [
-            "pwsh.exe",
-            "powershell.exe",
-            "cmd.exe",
-            "bash.exe",
-            "wsl.exe",
-        ] {
+        for name in ["pwsh.exe", "powershell.exe", "cmd.exe", "wsl.exe"] {
             if let Some(path) = locate(name) {
                 candidates.push(path);
             }
@@ -143,8 +183,8 @@ pub fn discover() -> Vec<ShellProfile> {
         }
         if let Some(root) = std::env::var_os("ProgramFiles") {
             candidates.push(PathBuf::from(&root).join("PowerShell/7/pwsh.exe"));
-            candidates.push(PathBuf::from(root).join("Git/bin/bash.exe"));
         }
+        candidates.extend(git_bash());
     }
     let mut seen = HashSet::new();
     let mut profiles = Vec::new();
@@ -167,6 +207,25 @@ pub fn discover() -> Vec<ShellProfile> {
 }
 pub fn select(id: Option<&str>) -> Result<ShellProfile, String> {
     let profiles = discover();
+    #[cfg(windows)]
+    if let Some(id) = id {
+        // Older versions could save the obsolete Windows Bash launcher or Git's
+        // internal Bash executable. Resolve those profiles to the Git shell.
+        if Path::new(id)
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("bash.exe"))
+            && !profiles
+                .iter()
+                .any(|profile| profile.id.eq_ignore_ascii_case(id))
+        {
+            return profiles
+                .iter()
+                .find(|profile| profile.name == "Git Bash")
+                .or_else(|| profiles.first())
+                .cloned()
+                .ok_or_else(|| "No supported shell was found on this system.".into());
+        }
+    }
     match id.filter(|id| !id.is_empty()) {
         Some(id) => profiles.into_iter().find(|p| p.id == id).ok_or_else(|| {
             "This shell is no longer available. Choose another profile in Terminal settings.".into()
@@ -192,11 +251,27 @@ mod tests {
         assert!(!profiles.is_empty());
         assert!(profiles[0].is_default);
         let mut identities = HashSet::new();
-        for p in profiles {
+        for p in &profiles {
             assert!(executable(Path::new(&p.path)));
             assert!(identities.insert(std::fs::canonicalize(&p.path).unwrap()));
             assert_eq!(select(Some(&p.id)).unwrap().id, p.id);
         }
         assert!(select(Some("/not/a/real/shell")).is_err());
+        #[cfg(windows)]
+        {
+            let bash = profiles
+                .iter()
+                .filter(|profile| profile.path.to_lowercase().ends_with("bash.exe"))
+                .collect::<Vec<_>>();
+            assert!(bash.len() <= 1);
+            for profile in bash {
+                assert_eq!(profile.name, "Git Bash");
+                let git = Path::new(&profile.path)
+                    .parent()
+                    .and_then(Path::parent)
+                    .unwrap();
+                assert!(executable(&git.join("usr/bin/bash.exe")));
+            }
+        }
     }
 }

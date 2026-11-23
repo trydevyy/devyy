@@ -18,5 +18,16 @@ fn main() {
         .unwrap_or_else(|| "local".into());
     println!("cargo:rustc-env=DEVYY_BUILT_AT={built_at}");
     println!("cargo:rustc-env=DEVYY_REVISION={revision}");
-    tauri_build::build()
+    if std::env::var("TARGET").is_ok_and(|target| target.ends_with("windows-msvc")) {
+        // Tauri's resource is linked only into application binaries. Use the
+        // linker for the manifest so test harnesses also load Common Controls v6.
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
+        let attributes = tauri_build::Attributes::new().windows_attributes(
+            tauri_build::WindowsAttributes::new_without_app_manifest(),
+        );
+        tauri_build::try_build(attributes).expect("configure Devyy");
+    } else {
+        tauri_build::build();
+    }
 }

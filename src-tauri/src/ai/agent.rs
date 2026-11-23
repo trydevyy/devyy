@@ -995,19 +995,19 @@ async fn cli_turn<R: tauri::Runtime>(
     let payload = if p.kind == "antigravity" {
         format!(
             "{}\n",
-            json!({"event":"user","message":{"content":format!("{system}\n\nConversation:\n{}", json!(input))}})
+            json!({"event":"user","message":{"content":format!("{system}\nOutput schema: {schema}\n\nConversation:\n{}", json!(input))}})
         )
     } else {
         json!(input).to_string()
     };
-    stdin
-        .write_all(payload.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    stdin.shutdown().await.map_err(|e| e.to_string())?;
+    let input_sent = match stdin.write_all(payload.as_bytes()).await {
+        Ok(()) => stdin.shutdown().await,
+        Err(error) => Err(error),
+    };
     drop(stdin);
     let mut lines = BufReader::new(child.stdout.take().ok_or("No CLI output pipe")?).lines();
     let mut result = None;
+    let mut streamed_output = String::new();
     let mut answer = json_answer::JsonAnswer::default();
     let mut total = 0;
     while let Some(line) = tokio::time::timeout(Duration::from_secs(180), lines.next_line())
@@ -1028,7 +1028,10 @@ async fn cli_turn<R: tauri::Runtime>(
             } else {
                 &value["event"]
             };
-            if let Some(text) = reasoning_event(step).or_else(|| step["thinking_delta"].as_str()) {
+            if let Some(text) = reasoning_event(step)
+                .or_else(|| step["thinking_delta"].as_str())
+                .or_else(|| step["reasoning_delta"].as_str())
+            {
                 emit(app, &r.request_id, "reasoning", json!(text));
             }
             if let Some(text) = step["delta"]["partial_json"]
@@ -1036,6 +1039,9 @@ async fn cli_turn<R: tauri::Runtime>(
                 .or_else(|| step["delta"]["text"].as_str())
                 .or_else(|| step["text_delta"].as_str())
             {
+                if p.kind == "antigravity" {
+                    streamed_output.push_str(text);
+                }
                 let (delta, reasoning) = answer.push(text);
                 if !reasoning.is_empty() {
                     emit(app, &r.request_id, "reasoning", json!(reasoning));
@@ -1047,47 +1053,61 @@ async fn cli_turn<R: tauri::Runtime>(
         }
         if value["type"] == "result" || value["event"] == "result" {
             result = if value["event"] == "result" {
-                Some(value["result"].clone())
+                Some(value.get("result").cloned().unwrap_or(value))
             } else {
                 Some(value)
             };
+            if p.kind == "antigravity" {
+                break;
+            }
         }
     }
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let detail = tokio::time::timeout(Duration::from_secs(2), diagnostics)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .unwrap_or_default();
-    if !status.success() {
+    let failed = cli_exit_failed(&mut child).await?;
+    let result = match result {
+        Some(result)
+            if !failed
+                || result["is_error"] == true
+                || result["status"]
+                    .as_str()
+                    .is_some_and(|status| status != "SUCCESS") =>
+        {
+            result
+        }
+        _ => {
+            let detail = tokio::time::timeout(Duration::from_secs(2), diagnostics)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .filter(|text| !text.is_empty())
+                .or_else(|| input_sent.err().map(|error| error.to_string()))
+                .unwrap_or_else(|| "Check the connection in AI Providers.".into());
+            return Err(format!(
+                "{} exited before completing the reply. {detail}",
+                p.name
+            ));
+        }
+    };
+    if result["is_error"] == true
+        || result["status"]
+            .as_str()
+            .is_some_and(|status| status != "SUCCESS")
+    {
+        let reason = result["error"]
+            .as_str()
+            .or_else(|| result["result"].as_str())
+            .or_else(|| result["response"].as_str())
+            .unwrap_or("Check the connection in AI Providers.");
         return Err(format!(
-            "{} failed. {}",
-            p.name,
-            if detail.is_empty() {
-                "Check its connection in provider settings."
-            } else {
-                &detail
-            }
+            "{} could not complete the request: {reason}",
+            p.name
         ));
     }
-    let result = result.ok_or_else(|| format!("{} did not complete its agent request", p.name))?;
-    if result["is_error"] == true {
-        return Err(format!("{} could not complete the agent request", p.name));
-    }
-    let output = result
-        .get("structured_output")
-        .filter(|value| value.is_object())
-        .cloned()
-        .or_else(|| {
-            result["result"]
-                .as_str()
-                .or_else(|| result["response"].as_str())
-                .and_then(|s| json_answer::parse_json_object(s))
-        })
+
+    let output = cli_agent_output(&result, &streamed_output, p.kind == "antigravity")
         .ok_or_else(|| {
             format!(
-                "{} did not return structured tool output. Update {} in provider settings.",
-                p.name, p.name
+                "{} returned an incomplete agent reply. Try again, or choose another model in AI Providers.",
+                p.name
             )
         })?;
     let turn = structured_turn(app, r, output, &answer)?;
@@ -1098,6 +1118,38 @@ async fn cli_turn<R: tauri::Runtime>(
     usage["_costUSD"] = result["total_cost_usd"].clone();
     Ok((turn, usage))
 }
+fn cli_agent_output(result: &Value, stream: &str, allow_text: bool) -> Option<Value> {
+    fn is_tool_reply(value: &Value) -> bool {
+        value["answer"].is_string() && value["tool_requests"].is_array()
+    }
+
+    let response = result.get("response").or_else(|| result.get("result"));
+    let raw = response.and_then(Value::as_str);
+    let structured = result
+        .get("structured_output")
+        .or_else(|| result.get("structuredOutput"))
+        .filter(|value| is_tool_reply(value))
+        .or_else(|| is_tool_reply(result).then_some(result))
+        .or_else(|| response.filter(|value| is_tool_reply(value)))
+        .cloned()
+        .or_else(|| {
+            raw.and_then(json_answer::parse_json_object)
+                .filter(is_tool_reply)
+        })
+        .or_else(|| json_answer::parse_json_object(stream).filter(is_tool_reply));
+    if structured.is_some() || !allow_text {
+        return structured;
+    }
+    // A successful text reply is display-only. Incomplete JSON stays an error.
+    let text = raw.filter(|text| !text.trim().is_empty()).unwrap_or(stream);
+    let (clean, _) = json_answer::extract_thoughts(text);
+    let clean = clean.trim_start();
+    if clean.is_empty() || clean.starts_with(['{', '[']) || clean.starts_with("```json") {
+        return None;
+    }
+    Some(json!({"answer":text,"tool_requests":[]}))
+}
+
 async fn opencode_turn<R: tauri::Runtime>(
     app: &AppHandle<R>,
     p: &Provider,
@@ -1305,7 +1357,21 @@ pub async fn chat<R: tauri::Runtime>(
     let mut reasoning_out = 0;
     let mut cost = 0.0;
     let mut proposal_count = 0;
-    for round in 0..12 {
+    const TOOL_ROUNDS: usize = 32;
+    for round in 0..=TOOL_ROUNDS {
+        let final_round = round == TOOL_ROUNDS;
+        let final_instructions;
+        let instructions = if final_round {
+            final_instructions = format!(
+                "{instructions}\nThe tool budget for this request is used up. Summarize completed work and anything still pending. Do not request more tools."
+            );
+            if protocol == "chat" {
+                input[0]["content"] = json!(final_instructions);
+            }
+            final_instructions.as_str()
+        } else {
+            instructions.as_str()
+        };
         context.check(app)?;
         if serde_json::to_vec(&input).map_err(|e| e.to_string())?.len() > 2 * 1024 * 1024 {
             return Err(
@@ -1316,7 +1382,7 @@ pub async fn chat<R: tauri::Runtime>(
             emit(app, &r.request_id, "delta", json!("\n\n"));
         }
         let (turn, usage) = if protocol == "cli" {
-            cli_turn(app, p, r, &input, &instructions, &tools).await?
+            cli_turn(app, p, r, &input, instructions, &tools).await?
         } else {
             let mut body = if p.kind == "chatgpt" {
                 json!({"model":p.model,"stream":true,"store":false})
@@ -1398,6 +1464,15 @@ pub async fn chat<R: tauri::Runtime>(
         );
         if turn.calls.is_empty() {
             let _ = app.emit("devyy-workspace-refresh", ());
+            return Ok(());
+        }
+        if final_round {
+            emit(
+                app,
+                &r.request_id,
+                "delta",
+                json!(format!("The agent paused after {TOOL_ROUNDS} tool rounds. You can review its proposals or ask it to continue.")),
+            );
             return Ok(());
         }
         if turn.calls.len() > 8 {
@@ -1559,10 +1634,7 @@ pub async fn chat<R: tauri::Runtime>(
             );
         }
     }
-    Err(
-        "The agent reached its 12-step limit. Review its proposals or narrow the next request."
-            .into(),
-    )
+    unreachable!("the final round returns without running tools")
 }
 
 #[cfg(test)]
@@ -1784,6 +1856,110 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn antigravity_accepts_result_objects_streamed_json_and_plain_answers() {
+        let structured = json!({
+            "answer": "Reading the file.",
+            "tool_requests": [{"name": "read_file", "arguments": "{\"path\":\"main.rs\"}"}]
+        });
+        assert_eq!(
+            cli_agent_output(&json!({"response": structured}), "", true),
+            Some(structured.clone())
+        );
+        assert_eq!(
+            cli_agent_output(&json!({"status": "SUCCESS"}), &structured.to_string(), true),
+            Some(structured)
+        );
+        assert_eq!(
+            cli_agent_output(&json!({"response": "Here is the answer."}), "", true),
+            Some(json!({"answer":"Here is the answer.","tool_requests":[]}))
+        );
+        assert!(cli_agent_output(&json!({"response":"{\"answer\":"}), "", true).is_none());
+        assert!(cli_agent_output(&json!({"response":"plain"}), "", false).is_none());
+    }
+
+    #[tokio::test]
+    async fn agent_completes_a_request_after_more_than_twelve_tool_rounds() {
+        use std::io::{BufRead, BufReader, Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for round in 0..14 {
+                let (socket, _) = listener.accept().unwrap();
+                let mut socket = BufReader::new(socket);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    assert!(socket.read_line(&mut line).unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                socket.read_exact(&mut body).unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                if round > 0 {
+                    assert_eq!(
+                        request["messages"].as_array().unwrap().last().unwrap()["role"],
+                        "tool"
+                    );
+                }
+                let event = if round < 13 {
+                    json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":format!("call-{round}"),"function":{"name":"read_file","arguments":"{\"path\":\"main.rs\"}"}}]}}]})
+                } else {
+                    json!({"choices":[{"delta":{"content":"Reviewed the workspace."}}]})
+                };
+                let body = format!("data: {event}\n\ndata: [DONE]\n\n");
+                write!(socket.get_mut(), "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::write(base.join("main.rs"), "fn main() {}").unwrap();
+        let access = AccessState::default();
+        access
+            .0
+            .lock()
+            .unwrap()
+            .insert(base.clone(), ("read".into(), 1));
+        let app = mock_builder()
+            .manage(access)
+            .manage(workspace::Workspace(Mutex::new(Some(base.clone()))))
+            .build(mock_context(noop_assets()))
+            .unwrap();
+        let mut provider = defaults().into_iter().find(|p| p.kind == "openai").unwrap();
+        provider.kind = "custom".into();
+        provider.endpoint = format!("http://{address}");
+        provider.model = "fixture".into();
+        let request = ChatRequest {
+            request_id: "long-agent".into(),
+            provider_id: provider.id.clone(),
+            messages: vec![Message {
+                role: "user".into(),
+                content: "Review this code.".into(),
+            }],
+            cwd: Some(base.to_string_lossy().into()),
+            model: None,
+            effort: None,
+            agent_mode: None,
+        };
+        chat(
+            app.handle(),
+            &AiState::default(),
+            &provider,
+            &request,
+            context_at(&base, "read"),
+        )
+        .await
+        .unwrap();
+        server.join().unwrap();
+    }
+
     #[tokio::test]
     async fn streamed_tool_calls_are_reassembled_for_each_api_without_leaking_json_to_chat() {
         use std::io::Write;

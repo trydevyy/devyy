@@ -176,6 +176,19 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
         if let Some(window) = app.get_webview_window("main") {
+            if let Some(action) = id.strip_prefix("tray:") {
+                if action == "hide" {
+                    let _ = window.hide();
+                    return;
+                }
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+                if action == "show" {
+                    return;
+                }
+            }
+            let id = id.strip_prefix("tray:").unwrap_or(id);
             if id == "quit-devyy" || id == "close-window-devyy" {
                 let _ = window.close();
             } else if id == "select-all-devyy" {
@@ -187,6 +200,52 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             }
         }
     });
+    Ok(())
+}
+
+pub fn install_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let menu = Menu::new(app)?;
+    for (id, title) in [
+        ("tray:show", "Show Devyy"),
+        ("tray:hide", "Hide Devyy"),
+        ("-", ""),
+        ("tray:open", "Open Folder..."),
+        ("tray:settings", "Settings"),
+        ("tray:new-terminal", "New Terminal"),
+        ("tray:ai", "AI Assistant"),
+        ("-", ""),
+        ("tray:quit-devyy", "Quit Devyy"),
+    ] {
+        if id == "-" {
+            menu.append(&PredefinedMenuItem::separator(app)?)?;
+        } else {
+            menu.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+        }
+    }
+    let mut builder = TrayIconBuilder::with_id("devyy")
+        .tooltip("Devyy")
+        .menu(&menu)
+        .show_menu_on_left_click(cfg!(not(windows)))
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
     Ok(())
 }
 

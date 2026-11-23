@@ -26,6 +26,8 @@ mod language_config;
 mod lsp;
 #[path = "../src/process.rs"]
 mod process;
+#[path = "../src/ssh.rs"]
+mod ssh;
 #[path = "../src/workspace.rs"]
 mod workspace;
 use serde_json::Value;

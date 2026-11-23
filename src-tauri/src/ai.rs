@@ -401,8 +401,12 @@ pub async fn ai_runtime(
     app: AppHandle,
     state: State<'_, AiState>,
     provider_id: String,
+    executable: Option<String>,
 ) -> Result<Value, String> {
-    let p = provider(&app, &state, &provider_id)?;
+    let mut p = provider(&app, &state, &provider_id)?;
+    if let Some(executable) = executable {
+        p.executable = executable;
+    }
     if p.kind == "chatgpt" {
         return Ok(
             json!({"protocol":"Sign in with ChatGPT / Responses API", "application":"Devyy", "endpoint":"https://api.openai.com/v1"}),
@@ -428,21 +432,28 @@ pub async fn ai_runtime(
         .into_owned();
     let child = command
         .arg("--version")
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Could not start {}: {e}", p.name))?;
     let _registration = register_process(&app, child.id());
     let output = tokio::time::timeout(Duration::from_secs(15), child.wait_with_output())
         .await
         .map_err(|_| "Runtime check timed out")?
         .map_err(|e| e.to_string())?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        return Err("The CLI did not report a version".into());
+        let detail: String = stderr.trim().chars().take(400).collect();
+        return Err(format!(
+            "{}'s version check failed ({}). {detail}",
+            p.name, output.status
+        ));
     }
-    let version = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .chars()
-        .take(200)
-        .collect::<String>();
+    let version_output = if output.stdout.is_empty() {
+        stderr
+    } else {
+        String::from_utf8_lossy(&output.stdout)
+    };
+    let version = version_output.trim().chars().take(200).collect::<String>();
     Ok(json!({"executable":program,"version":version}))
 }
 fn trusted_installer_source(url: &reqwest::Url) -> bool {
@@ -811,7 +822,11 @@ pub async fn ai_chat(
     request: ChatRequest,
 ) -> Result<(), String> {
     check_messages(&request.messages)?;
-    if request.agent_mode.as_deref().is_some_and(|mode| !matches!(mode, "ask" | "plan" | "agent" | "review")) {
+    if request
+        .agent_mode
+        .as_deref()
+        .is_some_and(|mode| !matches!(mode, "ask" | "plan" | "agent" | "review"))
+    {
         return Err("Invalid agent mode".into());
     }
     let mut p = provider(&app, &state, &request.provider_id)?;
@@ -1109,48 +1124,30 @@ async fn http_chat<R: tauri::Runtime>(
     Err("AI connection closed before the reply completed. You can retry the message.".into())
 }
 fn cli(p: &Provider) -> Result<tokio::process::Command, String> {
-    let binary = if !p.executable.trim().is_empty() {
-        PathBuf::from(&p.executable)
-    } else {
-        let binary_names: &[&str] = match p.kind.as_str() {
+    let executable = p.executable.trim().trim_matches('"');
+    let binary = if executable.is_empty() {
+        let names: &[&str] = match p.kind.as_str() {
             "antigravity" => &["agy", "antigravity"],
-            "opencode" => &["opencode"],
             _ => &[&p.kind],
         };
-        binary_names
-            .iter()
-            .find_map(|name| {
-                crate::process::executable(name)
-                    .or_else(|| {
-                        [
-                            "/opt/homebrew/bin",
-                            "/usr/local/bin",
-                            "/usr/bin",
-                            "/snap/bin",
-                        ]
-                        .into_iter()
-                        .map(|dir| PathBuf::from(dir).join(name))
-                        .find(|path| path.is_file())
-                    })
-                    .or_else(|| {
-                        std::env::var_os("HOME")
-                            .or_else(|| std::env::var_os("USERPROFILE"))
-                            .and_then(|home| {
-                                [".local/bin", ".cargo/bin", ".gemini/bin", ".opencode/bin"]
-                                    .into_iter()
-                                    .map(|dir| PathBuf::from(&home).join(dir).join(name))
-                                    .flat_map(|path| [path.clone(), path.with_extension("exe")])
-                                    .find(|path| path.is_file())
-                            })
-                    })
-            })
-            .ok_or_else(|| {
-                format!(
-                    "Install the {} CLI or set its executable path in AI provider settings.",
-                    p.name
-                )
-            })?
-    };
+        names.iter().find_map(|name| crate::process::executable(name))
+    } else {
+        crate::process::executable(executable)
+    }
+    .and_then(|path| {
+        if path.is_absolute() {
+            Some(path)
+        } else {
+            std::env::current_dir().ok().map(|cwd| cwd.join(path))
+        }
+    })
+    .ok_or_else(|| {
+        if executable.is_empty() {
+            format!("Install {}, or choose its executable under AI Providers > Troubleshooting.", p.name)
+        } else {
+            format!("The executable configured for {} was not found. Update its path under AI Providers > Troubleshooting.", p.name)
+        }
+    })?;
     #[allow(unused_mut)]
     let mut program = crate::process::command(&binary.to_string_lossy());
     #[cfg(unix)]
@@ -1299,6 +1296,15 @@ async fn cli_diagnostics(mut stderr: tokio::process::ChildStderr) -> String {
     }
     String::from_utf8_lossy(&kept).trim().to_owned()
 }
+// A single-turn CLI can finish the reply before its child processes close the pipes.
+async fn cli_exit_failed(child: &mut tokio::process::Child) -> Result<bool, String> {
+    match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+        Ok(status) => status
+            .map(|status| !status.success())
+            .map_err(|e| e.to_string()),
+        Err(_) => Ok(false),
+    }
+}
 async fn antigravity_chat<R: tauri::Runtime>(
     app: &AppHandle<R>,
     p: &Provider,
@@ -1430,7 +1436,7 @@ async fn antigravity_chat<R: tauri::Runtime>(
             }
             "result" => {
                 finished = true;
-                let res = &v["result"];
+                let res = v.get("result").unwrap_or(&v);
                 let status = res["status"].as_str().unwrap_or("SUCCESS");
                 if status != "SUCCESS" || res["is_error"] == true {
                     return Err(res["error"]
@@ -1466,17 +1472,17 @@ async fn antigravity_chat<R: tauri::Runtime>(
                 if !res["usage"].is_null() {
                     emit(app, &r.request_id, "usage", res["usage"].clone());
                 }
+                break;
             }
             _ => {}
         }
     }
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let detail = tokio::time::timeout(Duration::from_secs(2), diagnostics)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .unwrap_or_default();
-    if !status.success() || !finished {
+    if cli_exit_failed(&mut child).await? || !finished {
+        let detail = tokio::time::timeout(Duration::from_secs(2), diagnostics)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         return Err(if detail.is_empty() {
             "Antigravity could not finish. Sign in with Google in AI provider settings, then try again.".into()
         } else {

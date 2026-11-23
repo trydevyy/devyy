@@ -3,7 +3,7 @@ name = "devyy"
 version = "0.1.0"
 description = "Devyy, a modern developer editor and IDE"
 authors = ["Devyy contributors"]
-homepage = "https://github.com/trydevyy/devyy"
+homepage = "https://www.devyy.dev"
 repository = "https://github.com/trydevyy/devyy"
 edition = "2021"
 license = "GPL-3.0-only"
@@ -22,7 +22,7 @@ jsonwebtoken = "9.3"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
 mime_guess = "2"
-tauri = { version = "2", features = ["macos-private-api", "image-png"] }
+tauri = { version = "2", features = ["macos-private-api", "image-png", "tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"
@@ -74,3 +74,7 @@ features = ["windows-native"]
 [target.'cfg(target_os = "linux")'.dependencies.keyring]
 version = "3.6.3"
 features = ["sync-secret-service", "crypto-rust", "vendored"]
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }

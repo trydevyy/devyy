@@ -18,6 +18,12 @@ mod ai;
 mod app_info;
 mod appearance;
 mod associations;
+#[path = "../../shared/file_types.rs"]
+mod file_types;
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../../shared/windows_file_associations.rs"]
+mod windows_file_associations;
 mod debug;
 mod extension_host;
 mod extension_secrets;
@@ -79,6 +85,9 @@ pub fn run() {
         .manage(extension_host::ExtensionHost::default())
         .setup(|app| {
             menus::install(app.handle())?;
+            if let Err(error) = menus::install_tray(app.handle()) {
+                eprintln!("Could not open the system tray: {error}");
+            }
             {
                 use tauri::Emitter;
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -153,6 +162,7 @@ pub fn run() {
             workspace::read_preview_media,
             menus::set_menu_shortcuts,
             workspace::open_workspace,
+            workspace::close_ssh_workspace,
             workspace::refresh_workspace,
             workspace::list_files,
             workspace::list_directory,
@@ -286,7 +296,13 @@ mod integration_tests {
                     cmd: cmd.into(),
                     callback: tauri::ipc::CallbackFn(0),
                     error: tauri::ipc::CallbackFn(1),
-                    url: "tauri://localhost".parse().unwrap(),
+                    url: if cfg!(windows) {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
                     body: tauri::ipc::InvokeBody::Json(body),
                     headers: Default::default(),
                     invoke_key: INVOKE_KEY.into(),

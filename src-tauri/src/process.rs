@@ -57,14 +57,31 @@ pub fn executable(name: &str) -> Option<PathBuf> {
         }
     }
     if cfg!(windows) {
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            let base = PathBuf::from(home);
+            directories.extend([
+                base.join(".local/bin"),
+                base.join(".cargo/bin"),
+                base.join(".gemini/bin"),
+                base.join(".opencode/bin"),
+            ]);
+        }
+        if let Some(roaming) = std::env::var_os("APPDATA") {
+            directories.push(PathBuf::from(roaming).join("npm"));
+        }
         if let Some(programs) = std::env::var_os("ProgramFiles") {
             let base = PathBuf::from(programs);
-            directories.extend([base.join("Git/cmd"), base.join("GitHub CLI")]);
+            directories.extend([
+                base.join("Git/cmd"),
+                base.join("GitHub CLI"),
+                base.join("Google/antigravity-cli"),
+            ]);
         }
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             let base = PathBuf::from(local);
             directories.extend([
                 base.join("Microsoft/WinGet/Links"),
+                base.join("agy/bin"),
                 base.join("Programs/Antigravity/bin"),
                 base.join("opencode/bin"),
             ]);

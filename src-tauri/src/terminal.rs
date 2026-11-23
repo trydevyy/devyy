@@ -29,6 +29,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionTerminalOptions {
+    local: Option<bool>,
     shell_path: Option<String>,
     shell_args: Option<serde_json::Value>,
     cwd: Option<serde_json::Value>,
@@ -60,11 +61,16 @@ pub async fn terminal_create<R: tauri::Runtime>(
     profile: Option<String>,
     options: Option<ExtensionTerminalOptions>,
 ) -> Result<u32, String> {
-    let has_workspace = workspace
-        .0
-        .lock()
-        .map_err(|error| error.to_string())?
-        .is_some();
+    let local = options
+        .as_ref()
+        .and_then(|options| options.local)
+        .unwrap_or(false);
+    let has_workspace = !local
+        && workspace
+            .0
+            .lock()
+            .map_err(|error| error.to_string())?
+            .is_some();
     let base = if has_workspace {
         root(&workspace)?
     } else {
@@ -79,6 +85,68 @@ pub async fn terminal_create<R: tauri::Runtime>(
     .await
     .map_err(|e| e.to_string())?
 }
+#[cfg(windows)]
+fn shell_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Prefix};
+    let wide: Vec<_> = path.as_os_str().encode_wide().collect();
+    let Some(Component::Prefix(prefix)) = path.components().next() else {
+        return path.to_path_buf();
+    };
+    match prefix.kind() {
+        Prefix::VerbatimDisk(_) => std::ffi::OsString::from_wide(&wide[4..]).into(),
+        Prefix::VerbatimUNC(_, _) => {
+            let unc: Vec<_> = [b'\\' as u16; 2]
+                .into_iter()
+                .chain(wide[8..].iter().copied())
+                .collect();
+            std::ffi::OsString::from_wide(&unc).into()
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
+#[cfg(windows)]
+fn configure_windows_shell(
+    cmd: &mut CommandBuilder,
+    executable: &str,
+    cwd: std::path::PathBuf,
+    uses_profile_args: bool,
+) -> Result<(), String> {
+    use std::path::{Component, Path, Prefix};
+    let cwd = shell_path(&cwd);
+    let shell = Path::new(executable);
+    let name = shell
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if name.eq_ignore_ascii_case("bash") {
+        cmd.env("CHERE_INVOKING", "1");
+    }
+    if uses_profile_args
+        && name.eq_ignore_ascii_case("cmd")
+        && matches!(cwd.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::UNC(_, _)))
+    {
+        // CMD needs a mapped drive for a UNC working directory.
+        let local = std::env::var_os("SystemRoot").ok_or("Windows directory unavailable")?;
+        let mut quoted = std::ffi::OsString::from("\"");
+        quoted.push(cwd.as_os_str());
+        quoted.push("\"");
+        cmd.env("DEVYY_TERMINAL_UNC_DIRECTORY", quoted);
+        cmd.args([
+            "/D",
+            "/V:OFF",
+            "/K",
+            "pushd",
+            "%DEVYY_TERMINAL_UNC_DIRECTORY%",
+        ]);
+        cmd.cwd(local);
+    } else {
+        cmd.cwd(cwd);
+    }
+    Ok(())
+}
+
 fn create_session<R: tauri::Runtime>(
     app: AppHandle<R>,
     base: std::path::PathBuf,
@@ -97,16 +165,23 @@ fn create_session<R: tauri::Runtime>(
         })
         .map_err(|e| e.to_string())?;
     let options = options.unwrap_or_default();
-    let shell = crate::shells::select(profile.as_deref())?;
-    let mut cmd = CommandBuilder::new(options.shell_path.as_deref().unwrap_or(&shell.path));
+    let (shell_path, default_args) = match options.shell_path {
+        Some(path) => (path, Vec::new()),
+        None => {
+            let shell = crate::shells::select(profile.as_deref())?;
+            (shell.path, shell.args)
+        }
+    };
+    let mut cmd = CommandBuilder::new(&shell_path);
+    let uses_profile_args = options.shell_args.is_none();
     if let Some(args) = options.shell_args {
         if let Some(args) = args.as_array() {
             cmd.args(args.iter().filter_map(|s| s.as_str()));
         } else if let Some(args) = args.as_str() {
             cmd.arg(args);
         }
-    } else if options.shell_path.is_none() {
-        cmd.args(&shell.args);
+    } else {
+        cmd.args(&default_args);
     }
     let cwd = options
         .cwd
@@ -114,9 +189,15 @@ fn create_session<R: tauri::Runtime>(
         .and_then(|v| v.as_str().or_else(|| v["fsPath"].as_str()))
         .map(std::path::PathBuf::from)
         .unwrap_or(base);
-    cmd.cwd(cwd);
     if options.strict_env.unwrap_or(false) {
         cmd.env_clear();
+    }
+    #[cfg(windows)]
+    configure_windows_shell(&mut cmd, &shell_path, cwd, uses_profile_args)?;
+    #[cfg(not(windows))]
+    {
+        let _ = uses_profile_args;
+        cmd.cwd(cwd);
     }
     for (key, value) in options.env.unwrap_or_default() {
         if let Some(value) = value {
@@ -329,4 +410,26 @@ pub fn terminal_pid(id: u32, state: State<Terminals>) -> Result<Option<u32>, Str
         .ok_or("Terminal has closed")?
         .child
         .process_id())
+}
+
+#[cfg(all(windows, test))]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn normalizes_windows_shell_working_directories() {
+        assert_eq!(
+            shell_path(Path::new(r"\\?\C:\Work Space")),
+            Path::new(r"C:\Work Space")
+        );
+        assert_eq!(
+            shell_path(Path::new(r"\\?\UNC\server\share\repo")),
+            Path::new(r"\\server\share\repo")
+        );
+        assert_eq!(
+            shell_path(Path::new(r"C:\Work Space")),
+            Path::new(r"C:\Work Space")
+        );
+    }
 }

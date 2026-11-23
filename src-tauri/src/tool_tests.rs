@@ -57,7 +57,13 @@ fn call(view: &tauri::WebviewWindow<MockRuntime>, command: &str, body: Value) ->
             cmd: command.into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "tauri://localhost".parse().unwrap(),
+            url: if cfg!(windows) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
             body: tauri::ipc::InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: INVOKE_KEY.into(),
@@ -364,11 +370,11 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
     let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    call(
-        &view,
-        "open_workspace",
-        json!({"path":std::env::temp_dir()}),
-    );
+    let parent = tempfile::tempdir().unwrap();
+    let directory = parent.path().join("Devyy terminal test");
+    std::fs::create_dir(&directory).unwrap();
+    call(&view, "open_workspace", json!({"path": directory}));
+    let expected_directory = format!("{}>", directory.display()).to_lowercase();
     let profiles = call(&view, "terminal_profiles", json!({}));
     let cmd = profiles
         .as_array()
@@ -391,16 +397,17 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
         json!({"cols":80,"rows":24,"profile":cmd["id"]}),
     );
     assert_ne!(a, b);
-    call(
-        &view,
-        "terminal_write",
-        json!({"id":a,"data":"set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_A\r"}),
-    );
-    call(
-        &view,
-        "terminal_write",
-        json!({"id":b,"data":"set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_B\r"}),
-    );
+    let commands = [
+        (
+            &a,
+            "set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_A\r",
+        ),
+        (
+            &b,
+            "set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_B\r",
+        ),
+    ];
+    let mut started = std::collections::HashSet::new();
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut outputs = std::collections::HashMap::<u64, String>::new();
     while !outputs
@@ -416,10 +423,26 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
         )
         .unwrap();
         let bytes: Vec<u8> = serde_json::from_value(payload["data"].clone()).unwrap();
-        outputs
-            .entry(payload["id"].as_u64().unwrap())
-            .or_default()
-            .push_str(&String::from_utf8_lossy(&bytes));
+        let output = outputs.entry(payload["id"].as_u64().unwrap()).or_default();
+        output.push_str(&String::from_utf8_lossy(&bytes));
+        // ConPTY asks a real terminal for its cursor position before CMD starts.
+        if output.contains("\x1b[6n") && started.insert(payload["id"].as_u64().unwrap()) {
+            let (id, command) = commands
+                .iter()
+                .find(|(id, _)| **id == payload["id"])
+                .unwrap();
+            call(
+                &view,
+                "terminal_write",
+                json!({"id":id,"data": format!("\x1b[1;1R{command}")}),
+            );
+        }
+    }
+    for output in outputs.values() {
+        assert!(
+            output.to_lowercase().contains(&expected_directory),
+            "{output:?}"
+        );
     }
     assert!(!outputs[&a.as_u64().unwrap()].contains("DEVYY_WINDOWS_B"));
     assert!(!outputs[&b.as_u64().unwrap()].contains("DEVYY_WINDOWS_A"));

@@ -106,7 +106,8 @@
       },
       {
         "ext": [
-          "html"
+          "html",
+          "htm"
         ],
         "name": "HTML file",
         "role": "Editor",
@@ -159,10 +160,282 @@
         "name": "TXT file",
         "role": "Editor",
         "mimeType": "text/plain"
+      },
+      {
+        "ext": [
+          "mjs"
+        ],
+        "name": "JavaScript module",
+        "role": "Editor",
+        "mimeType": "application/javascript"
+      },
+      {
+        "ext": [
+          "cjs"
+        ],
+        "name": "CommonJS module",
+        "role": "Editor",
+        "mimeType": "application/javascript"
+      },
+      {
+        "ext": [
+          "mts"
+        ],
+        "name": "TypeScript module",
+        "role": "Editor",
+        "mimeType": "text/typescript"
+      },
+      {
+        "ext": [
+          "cts"
+        ],
+        "name": "CommonJS TypeScript module",
+        "role": "Editor",
+        "mimeType": "text/typescript"
+      },
+      {
+        "ext": [
+          "jsonc"
+        ],
+        "name": "JSON with comments",
+        "role": "Editor",
+        "mimeType": "application/jsonc"
+      },
+      {
+        "ext": [
+          "yml"
+        ],
+        "name": "YAML file",
+        "role": "Editor",
+        "mimeType": "application/yaml"
+      },
+      {
+        "ext": [
+          "scss"
+        ],
+        "name": "SCSS stylesheet",
+        "role": "Editor",
+        "mimeType": "text/x-scss"
+      },
+      {
+        "ext": [
+          "sass"
+        ],
+        "name": "Sass stylesheet",
+        "role": "Editor",
+        "mimeType": "text/x-sass"
+      },
+      {
+        "ext": [
+          "less"
+        ],
+        "name": "Less stylesheet",
+        "role": "Editor",
+        "mimeType": "text/x-less"
+      },
+      {
+        "ext": [
+          "vue"
+        ],
+        "name": "Vue component",
+        "role": "Editor",
+        "mimeType": "text/x-vue"
+      },
+      {
+        "ext": [
+          "svelte"
+        ],
+        "name": "Svelte component",
+        "role": "Editor",
+        "mimeType": "text/x-svelte"
+      },
+      {
+        "ext": [
+          "c"
+        ],
+        "name": "C source",
+        "role": "Editor",
+        "mimeType": "text/x-csrc"
+      },
+      {
+        "ext": [
+          "h"
+        ],
+        "name": "C header",
+        "role": "Editor",
+        "mimeType": "text/x-chdr"
+      },
+      {
+        "ext": [
+          "cpp"
+        ],
+        "name": "C++ source",
+        "role": "Editor",
+        "mimeType": "text/x-c++src"
+      },
+      {
+        "ext": [
+          "hpp"
+        ],
+        "name": "C++ header",
+        "role": "Editor",
+        "mimeType": "text/x-c++hdr"
+      },
+      {
+        "ext": [
+          "cs"
+        ],
+        "name": "C# source",
+        "role": "Editor",
+        "mimeType": "text/x-csharp"
+      },
+      {
+        "ext": [
+          "java"
+        ],
+        "name": "Java source",
+        "role": "Editor",
+        "mimeType": "text/x-java"
+      },
+      {
+        "ext": [
+          "kt"
+        ],
+        "name": "Kotlin source",
+        "role": "Editor",
+        "mimeType": "text/x-kotlin"
+      },
+      {
+        "ext": [
+          "swift"
+        ],
+        "name": "Swift source",
+        "role": "Editor",
+        "mimeType": "text/x-swift"
+      },
+      {
+        "ext": [
+          "rb"
+        ],
+        "name": "Ruby source",
+        "role": "Editor",
+        "mimeType": "application/x-ruby"
+      },
+      {
+        "ext": [
+          "php"
+        ],
+        "name": "PHP source",
+        "role": "Editor",
+        "mimeType": "application/x-php"
+      },
+      {
+        "ext": [
+          "lua"
+        ],
+        "name": "Lua source",
+        "role": "Editor",
+        "mimeType": "text/x-lua"
+      },
+      {
+        "ext": [
+          "sql"
+        ],
+        "name": "SQL script",
+        "role": "Editor",
+        "mimeType": "application/sql"
+      },
+      {
+        "ext": [
+          "xml"
+        ],
+        "name": "XML document",
+        "role": "Editor",
+        "mimeType": "application/xml"
+      },
+      {
+        "ext": [
+          "ini"
+        ],
+        "name": "INI configuration",
+        "role": "Editor",
+        "mimeType": "text/x-ini"
+      },
+      {
+        "ext": [
+          "cfg"
+        ],
+        "name": "Configuration file",
+        "role": "Editor",
+        "mimeType": "text/x-config"
+      },
+      {
+        "ext": [
+          "env"
+        ],
+        "name": "Environment configuration",
+        "role": "Editor",
+        "mimeType": "text/x-env"
+      },
+      {
+        "ext": [
+          "sh"
+        ],
+        "name": "Shell script",
+        "role": "Editor",
+        "mimeType": "application/x-shellscript"
+      },
+      {
+        "ext": [
+          "ps1"
+        ],
+        "name": "PowerShell script",
+        "role": "Editor",
+        "mimeType": "text/x-powershell"
+      },
+      {
+        "ext": [
+          "log"
+        ],
+        "name": "Log file",
+        "role": "Editor",
+        "mimeType": "text/x-log"
+      },
+      {
+        "ext": [
+          "csv"
+        ],
+        "name": "CSV file",
+        "role": "Editor",
+        "mimeType": "text/csv"
+      },
+      {
+        "ext": [
+          "tsv"
+        ],
+        "name": "TSV file",
+        "role": "Editor",
+        "mimeType": "text/tab-separated-values"
+      },
+      {
+        "ext": [
+          "markdown"
+        ],
+        "name": "Markdown document",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": [
+          "tsbuildinfo"
+        ],
+        "name": "TypeScript build info",
+        "role": "Editor",
+        "mimeType": "application/x-typescript-buildinfo"
       }
     ],
     "publisher": "Devyy",
-    "homepage": "https://github.com/trydevyy/devyy",
+    "homepage": "https://www.devyy.dev",
     "license": "GPL-3.0-only",
     "copyright": "Copyright \u00a9 2026 Devyy contributors",
     "longDescription": "Devyy is a Rust-powered developer editor with language servers, extensions, source control, terminals and an integrated AI workspace.",

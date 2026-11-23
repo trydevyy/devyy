@@ -381,6 +381,18 @@ fn set_root(state: &Workspace, path: PathBuf) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn close_ssh_workspace(path: String, state: State<'_, Workspace>) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let mut active = state.0.lock().map_err(|error| error.to_string())?;
+    if active.as_ref() != Some(&path) || crate::ssh::workspace(&path).is_none() {
+        return Err("That SSH workspace is no longer active.".into());
+    }
+    crate::ssh::release(&path);
+    *active = None;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn refresh_workspace(state: State<'_, Workspace>) -> Result<WorkspaceInfo, String> {
     let base = root(&state)?;
     if let Some(ssh) = crate::ssh::workspace(&base) {

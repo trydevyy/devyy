@@ -19,22 +19,11 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 #[cfg(windows)]
 use tauri_plugin_opener::OpenerExt;
-const TYPES: &[(&str, &str)] = &[
-    ("rs", "text/x-rust"),
-    ("js", "application/javascript"),
-    ("ts", "text/typescript"),
-    ("tsx", "text/tsx"),
-    ("jsx", "text/jsx"),
-    ("py", "text/x-python"),
-    ("go", "text/x-go"),
-    ("html", "text/html"),
-    ("css", "text/css"),
-    ("json", "application/json"),
-    ("toml", "application/toml"),
-    ("yaml", "application/yaml"),
-    ("md", "text/markdown"),
-    ("txt", "text/plain"),
-];
+fn types() -> impl Iterator<Item = (&'static str, &'static str)> {
+    crate::file_types::types().iter().flat_map(|file_type| {
+        file_type.ext.iter().map(|ext| (ext.as_str(), file_type.mime_type.as_str()))
+    })
+}
 const APP_ID: &str = "xyz.devyy.editor";
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,10 +34,9 @@ pub struct Association {
     is_default: bool,
 }
 fn mime(extension: &str) -> Result<&'static str, String> {
-    TYPES
-        .iter()
+    types()
         .find(|(ext, _)| *ext == extension)
-        .map(|(_, mime)| *mime)
+        .map(|(_, mime)| mime)
         .ok_or("Unsupported file extension".into())
 }
 #[cfg(target_os = "macos")]
@@ -155,18 +143,7 @@ fn handler(extension: &str) -> Option<String> {
     }
     #[cfg(windows)]
     {
-        let key=format!("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.{extension}\\UserChoice");
-        crate::process::command("reg.exe")
-            .args(["QUERY", &key, "/v", "ProgId"])
-            .output()
-            .ok()
-            .filter(|r| r.status.success())
-            .and_then(|r| {
-                String::from_utf8_lossy(&r.stdout).lines().find_map(|line| {
-                    line.split_once("REG_SZ")
-                        .map(|(_, id)| id.trim().to_owned())
-                })
-            })
+        crate::windows_file_associations::handler(extension)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
@@ -177,8 +154,7 @@ fn handler(extension: &str) -> Option<String> {
 #[tauri::command]
 pub async fn default_app_status() -> Result<Vec<Association>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        TYPES
-            .iter()
+        types()
             .map(|(extension, mime)| {
                 let handler = handler(extension);
                 let is_default = handler.as_deref().is_some_and(|id| {
@@ -220,9 +196,8 @@ fn register_linux(extension: &str) -> Result<(), String> {
         .replace('$', "\\$")
         .replace('%', "%%")
         .replace(['\n', '\r'], "");
-    let mime_types = TYPES
-        .iter()
-        .map(|(_, mime)| *mime)
+    let mime_types = types()
+        .map(|(_, mime)| mime)
         .collect::<Vec<_>>()
         .join(";");
     let icons = data.join("icons/hicolor/128x128/apps");
@@ -252,65 +227,10 @@ fn register_linux(extension: &str) -> Result<(), String> {
     Ok(())
 }
 #[cfg(windows)]
-fn register_windows(extension: &str) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let program = format!("Devyy.{extension}");
-    let entries: Vec<(String, String, String)> = vec![
-        (
-            r"HKCU\Software\Classes\Applications\devyy.exe\shell\open\command".into(),
-            String::new(),
-            format!("\"{}\" \"%1\"", exe.display()),
-        ),
-        (
-            format!("HKCU\\Software\\Classes\\{program}"),
-            String::new(),
-            format!("Devyy {extension} file"),
-        ),
-        (
-            format!("HKCU\\Software\\Classes\\{program}\\shell\\open\\command"),
-            String::new(),
-            format!("\"{}\" \"%1\"", exe.display()),
-        ),
-        (
-            format!("HKCU\\Software\\Classes\\.{extension}\\OpenWithProgids"),
-            program.clone(),
-            String::new(),
-        ),
-        (
-            "HKCU\\Software\\Devyy\\Capabilities".into(),
-            "ApplicationName".into(),
-            "Devyy".into(),
-        ),
-        (
-            "HKCU\\Software\\Devyy\\Capabilities\\FileAssociations".into(),
-            format!(".{extension}"),
-            program,
-        ),
-        (
-            "HKCU\\Software\\RegisteredApplications".into(),
-            "Devyy".into(),
-            "Software\\Devyy\\Capabilities".into(),
-        ),
-    ];
-    for (key, name, value) in entries {
-        let mut command = crate::process::command("reg.exe");
-        command.args(["ADD", &key]);
-        if name.is_empty() {
-            command.arg("/ve");
-        } else {
-            command.args(["/v", &name]);
-        }
-        if !command
-            .args(["/t", "REG_SZ", "/d", &value, "/f"])
-            .output()
-            .map_err(|e| e.to_string())?
-            .status
-            .success()
-        {
-            return Err("Could not register Devyy for this Windows file type".into());
-        }
-    }
-    Ok(())
+fn register_windows(extension: Option<&str>) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    crate::windows_file_associations::register(&exe, extension, None)
+        .map_err(|error| format!("Could not register Devyy in Windows: {error}"))
 }
 #[tauri::command]
 pub async fn set_default_app(
@@ -338,7 +258,7 @@ pub async fn set_default_app(
         }
         #[cfg(windows)]
         {
-            register_windows(&selected)?;
+            register_windows(Some(&selected))?;
         }
         Ok::<(), String>(())
     })
@@ -367,13 +287,13 @@ pub async fn set_all_default_apps(app: AppHandle) -> Result<serde_json::Value, S
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "macos")]
         {
-            for &(ext, _) in TYPES {
+            for (ext, _) in types() {
                 let _ = mac::set(ext);
             }
         }
         #[cfg(target_os = "linux")]
         {
-            for &(ext, _) in TYPES {
+            for (ext, _) in types() {
                 let _ = register_linux(ext);
                 if let Ok(m) = mime(ext) {
                     let _ = crate::process::command("xdg-mime")
@@ -384,9 +304,7 @@ pub async fn set_all_default_apps(app: AppHandle) -> Result<serde_json::Value, S
         }
         #[cfg(windows)]
         {
-            for &(ext, _) in TYPES {
-                let _ = register_windows(ext);
-            }
+            register_windows(None)?;
         }
         Ok::<(), String>(())
     })
@@ -480,7 +398,7 @@ mod tests {
             vec![
                 "source file.rs",
                 "--wait",
-                file.to_string_lossy().into(),
+                &file.to_string_lossy(),
             ],
             cwd.path(),
         );
@@ -490,7 +408,9 @@ mod tests {
     }
     #[test]
     fn association_types_are_explicit() {
-        assert!(mime("rs").is_ok());
+        for supported in ["rs", "mjs", "jsonc", "yml", "vue", "cpp", "ps1", "csv"] {
+            assert!(mime(supported).is_ok(), "{supported} should be associated");
+        }
         for invalid in ["../../shell", "exe", "rs\nExec=evil", ".rs", ""] {
             assert!(mime(invalid).is_err());
         }
