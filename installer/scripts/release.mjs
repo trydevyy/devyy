@@ -7,7 +7,8 @@ const root = path.resolve(
   "../..",
 );
 const installer = path.join(root, "installer");
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const windows = process.platform === "win32";
+const npm = windows ? "npm.cmd" : "npm";
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -19,7 +20,7 @@ function run(command, args, options = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 if (!process.argv.includes("--skip-editor-build"))
-  run(npm, ["run", "desktop:build"]);
+  run(npm, ["run", "desktop:build", ...(windows ? ["--", "--no-bundle"] : [])]);
 if (process.platform === "darwin") {
   const appArgument = process.argv.indexOf("--app");
   const app =
@@ -47,14 +48,16 @@ if (process.platform === "darwin") {
   ]);
 } else {
   run(process.execPath, [path.join(installer, "scripts/prepare-payload.mjs")]);
-  run(npm, ["run", "desktop:build"], {
+  const installerArgs = ["run", "desktop:build"];
+  if (windows) installerArgs.push("--", "--runner", "cargo", "--no-bundle");
+  run(npm, installerArgs, {
     cwd: installer,
     env: {
       ...process.env,
       CARGO_TARGET_DIR: path.join(root, "src-tauri/target"),
     },
   });
-  if (process.platform === "win32") {
+  if (windows) {
     const source = path.join(
       root,
       "src-tauri/target/release/devyy-installer.exe",

@@ -42,12 +42,18 @@ impl Platform {
         }
     }
 }
+fn default_explorer_context_menu() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Options {
     pub directory: PathBuf,
     pub desktop: bool,
     pub menu: bool,
+    #[serde(default = "default_explorer_context_menu")]
+    pub explorer_context_menu: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +65,8 @@ pub struct Manifest {
     pub files: Vec<PathBuf>,
     pub desktop: bool,
     pub menu: bool,
+    #[serde(default = "default_explorer_context_menu")]
+    pub explorer_context_menu: bool,
     pub platform: Platform,
     pub uninstaller: String,
     pub payload_sha256: String,
@@ -405,6 +413,7 @@ pub fn install(
         files,
         desktop: options.desktop,
         menu: options.menu,
+        explorer_context_menu: options.explorer_context_menu,
         platform: environment.platform,
         uninstaller: uninstaller.into(),
         payload_sha256: format!("{:x}", Sha256::digest(payload)),
@@ -627,6 +636,7 @@ mod tests {
             directory: environment.default_directory(),
             desktop: true,
             menu: true,
+            explorer_context_menu: true,
         };
         (temp, environment, options)
     }

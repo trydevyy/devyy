@@ -19,5 +19,5 @@ if ($env:DEVYY_DESKTOP_SHORTCUT -eq '1') { Add-Shortcut (Join-Path ([Environment
 if ($env:DEVYY_MENU_SHORTCUT -eq '1') {
   $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Devyy'
   Add-Shortcut (Join-Path $menu 'Devyy.lnk') (Join-Path $root 'app\devyy.exe')
-  Add-Shortcut (Join-Path $menu 'Uninstall Devyy.lnk') (Join-Path $root 'Uninstall Devyy.exe') ('--uninstall --install-dir "' + $root + '"')
+  Add-Shortcut (Join-Path $menu 'Uninstall Devyy.lnk') (Join-Path $root 'Uninstall Devyy.exe')
 }

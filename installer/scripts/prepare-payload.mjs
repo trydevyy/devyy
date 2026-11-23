@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { explorerFileIcons } from "./file-icons.mjs";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -65,6 +66,11 @@ for (const name of [
       name,
       bytes: fs.readFileSync(path.join(path.dirname(source), name)),
     });
+if (platform === "windows") {
+  for (const { name, bytes } of explorerFileIcons()) {
+    entries.push({ name: `file-icons/${name}`, bytes });
+  }
+}
 entries.push({
   name: "THIRD_PARTY_NOTICES.json",
   bytes: fs.readFileSync(path.join(root, "public/third-party-licenses.json")),

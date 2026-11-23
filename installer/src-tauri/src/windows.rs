@@ -14,11 +14,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use crate::engine::{Environment, Manifest};
-use std::{path::Path, process::Command};
+use std::{os::windows::process::CommandExt, path::Path, process::Command};
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 const UNINSTALL: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Devyy";
 fn script(source: &str, manifest: &Manifest) -> Result<(), String> {
     let status = Command::new("powershell.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoProfile", "-NonInteractive", "-Command", source])
         .env("DEVYY_INSTALL_DIR", &manifest.directory)
         .env(
@@ -44,9 +46,8 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
     let (key, _) = user.create_subkey(UNINSTALL).map_err(|e| e.to_string())?;
     let executable = manifest.directory.join("app/devyy.exe");
     let remove = format!(
-        "\"{}\" --uninstall --install-dir \"{}\"",
-        manifest.directory.join(&manifest.uninstaller).display(),
-        manifest.directory.display()
+        "\"{}\"",
+        manifest.directory.join(&manifest.uninstaller).display()
     );
     for (name, value) in [
         ("DisplayName", "Devyy".to_owned()),
@@ -61,7 +62,7 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         ("QuietUninstallString", format!("{remove} --silent")),
         (
             "URLInfoAbout",
-            "https://github.com/trydevyy/devyy".into(),
+            "https://www.devyy.dev".into(),
         ),
     ] {
         key.set_value(name, &value).map_err(|e| e.to_string())?;
@@ -103,63 +104,8 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
         .map_err(|e| e.to_string())?;
 
-    // Explorer can keep Applications\devyy.exe as the selected handler.
-    let application = "Software\\Classes\\Applications\\devyy.exe";
-    let (application_key, _) = user.create_subkey(application).map_err(|e| e.to_string())?;
-    application_key.set_value("FriendlyAppName", &"Devyy").map_err(|e| e.to_string())?;
-    application_key.create_subkey("shell\\open\\command").map_err(|e| e.to_string())?
-        .0.set_value("", &format!("\"{}\" \"%1\"", executable.display())).map_err(|e| e.to_string())?;
-
-    // Register file associations for Devyy
-    const EXTENSIONS: &[&str] = &[
-        "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
-        "txt",
-    ];
-    let (capabilities, _) = user
-        .create_subkey("Software\\Devyy\\Capabilities")
-        .map_err(|e| e.to_string())?;
-    capabilities
-        .set_value("ApplicationName", &"Devyy")
-        .map_err(|e| e.to_string())?;
-    capabilities
-        .set_value(
-            "ApplicationDescription",
-            &"A focused development environment and IDE",
-        )
-        .map_err(|e| e.to_string())?;
-    let (file_assoc, _) = user
-        .create_subkey("Software\\Devyy\\Capabilities\\FileAssociations")
-        .map_err(|e| e.to_string())?;
-    let (reg_apps, _) = user
-        .create_subkey("Software\\RegisteredApplications")
-        .map_err(|e| e.to_string())?;
-    reg_apps
-        .set_value("Devyy", &"Software\\Devyy\\Capabilities")
-        .map_err(|e| e.to_string())?;
-
-    for ext in EXTENSIONS {
-        let progid = format!("Devyy.{ext}");
-        let (progid_key, _) = user
-            .create_subkey(format!("Software\\Classes\\{progid}"))
-            .map_err(|e| e.to_string())?;
-        progid_key
-            .set_value("", &format!("Devyy {ext} file"))
-            .map_err(|e| e.to_string())?;
-        progid_key
-            .create_subkey("shell\\open\\command")
-            .map_err(|e| e.to_string())?
-            .0
-            .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
-            .map_err(|e| e.to_string())?;
-        let (open_with, _) = user
-            .create_subkey(format!("Software\\Classes\\.{ext}\\OpenWithProgids"))
-            .map_err(|e| e.to_string())?;
-        open_with.set_value(&progid, &"").map_err(|e| e.to_string())?;
-        file_assoc
-            .set_value(format!(".{ext}"), &progid)
-            .map_err(|e| e.to_string())?;
-    }
-
+    crate::windows_file_associations::register(&executable, None, Some(manifest.explorer_context_menu))
+        .map_err(|error| error.to_string())?;
     script(include_str!("../../scripts/shortcuts.ps1"), manifest)
 }
 pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(), String> {
@@ -198,30 +144,8 @@ pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(),
         user.delete_subkey_all(protocol)
             .map_err(|e| e.to_string())?;
     }
-    let application = r"Software\Classes\Applications\devyy.exe";
-    let expected = format!("\"{}\" \"%1\"", manifest.directory.join("app/devyy.exe").display());
-    if user.open_subkey(format!(r"{application}\shell\open\command"))
-        .ok()
-        .and_then(|key| key.get_value::<String, _>("").ok())
-        .is_some_and(|command| command.eq_ignore_ascii_case(&expected))
-    {
-        user.delete_subkey_all(application).map_err(|e| e.to_string())?;
-    }
-    const EXTENSIONS: &[&str] = &[
-        "rs", "js", "ts", "tsx", "jsx", "py", "go", "html", "css", "json", "toml", "yaml", "md",
-        "txt",
-    ];
-    for ext in EXTENSIONS {
-        let progid = format!("Devyy.{ext}");
-        let _ = user.delete_subkey_all(format!("Software\\Classes\\{progid}"));
-        if let Ok(open_with) = user.open_subkey(format!("Software\\Classes\\.{ext}\\OpenWithProgids")) {
-            let _ = open_with.delete_value(&progid);
-        }
-    }
-    let _ = user.delete_subkey_all("Software\\Devyy");
-    if let Ok(reg_apps) = user.open_subkey("Software\\RegisteredApplications") {
-        let _ = reg_apps.delete_value("Devyy");
-    }
+    crate::windows_file_associations::unregister(&manifest.directory.join("app/devyy.exe"))
+        .map_err(|error| error.to_string())?;
     script(include_str!("../../scripts/remove-shortcuts.ps1"), manifest)
 }
 
@@ -266,6 +190,7 @@ pub fn ensure_webview() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let bootstrap = directory.path().join("MicrosoftEdgeWebView2Setup.exe");
     let output = Command::new("powershell.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -283,6 +208,23 @@ pub fn ensure_webview() -> Result<(), String> {
                 .take(1200)
                 .collect::<String>()
         ));
+    }
+    Ok(())
+}
+
+pub fn wait_for_launcher(pid: u32) -> Result<(), String> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0},
+        System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+    };
+    let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if handle.is_null() {
+        return Ok(());
+    }
+    let status = unsafe { WaitForSingleObject(handle, 5000) };
+    unsafe { CloseHandle(handle) };
+    if status != WAIT_OBJECT_0 {
+        return Err("Devyy's uninstall launcher is still running. Close it and try again.".into());
     }
     Ok(())
 }

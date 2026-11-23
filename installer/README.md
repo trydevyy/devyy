@@ -125,3 +125,16 @@ uninstall completion, optional feedback, and keyboard handling. Registry writes,
 shortcuts, WebView2 setup, AppImage launching, and desktop integration still need
 native acceptance checks on Windows and Linux. Building or packaging an installer
 does not sign, notarize, publish, install, or uninstall the app on this machine.
+
+
+The uninstaller can send optional feedback to Discord when built with
+`DEVYY_FEEDBACK_WEBHOOK_URL`. Set this environment variable before running the
+installer release build. CI reads the GitHub Actions secret with the same name.
+Builds without the variable offer Copy feedback. The distributed installer
+contains the webhook URL, so use a webhook dedicated to uninstall feedback.
+
+
+On Windows, the installer registers Devyy's file type icons. Choose **Open in
+Devyy** on the Shortcuts screen to add it for files, folders and folder backgrounds. On Windows 11, look under
+**Show more options**. To use the type icons for a file, choose Devyy as the
+default app for that extension in Windows Settings.
