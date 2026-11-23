@@ -21,7 +21,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: "inherit",
-    shell: !linux,
+    shell: windows,
     ...options,
   });
   if (result.error) throw result.error;

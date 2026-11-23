@@ -6,7 +6,7 @@ version="$(node -p 'require("./package.json").version')"
 platform="${DEVYY_PLATFORM:?Expected a release platform}"
 target="${DEVYY_RUST_TARGET:-}"
 root=src-tauri/target/${target:+$target/}release
-output=release-assets
+output="${DEVYY_RELEASE_ASSET_DIR:-release-assets}"
 mkdir -p "$output"
 editor="$output/Devyy-$version-$platform"
 setup="$output/Devyy-Setup-$version-$platform"
@@ -33,7 +33,11 @@ case "$platform" in
     copy_one "$editor" "$root/Devyy"
     ;;
   macos-*)
-    copy_one "$setup.dmg" "$root"/bundle/dmg/Devyy-*.dmg
+    if [[ -n "${DEVYY_DMG_PATH:-}" ]]; then
+      copy_one "$setup.dmg" "$DEVYY_DMG_PATH"
+    else
+      copy_one "$setup.dmg" "$root"/bundle/dmg/Devyy-*.dmg
+    fi
     ditto -c -k --sequesterRsrc --keepParent "$root/bundle/macos/Devyy.app" "$editor.app.zip"
     ;;
   *)
