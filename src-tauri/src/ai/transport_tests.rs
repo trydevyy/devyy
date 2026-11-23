@@ -152,11 +152,7 @@ step['part']['id']='b'; print(json.dumps(step))
     assert_eq!(usage[1]["data"]["input_tokens"], 20);
     assert_eq!(usage[1]["data"]["cache_read_input_tokens"], 6);
     assert_eq!(
-        events
-            .iter()
-            .filter(|e| e["kind"] == "cost")
-            .last()
-            .unwrap()["data"]["amount"],
+        events.iter().rfind(|e| e["kind"] == "cost").unwrap()["data"]["amount"],
         0.02
     );
 }

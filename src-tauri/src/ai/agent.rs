@@ -265,8 +265,8 @@ impl Context {
                     .into_iter()
                     .filter(|f| {
                         let fl = f.to_lowercase();
-                        if pattern.starts_with('*') {
-                            fl.ends_with(&pattern[1..])
+                        if let Some(suffix) = pattern.strip_prefix('*') {
+                            fl.ends_with(suffix)
                         } else if pattern.contains('*') {
                             let parts: Vec<&str> = pattern.split('*').collect();
                             if parts.len() == 2 {
@@ -2062,7 +2062,8 @@ print(json.dumps({'type':'result','is_error':False,'structured_output':{'answer'
         )
         .unwrap();
         let mut p = defaults().into_iter().find(|p| p.kind == "claude").unwrap();
-        p.executable = script.path().to_string_lossy().into();
+        let script = script.into_temp_path();
+        p.executable = script.to_string_lossy().into();
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
         let r = ChatRequest {
             agent_mode: None,
@@ -2190,11 +2191,7 @@ print(json.dumps({'type':'step_finish','part':{'id':'step','tokens':{'input':10,
             text,
             "Inspecting source.\n\nThe file defines actual_workspace_file."
         );
-        let usage = events
-            .iter()
-            .filter(|e| e["kind"] == "usage")
-            .last()
-            .unwrap();
+        let usage = events.iter().rfind(|e| e["kind"] == "usage").unwrap();
         assert_eq!(usage["data"]["reasoning_output_tokens"], 4);
         assert_eq!(usage["data"]["cached_input_tokens"], 6);
     }

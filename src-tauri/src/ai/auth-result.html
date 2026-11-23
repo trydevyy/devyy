@@ -17,16 +17,13 @@
 
 <!doctype html>
 <html lang="en">
-<head>
-{{> head}}
-{{> styles}}
-</head>
-<body>
-  <main>
-{{> brand}}
-{{> content}}
-{{> footer}}
-  </main>
-  <script nonce="__NONCE__">history.replaceState(null,"","/auth/complete");</script>
-</body>
+  <head>
+    {{> head}} {{> styles}}
+  </head>
+  <body>
+    <main>{{> brand}} {{> content}} {{> footer}}</main>
+    <script nonce="__NONCE__">
+      history.replaceState(null, "", "/auth/complete");
+    </script>
+  </body>
 </html>

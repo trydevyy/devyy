@@ -1021,7 +1021,8 @@ mod tests {
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];
-                socket.read(&mut request).await.unwrap();
+                let bytes_read = socket.read(&mut request).await.unwrap();
+                assert!(bytes_read > 0, "expected an HTTP request from the client");
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-ratelimit-remaining-tokens: 50\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
             });
             let app = mock_builder().build(mock_context(noop_assets())).unwrap();
