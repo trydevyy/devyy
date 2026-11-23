@@ -14,14 +14,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 pub mod engine;
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(windows)]
-mod windows;
 #[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../shared/file_types.rs"]
 mod file_types;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(windows)]
+mod windows;
 #[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../shared/windows_file_associations.rs"]
@@ -38,7 +38,8 @@ use std::{
 use tauri::{Emitter, Manager};
 const PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/devyy.zip"));
 const VERSION: &str = env!("DEVYY_PACKAGE_VERSION");
-const FEEDBACK_WEBHOOK: Option<&str> = option_env!("DEVYY_FEEDBACK_WEBHOOK_URL");
+#[path = "../../../shared/webhook.rs"]
+mod webhook;
 #[derive(Default)]
 struct State {
     busy: Mutex<bool>,
@@ -103,7 +104,9 @@ fn installer_info(app: tauri::AppHandle) -> Result<Info, String> {
     #[cfg(not(target_os = "macos"))]
     let installed = manifest.is_some();
     #[cfg(not(target_os = "macos"))]
-    let explorer_context_menu = manifest.as_ref().is_none_or(|manifest| manifest.explorer_context_menu);
+    let explorer_context_menu = manifest
+        .as_ref()
+        .is_none_or(|manifest| manifest.explorer_context_menu);
     #[cfg(target_os = "macos")]
     let explorer_context_menu = false;
     #[cfg(target_os = "macos")]
@@ -128,7 +131,7 @@ fn installer_info(app: tauri::AppHandle) -> Result<Info, String> {
         directory,
         explorer_context_menu,
         uninstall: uninstall_mode(),
-        feedback_available: FEEDBACK_WEBHOOK.is_some_and(|url| !url.trim().is_empty()),
+        feedback_available: webhook::url().is_some(),
         has_payload: env!("DEVYY_HAS_PAYLOAD") == "1" || mac_source.is_some(),
     })
 }
@@ -204,17 +207,7 @@ async fn installer_send_feedback(
     if !state.removed.load(Ordering::Acquire) {
         return Err("Feedback is available after uninstalling Devyy.".into());
     }
-    let Some(webhook) = FEEDBACK_WEBHOOK
-        .and_then(|value| reqwest::Url::parse(value.trim()).ok())
-        .filter(|url| {
-            url.scheme() == "https"
-                && matches!(url.host_str(), Some("discord.com" | "discordapp.com"))
-                && url.port_or_known_default() == Some(443)
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.path().starts_with("/api/webhooks/")
-        })
-    else {
+    let Some(webhook) = webhook::url() else {
         return Err("Feedback is unavailable in this build.".into());
     };
     let reason: String = reason.trim().chars().take(100).collect();

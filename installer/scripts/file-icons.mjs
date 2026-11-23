@@ -4,12 +4,19 @@ import { pathToFileURL } from "node:url";
 
 // The small bitmap glyphs stay readable in Explorer's 16px file list.
 const glyphs = {
-  A: [2, 5, 7, 5, 5], B: [6, 5, 6, 5, 6],
-  E: [7, 4, 6, 4, 7], F: [7, 4, 6, 4, 4],
-  I: [7, 2, 2, 2, 7], K: [5, 5, 6, 5, 5],
-  Q: [7, 5, 5, 7, 1], U: [5, 5, 5, 5, 7],
-  V: [5, 5, 5, 5, 2], W: [5, 5, 7, 7, 5],
-  "1": [2, 6, 2, 2, 7], "+": [0, 2, 7, 2, 0], "#": [5, 7, 5, 7, 5],
+  A: [2, 5, 7, 5, 5],
+  B: [6, 5, 6, 5, 6],
+  E: [7, 4, 6, 4, 7],
+  F: [7, 4, 6, 4, 4],
+  I: [7, 2, 2, 2, 7],
+  K: [5, 5, 6, 5, 5],
+  Q: [7, 5, 5, 7, 1],
+  U: [5, 5, 5, 5, 7],
+  V: [5, 5, 5, 5, 2],
+  W: [5, 5, 7, 7, 5],
+  1: [2, 6, 2, 2, 7],
+  "+": [0, 2, 7, 2, 0],
+  "#": [5, 7, 5, 7, 5],
   C: [7, 4, 4, 4, 7],
   G: [7, 4, 5, 5, 7],
   H: [5, 5, 7, 5, 5],
@@ -50,11 +57,15 @@ function logoPixel(x, y, left, top, width, paper) {
         const lengthSquared = vx * vx + vy * vy;
         const projection = (u - x1) * vx + (v - y1) * vy;
         const cross = (u - x1) * vy - (v - y1) * vx;
-        return projection >= 0 && projection <= lengthSquared &&
-          cross * cross <= 16 * lengthSquared;
+        return (
+          projection >= 0 &&
+          projection <= lengthSquared &&
+          cross * cross <= 16 * lengthSquared
+        );
       });
       const color = stroke ? logoInk : paper;
-      for (let channel = 0; channel < 3; channel++) result[channel] += color[channel];
+      for (let channel = 0; channel < 3; channel++)
+        result[channel] += color[channel];
     }
   }
   return result.map((value) => Math.round(value / (samples * samples)));
@@ -109,12 +120,17 @@ function bitmap(size, label, accent) {
         gx % 4 < 3 &&
         Boolean(glyph?.[gy] & (4 >> (gx % 4)));
       const inLogo =
-        x + 1 > logoLeft && x < logoLeft + logoWidth &&
-        y + 1 > logoTop && y < logoTop + logoWidth;
+        x + 1 > logoLeft &&
+        x < logoLeft + logoWidth &&
+        y + 1 > logoTop &&
+        y < logoTop + logoWidth;
       const tone = inLogo
         ? logoPixel(x, y, logoLeft, logoTop, logoWidth, paper)
-        : ink ? [42, 32, 23]
-        : corner >= 0 && y < margin + fold ? tint : paper;
+        : ink
+          ? [42, 32, 23]
+          : corner >= 0 && y < margin + fold
+            ? tint
+            : paper;
       pixels.set([...tone, 255], offset);
     }
   }
@@ -131,11 +147,7 @@ export function fileTypeIcon(label, color) {
   header.writeUInt16LE(sizes.length, 4);
   let offset = header.length;
   const bitmaps = sizes.map((size, index) => {
-    const image = bitmap(
-      size,
-      label,
-      Number.parseInt(color.slice(1), 16),
-    );
+    const image = bitmap(size, label, Number.parseInt(color.slice(1), 16));
     const entry = 6 + index * 16;
     header[entry] = header[entry + 1] = size;
     header.writeUInt16LE(1, entry + 4);
@@ -158,7 +170,9 @@ export function explorerFileIcons() {
     extensions.length !== Object.keys(designs).length ||
     extensions.some((ext) => !Object.hasOwn(designs, ext))
   ) {
-    throw new Error("Windows file associations and their icon designs must match.");
+    throw new Error(
+      "Windows file associations and their icon designs must match.",
+    );
   }
   return extensions.map((ext) => ({
     name: `${ext}.ico`,
@@ -166,8 +180,13 @@ export function explorerFileIcons() {
   }));
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const output = resolve(process.argv[2] ?? "src-tauri/target/explorer-file-icons");
+if (
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+) {
+  const output = resolve(
+    process.argv[2] ?? "src-tauri/target/explorer-file-icons",
+  );
   const icons = explorerFileIcons();
   mkdirSync(output, { recursive: true });
   for (const { name, bytes } of icons) writeFileSync(join(output, name), bytes);

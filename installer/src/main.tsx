@@ -175,7 +175,12 @@ function App() {
       else if (isMac) await invoke("installer_macos_install");
       else
         await invoke("installer_install", {
-          options: { directory, desktop, menu, ...(info?.platform === "windows" && { explorerContextMenu }) },
+          options: {
+            directory,
+            desktop,
+            menu,
+            ...(info?.platform === "windows" && { explorerContextMenu }),
+          },
         });
       setProgress({
         phase: "done",
@@ -397,7 +402,9 @@ function App() {
                   </label>
                   {info.platform === "windows" && (
                     <label className={explorerContextMenu ? "enabled" : ""}>
-                      <span className="choice-icon"><Pointer size={24} /></span>
+                      <span className="choice-icon">
+                        <Pointer size={24} />
+                      </span>
                       <span>
                         <strong>Open in Devyy</strong>
                         <small>Show in the File Explorer context menu</small>
@@ -405,7 +412,9 @@ function App() {
                       <input
                         type="checkbox"
                         checked={explorerContextMenu}
-                        onChange={(event) => setExplorerContextMenu(event.target.checked)}
+                        onChange={(event) =>
+                          setExplorerContextMenu(event.target.checked)
+                        }
                       />
                     </label>
                   )}

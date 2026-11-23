@@ -205,7 +205,10 @@ test("uninstall sends optional feedback only after an explicit request", async (
           )?.args,
       ),
     )
-    .toMatchObject({ reason: "Performance", feedback: "Faster indexing would help." });
+    .toMatchObject({
+      reason: "Performance",
+      feedback: "Faster indexing would help.",
+    });
 });
 test("license dialog restores focus and handles keyboard dismissal", async ({
   page,

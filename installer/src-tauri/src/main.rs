@@ -15,6 +15,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+#[cfg(target_os = "linux")]
+#[path = "../../../shared/linux_webkit.rs"]
+mod linux_webkit;
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    linux_webkit::configure_renderer();
     devyy_package::run();
 }

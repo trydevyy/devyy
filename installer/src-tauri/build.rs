@@ -1,7 +1,11 @@
 use std::{env, fs, path::PathBuf};
+#[path = "../../shared/seal_webhook.rs"]
+mod seal_webhook;
+
 fn main() {
+    println!("cargo:rerun-if-changed=../../shared/seal_webhook.rs");
+    seal_webhook::seal_webhook("DEVYY_FEEDBACK_WEBHOOK_URL");
     println!("cargo:rerun-if-env-changed=DEVYY_INSTALLER_PAYLOAD");
-    println!("cargo:rerun-if-env-changed=DEVYY_FEEDBACK_WEBHOOK_URL");
     println!("cargo:rerun-if-env-changed=DEVYY_MAC_APP_PATH");
     let package =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../package.json");

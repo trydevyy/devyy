@@ -60,10 +60,7 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         ("DisplayIcon", executable.to_string_lossy().into_owned()),
         ("UninstallString", remove.clone()),
         ("QuietUninstallString", format!("{remove} --silent")),
-        (
-            "URLInfoAbout",
-            "https://www.devyy.dev".into(),
-        ),
+        ("URLInfoAbout", "https://www.devyy.dev".into()),
     ] {
         key.set_value(name, &value).map_err(|e| e.to_string())?;
     }
@@ -104,8 +101,12 @@ pub fn register(_environment: &Environment, manifest: &Manifest) -> Result<(), S
         .set_value("", &format!("\"{}\" \"%1\"", executable.display()))
         .map_err(|e| e.to_string())?;
 
-    crate::windows_file_associations::register(&executable, None, Some(manifest.explorer_context_menu))
-        .map_err(|error| error.to_string())?;
+    crate::windows_file_associations::register(
+        &executable,
+        None,
+        Some(manifest.explorer_context_menu),
+    )
+    .map_err(|error| error.to_string())?;
     script(include_str!("../../scripts/shortcuts.ps1"), manifest)
 }
 pub fn unregister(_environment: &Environment, manifest: &Manifest) -> Result<(), String> {

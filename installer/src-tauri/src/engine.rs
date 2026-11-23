@@ -264,7 +264,7 @@ pub fn install(
     let previous_manifest = read_manifest(&options.directory).ok();
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(payload))
         .map_err(|_| "This installer does not contain a valid Devyy download")?;
-    if archive.len() == 0 || archive.len() > 10000 {
+    if archive.is_empty() || archive.len() > 10000 {
         return Err("The Devyy package is incomplete".into());
     }
     let total: u64 = (0..archive.len())
@@ -372,7 +372,7 @@ pub fn install(
     .map_err(|e| e.to_string())?;
     files.push("LICENSE".into());
     if environment.platform == Platform::Linux {
-        let launcher=format!("#!/bin/sh\n# Devyy installer\nDEVYY_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexport APPIMAGE_EXTRACT_AND_RUN=1\nexec \"$DEVYY_DIR/app/devyy.AppImage\" \"$@\"\n");
+        let launcher = "#!/bin/sh\n# Devyy installer\nDEVYY_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexport APPIMAGE_EXTRACT_AND_RUN=1\nexec \"$DEVYY_DIR/app/devyy.AppImage\" \"$@\"\n".to_string();
         fs::write(stage.path().join("devyy"), launcher).map_err(|e| e.to_string())?;
         executable(&stage.path().join("devyy"))?;
         files.push("devyy".into());

@@ -30,7 +30,7 @@ npm run release:installer
 This first builds Devyy, then packages the installer for the host OS:
 
 - **Windows:** `src-tauri/target/release/bundle/installer/Devyy-Setup.exe`.
-- **Linux:** the `Devyy Installer` AppImage in the release `bundle/appimage` folder.
+- **Linux:** `Devyy-Setup.AppImage` in the release `bundle/installer` folder. Make it executable, then open it. On a system without FUSE, launch it with `APPIMAGE_EXTRACT_AND_RUN=1 ./Devyy-Setup.AppImage`.
 - **macOS:** the Devyy DMG in the release `bundle/dmg` folder. Opening it shows
   the actual Devyy app and Applications. Drag Devyy across to install; there is
   no intermediate setup app to open or install.
@@ -126,13 +126,11 @@ shortcuts, WebView2 setup, AppImage launching, and desktop integration still nee
 native acceptance checks on Windows and Linux. Building or packaging an installer
 does not sign, notarize, publish, install, or uninstall the app on this machine.
 
-
 The uninstaller can send optional feedback to Discord when built with
 `DEVYY_FEEDBACK_WEBHOOK_URL`. Set this environment variable before running the
 installer release build. CI reads the GitHub Actions secret with the same name.
-Builds without the variable offer Copy feedback. The distributed installer
-contains the webhook URL, so use a webhook dedicated to uninstall feedback.
-
+Builds without the variable offer Copy feedback. The installer embeds an AES-256-GCM encrypted URL and its key. The URL can be
+recovered from the binary. Use a webhook dedicated to uninstall feedback.
 
 On Windows, the installer registers Devyy's file type icons. Choose **Open in
 Devyy** on the Shortcuts screen to add it for files, folders and folder backgrounds. On Windows 11, look under
