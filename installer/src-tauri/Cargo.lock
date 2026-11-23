@@ -860,7 +860,7 @@ dependencies = [
  "tauri-plugin-drag",
  "tauri-plugin-opener",
  "tempfile",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "winreg 0.55.0",
  "zip",
 ]
