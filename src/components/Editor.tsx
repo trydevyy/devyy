@@ -211,13 +211,25 @@ const breakpointField = StateField.define<RangeSet<GutterMarker>>({
   },
 });
 export const highlighting = HighlightStyle.define([
-  { tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.operatorKeyword], color: "var(--syntax-keyword)" },
+  {
+    tag: [
+      tags.keyword,
+      tags.controlKeyword,
+      tags.definitionKeyword,
+      tags.moduleKeyword,
+      tags.operatorKeyword,
+    ],
+    color: "var(--syntax-keyword)",
+  },
   {
     tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
     color: "var(--syntax-function)",
   },
   { tag: tags.comment, color: "var(--syntax-comment)" },
-  { tag: [tags.string, tags.attributeValue, tags.regexp, tags.escape], color: "var(--syntax-string)" },
+  {
+    tag: [tags.string, tags.attributeValue, tags.regexp, tags.escape],
+    color: "var(--syntax-string)",
+  },
   { tag: [tags.number, tags.bool], color: "var(--syntax-number)" },
   { tag: [tags.typeName, tags.className], color: "var(--syntax-type)" },
   {
@@ -225,7 +237,10 @@ export const highlighting = HighlightStyle.define([
     color: "var(--syntax-punctuation)",
   },
   { tag: tags.meta, color: "var(--syntax-meta)" },
-  { tag: [tags.tagName, tags.attributeName, tags.propertyName, tags.namespace], color: "var(--syntax-type)" },
+  {
+    tag: [tags.tagName, tags.attributeName, tags.propertyName, tags.namespace],
+    color: "var(--syntax-type)",
+  },
   { tag: [tags.atom, tags.null, tags.unit], color: "var(--syntax-number)" },
   {
     tag: [tags.regexp, tags.special(tags.string)],
@@ -847,12 +862,17 @@ function Editor(props: EditorProps) {
     if (!view) return;
     let cancelled = false;
     void (async () => {
-      const named = props.languageId && await loadLanguage(props.languageId, true);
-      const support = named || await loadLanguage(props.path);
+      const named =
+        props.languageId && (await loadLanguage(props.languageId, true));
+      const support = named || (await loadLanguage(props.path));
       if (!cancelled && editor.current === view)
-        view.dispatch({ effects: langConfig.current.reconfigure(support ?? []) });
+        view.dispatch({
+          effects: langConfig.current.reconfigure(support ?? []),
+        });
     })().catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [props.path, props.languageId]);
   useEffect(() => {
     const view = editor.current;
