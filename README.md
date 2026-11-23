@@ -22,6 +22,8 @@ Open the [latest release](https://github.com/trydevyy/devyy/releases/latest), ex
 
 The latest release link becomes available when the first stable release is published. [All releases](https://github.com/trydevyy/devyy/releases) also lists prereleases when available. Automated packages currently ship unsigned. Compare your download’s SHA-256 hash with the entry in `SHA256SUMS.txt` from the same release.
 
+macOS downloads are added separately when available and have their own `SHA256SUMS-macos-<arch>.txt` file.
+
 If macOS blocks the verified Devyy download on first launch, follow Apple’s [Open Anyway instructions](https://support.apple.com/en-us/102445).
 
 **Linux guided setup** from your Downloads directory, using the actual downloaded filename:

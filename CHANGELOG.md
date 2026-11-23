@@ -11,5 +11,5 @@ First public release of Devyy, a desktop workspace for editing, running, and shi
 - Configure AI providers, attach selected workspace context, and review proposed edits before applying them. AI code completion is opt-in.
 - Customize themes, shortcuts, and layout. Start in guest mode or import supported settings.
 - Review and approve diagnostic reports before sending them in builds configured for crash reporting.
-- The release workflow targets Windows x86, x64, and ARM64, Linux glibc x64 and ARM64, and Intel and Apple silicon Macs. Release assets include installers, editor downloads, and SHA-256 checksums.
+- GitHub Actions builds Windows x86, x64, and ARM64 and Linux glibc x64 and ARM64. Maintainers can build and add Intel and Apple silicon macOS assets locally. Release assets include installers, editor downloads, and SHA-256 checksums.
 - Browser development and public CI can run without HIT access. Native source builds use the private HIT submodule.

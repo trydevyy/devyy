@@ -45,10 +45,33 @@ Run this command on the target OS. The [installer guide](installer/README.md) li
 
 1. Update the editor and installer versions in their `package.json`, Cargo manifests, Tauri configs, and lockfiles. Add a dated entry to [CHANGELOG.md](CHANGELOG.md).
 2. Run the checks and merge the release commit. Create and push a matching tag such as `v0.1.0`. A tag like `v0.2.0-rc.1` produces a GitHub prerelease. An existing tag can also be selected when dispatching **Release Devyy** manually.
-3. The workflow verifies the version and builds for Windows x86, x64 and ARM64, macOS Intel and Apple silicon, and Linux glibc x64 and ARM64. It checks the versioned installers and editor assets, generates SHA-256 checksums, and uploads to a draft before publishing.
+3. The workflow verifies the version and builds for Windows x86, x64 and ARM64 and Linux glibc x64 and ARM64. It checks the versioned installers and editor assets, generates SHA-256 checksums, and uploads to a draft before publishing. Build and add macOS assets locally.
 
 Set the GitHub Actions repository secret `HIT_READ_PAT` to a fine-grained personal access token with **Contents: Read** on `hit-scm/hit`. Native CI and release builds fetch both pinned submodules. The HIT token is scoped to its HTTPS checkout. Fork pull requests fetch the public docs and run formatting, JavaScript unit, extension-host, and browser tests.
 
 Editor assets use `Devyy-<version>-<platform>` plus the platform extension. Windows ships an executable, Linux ships an ELF binary, AppImage and Debian package, and macOS ships a ZIP with the complete app bundle. Installers use the `Devyy-Setup-` prefix. Linux builds require a glibc environment. Native musl builds require a compatible GTK/WebKitGTK stack.
 
 Configure `DEVYY_CRASH_WEBHOOK_URL` and `DEVYY_FEEDBACK_WEBHOOK_URL` as separate GitHub Actions secrets if the release should enable these features. Export the variables in your shell for local packaging. Builds without these values can run locally and in CI. Both encrypted URLs can be recovered from their distributed binaries because each client includes its decryption key. Use dedicated webhooks.
+
+### Build and add macOS assets
+
+On a Mac, check out the same commit as the release tag. Install the native development prerequisites above, plus Python 3 with `venv` support for DMG packaging. On Apple silicon, use an ARM64 terminal with native ARM64 Node and Rust. To build for Intel, run with matching x64 tools.
+
+```sh
+git submodule update --init --checkout -- third_party/hit
+bash scripts/build-local-release.sh
+```
+
+For v0.1.0 on Apple silicon, the script stages these files in `release-assets/v0.1.0/macos-arm64/`:
+
+- `Devyy-Setup-0.1.0-macos-arm64.dmg`
+- `Devyy-0.1.0-macos-arm64.app.zip`
+- `SHA256SUMS-macos-arm64.txt`
+
+Open the DMG, copy Devyy into **Applications**, and verify it launches. After the Windows and Linux release workflow succeeds, add all three files to the existing release through GitHub or the CLI:
+
+```sh
+gh release upload v0.1.0 release-assets/v0.1.0/macos-arm64/* --repo trydevyy/devyy
+```
+
+The separate checksum file covers the local macOS downloads. Keep it alongside the workflow's `SHA256SUMS.txt`. The local script also works on the supported Windows and Linux architectures with matching Node and Rust toolchains. Use Git Bash on Windows.
