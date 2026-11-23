@@ -14,3 +14,12 @@ public/third-party-licenses.json
 # Igel files
 .igel/
 Igel.lock.bin
+
+# Local configuration and installer output
+.env
+.env.*
+!.env.example
+installer/src-tauri/target/
+installer/payload/
+installer/.dmg-tools/
+release-assets/
