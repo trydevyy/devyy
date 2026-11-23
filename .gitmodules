@@ -1,3 +1,6 @@
 [submodule "third_party/hit"]
 	path = third_party/hit
 	url = git@github.com:hit-scm/hit.git
+[submodule "docs"]
+	path = docs
+	url = https://github.com/trydevyy/docs
