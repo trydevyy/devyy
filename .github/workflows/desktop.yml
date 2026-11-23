@@ -71,9 +71,18 @@ jobs:
           components: rustfmt
       - if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          prefix-key: devyy-cargo-v1
+          shared-key: ${{ matrix.artifact }}
+          workspaces: |
+            src-tauri -> target
+            installer/src-tauri -> ../../src-tauri/target
+          # Release builds can embed webhooks and link the private HIT source.
+          cache-targets: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' && !inputs.release_build }}
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
