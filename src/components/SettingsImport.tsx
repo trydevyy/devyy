@@ -115,9 +115,7 @@ export default function SettingsImport({
           </p>
         </div>
       )}
-      {error && (
-        <ErrorToast message={error} />
-      )}
+      {error && <ErrorToast message={error} />}
       {preview && data && (
         <section className="import-preview" aria-label="Import preview">
           <h4>{data.name} preferences</h4>

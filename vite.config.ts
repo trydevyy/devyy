@@ -6,7 +6,7 @@ try {
   revision = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
     encoding: "utf8",
   }).trim();
-} catch { }
+} catch {}
 export default defineConfig({
   define: {
     __DEVYY_BUILD__: JSON.stringify({

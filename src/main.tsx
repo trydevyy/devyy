@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import React from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ContextMenuProvider } from "./components/ContextMenu";
@@ -23,7 +24,21 @@ import "@fontsource/dm-sans/latin-500.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-700.css";
 import "./styles.css";
-ReactDOM.createRoot(document.getElementById("root")!).render(
+function reportCrash(kind: "error" | "rejection", line = 0) {
+  if (isTauri()) {
+    void invoke("report_frontend_crash", { kind, line }).catch(() => {});
+  }
+}
+
+window.addEventListener("error", (event) => reportCrash("error", event.lineno));
+window.addEventListener("unhandledrejection", () => reportCrash("rejection"));
+
+ReactDOM.createRoot(document.getElementById("root")!, {
+  onUncaughtError(error, info) {
+    console.error(error, info);
+    reportCrash("error");
+  },
+}).render(
   <React.StrictMode>
     <ContextMenuProvider>
       <ConfirmProvider>

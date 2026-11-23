@@ -259,7 +259,15 @@ export default function SourceControl({
           </Select>
         </label>
       )}
-      <RepositorySections modules={modules} refreshToken={state} onRefresh={onRefresh} onDiff={(repo,path,staged)=>{onRepository(repo);onDiff(path,staged);}}/>
+      <RepositorySections
+        modules={modules}
+        refreshToken={state}
+        onRefresh={onRefresh}
+        onDiff={(repo, path, staged) => {
+          onRepository(repo);
+          onDiff(path, staged);
+        }}
+      />
       <div className="branch-card">
         <GitBranch size={15} />
         <Select
@@ -366,10 +374,23 @@ export default function SourceControl({
         />
         <button
           className="primary full"
-          disabled={busy || (!(state.behind && !staged.length) && (!commit.trim() || !staged.length))}
-          onClick={()=>{if(state.behind && !staged.length)void invoke("git_pull",{repository}).then(onRefresh).catch(error=>setError(String(error)));else onCommit();}}
+          disabled={
+            busy ||
+            (!(state.behind && !staged.length) &&
+              (!commit.trim() || !staged.length))
+          }
+          onClick={() => {
+            if (state.behind && !staged.length)
+              void invoke("git_pull", { repository })
+                .then(onRefresh)
+                .catch((error) => setError(String(error)));
+            else onCommit();
+          }}
         >
-          <Check size={14} /> {state.behind && !staged.length ? `Pull ${state.behind} incoming changes` : "Commit staged changes"}
+          <Check size={14} />{" "}
+          {state.behind && !staged.length
+            ? `Pull ${state.behind} incoming changes`
+            : "Commit staged changes"}
         </button>
         {group(staged, true)}
         {group(unstaged, false)}
@@ -439,8 +460,9 @@ export default function SourceControl({
                   className="icon-button"
                   aria-label={`Copy commit ${item.short}`}
                   onClick={() =>
-                    void writeClipboardText(item.hash)
-                      .catch(() => toast.error("Could not copy commit hash"))
+                    void writeClipboardText(item.hash).catch(() =>
+                      toast.error("Could not copy commit hash"),
+                    )
                   }
                 >
                   <ArrowUpRight size={12} />
@@ -451,9 +473,7 @@ export default function SourceControl({
           </section>
         )}
       </div>
-      {error && (
-        <ErrorToast message={error} />
-      )}
+      {error && <ErrorToast message={error} />}
     </div>
   );
 }

@@ -80,6 +80,7 @@ export default function Preferences({
   category,
   onCategoryChange,
   onSetup,
+  onViewUpdate,
   embedded = false,
   initialQuery = "",
 }: {
@@ -87,6 +88,7 @@ export default function Preferences({
   onChange: Dispatch<SetStateAction<Settings>>;
   onClose: () => void;
   onSetup: () => void;
+  onViewUpdate: (url: string) => Promise<void>;
   onResetLayout: () => void;
   category: SettingsCategory;
   onCategoryChange: (category: SettingsCategory) => void;
@@ -203,7 +205,11 @@ export default function Preferences({
                 <i />
                 <i />
               </span>
-              {theme === "paper" ? "Light" : theme === "midnight" ? "Dark" : "Monochrome"}
+              {theme === "paper"
+                ? "Light"
+                : theme === "midnight"
+                  ? "Dark"
+                  : "Monochrome"}
               {settings.theme === theme && <Check size={12} />}
             </button>
           ))}
@@ -461,7 +467,9 @@ export default function Preferences({
               exit="leave"
               transition={transition}
             >
-              {!searching && category === "about" ? <About /> : null}
+              {!searching && category === "about" ? (
+                <About onViewUpdate={onViewUpdate} />
+              ) : null}
               {!["about", "ai", "credits"].includes(category) || searching ? (
                 <div className="settings-section-heading">
                   <p aria-live="polite">
@@ -719,7 +727,9 @@ export default function Preferences({
                   <button onClick={() => setRecording(null)}>Cancel</button>
                 </div>
               )}
-              {searching && !matches.length && !keys.length &&
+              {searching &&
+                !matches.length &&
+                !keys.length &&
                 !matchingExtensionSettings(installed, query).length && (
                   <div className="settings-empty">
                     <Search size={25} />

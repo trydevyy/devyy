@@ -85,7 +85,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </span>
             <Alert.Title>{current?.title ?? "Confirm action"}</Alert.Title>
             <Alert.Description>{current?.description}</Alert.Description>
-            {current?.rememberLabel && <label className="confirm-remember"><input type="checkbox" checked={remember} onChange={event=>setRemember(event.target.checked)}/>{current.rememberLabel}</label>}
+            {current?.rememberLabel && (
+              <label className="confirm-remember">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                />
+                {current.rememberLabel}
+              </label>
+            )}
             <footer>
               <Alert.Cancel
                 className="devyy-button"

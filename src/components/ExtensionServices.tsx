@@ -251,16 +251,26 @@ export function ExtensionProgress({
         setTasks((old) => {
           const task = old.find((item) => item.id === payload.id);
           if (!task) return old;
-          const percent = typeof payload.percent === "number"
-            ? payload.percent
-            : typeof payload.increment === "number"
-              ? (task.percent ?? 0) + payload.increment
-              : task.percent;
-          return [...old.filter((item) => item.id !== task.id), {
-            ...task,
-            message: typeof payload.message === "string" ? payload.message : task.message,
-            percent: percent === undefined ? undefined : Math.max(0, Math.min(100, percent)),
-          }];
+          const percent =
+            typeof payload.percent === "number"
+              ? payload.percent
+              : typeof payload.increment === "number"
+                ? (task.percent ?? 0) + payload.increment
+                : task.percent;
+          return [
+            ...old.filter((item) => item.id !== task.id),
+            {
+              ...task,
+              message:
+                typeof payload.message === "string"
+                  ? payload.message
+                  : task.message,
+              percent:
+                percent === undefined
+                  ? undefined
+                  : Math.max(0, Math.min(100, percent)),
+            },
+          ];
         });
     };
     const reset = () => setTasks([]);
@@ -273,74 +283,83 @@ export function ExtensionProgress({
   }, []);
   const latest = new Map<string, ProgressTask>();
   for (const task of tasks) {
-    const owner = task.extension === "rust" || task.extension === "rust-analyzer"
-      ? "rust-lang.rust-analyzer" : task.extension;
+    const owner =
+      task.extension === "rust" || task.extension === "rust-analyzer"
+        ? "rust-lang.rust-analyzer"
+        : task.extension;
     latest.set(owner, task);
   }
   return (
     <>
-      {latest.size > 0 && <span className="extension-status-progress" aria-label="Extension progress">
-      {[...latest].map(([owner, task]) => (
+      {latest.size > 0 && (
         <span
-          className="extension-status-task"
-          key={owner}
-          title={[task.extension, task.title, task.message]
-            .filter(Boolean)
-            .join(": ")}
+          className="extension-status-progress"
+          aria-label="Extension progress"
         >
-          <span
-            role="progressbar"
-            aria-label={task.title}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={task.percent}
-          >
-            <LoaderCircle size={12} className="spinning" />
-            <span>
-              {task.title}
-              {task.message ? `: ${task.message}` : ""}
-            </span>
-            {task.percent !== undefined && (
-              <small>{Math.round(task.percent)}%</small>
-            )}
-          </span>
-          {task.cancellable && (
-            <button
-              aria-label={`Cancel ${task.title}`}
-              disabled={task.cancelling}
-              onClick={() => {
-                setTasks((old) =>
-                  old.map((item) =>
-                    item.id === task.id ? { ...item, cancelling: true } : item,
-                  ),
-                );
-                void (
-                  task.language
-                    ? invoke("lsp_request", {
-                        language: task.language,
-                        method: "window/workDoneProgress/cancel",
-                        params: { token: task.token },
-                        notification: true,
-                      })
-                    : hostRequest("cancelProgress", { id: task.id })
-                ).catch((error) => {
-                  toast.error(String(error));
-                  setTasks((old) =>
-                    old.map((item) =>
-                      item.id === task.id
-                        ? { ...item, cancelling: false }
-                        : item,
-                    ),
-                  );
-                });
-              }}
+          {[...latest].map(([owner, task]) => (
+            <span
+              className="extension-status-task"
+              key={owner}
+              title={[task.extension, task.title, task.message]
+                .filter(Boolean)
+                .join(": ")}
             >
-              <X size={11} />
-            </button>
-          )}
+              <span
+                role="progressbar"
+                aria-label={task.title}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={task.percent}
+              >
+                <LoaderCircle size={12} className="spinning" />
+                <span>
+                  {task.title}
+                  {task.message ? `: ${task.message}` : ""}
+                </span>
+                {task.percent !== undefined && (
+                  <small>{Math.round(task.percent)}%</small>
+                )}
+              </span>
+              {task.cancellable && (
+                <button
+                  aria-label={`Cancel ${task.title}`}
+                  disabled={task.cancelling}
+                  onClick={() => {
+                    setTasks((old) =>
+                      old.map((item) =>
+                        item.id === task.id
+                          ? { ...item, cancelling: true }
+                          : item,
+                      ),
+                    );
+                    void (
+                      task.language
+                        ? invoke("lsp_request", {
+                            language: task.language,
+                            method: "window/workDoneProgress/cancel",
+                            params: { token: task.token },
+                            notification: true,
+                          })
+                        : hostRequest("cancelProgress", { id: task.id })
+                    ).catch((error) => {
+                      toast.error(String(error));
+                      setTasks((old) =>
+                        old.map((item) =>
+                          item.id === task.id
+                            ? { ...item, cancelling: false }
+                            : item,
+                        ),
+                      );
+                    });
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          ))}
         </span>
-      ))}
-      </span>}
+      )}
       {children(new Set(latest.keys()))}
     </>
   );

@@ -48,10 +48,12 @@ it("handles filesystem roots, Windows drives, UNC shares and spaces", () => {
       "\\\\server\\share",
     ),
   ).toEqual({ file: "folder name/main.rs" });
-  expect(resolveOpenTarget(
-    { path: "c:/WORK/project/source file.rs", directory: false },
-    "C:/work/project",
-  )).toEqual({ file: "source file.rs" });
+  expect(
+    resolveOpenTarget(
+      { path: "c:/WORK/project/source file.rs", directory: false },
+      "C:/work/project",
+    ),
+  ).toEqual({ file: "source file.rs" });
   expect(sameWorkspacePath("C:\\", "C:/")).toBe(true);
   expect(
     resolveOpenTarget({ path: "/work/folder", directory: true }, "demo"),

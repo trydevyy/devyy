@@ -19,6 +19,7 @@ import {
   NativeWindowControls,
 } from "./components/DesktopHeader";
 import { AnimatePresence } from "motion/react";
+import UpdateOverlay from "./components/UpdateOverlay";
 import FilePreview from "./components/FilePreview";
 import { filePreviewKind } from "./lib/filePreview";
 import RunPanel from "./components/RunPanel";
@@ -196,7 +197,13 @@ import {
 import { triggerSignatureHelp } from "./lib/lspSignatureHelp";
 
 type Section =
-  "files" | "search" | "git" | "run" | "tools" | "remote" | `extension:${string}`;
+  | "files"
+  | "search"
+  | "git"
+  | "run"
+  | "tools"
+  | "remote"
+  | `extension:${string}`;
 import InputDialog, { type Dialog } from "./components/InputDialog";
 import Empty from "./components/Empty";
 import HelpModal from "./components/HelpModal";
@@ -205,11 +212,16 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const emptyLines: number[] = [];
 const emptyDiagnostics: LspDiagnostic[] = [];
 const playground =
-  (import.meta.env.DEV || (!native && import.meta.env.VITE_DEVYY_PLAYGROUND === "1")) &&
+  (import.meta.env.DEV ||
+    (!native && import.meta.env.VITE_DEVYY_PLAYGROUND === "1")) &&
   new URLSearchParams(location.search).get("playground") === "1";
-const showcase = playground ? new URLSearchParams(location.search).get("showcase") : null;
+const showcase = playground
+  ? new URLSearchParams(location.search).get("showcase")
+  : null;
 const initialDemo = playground
-  ? (showcase ? seed : readLocal<Record<string, string>>("devyy.playground", seed))
+  ? showcase
+    ? seed
+    : readLocal<Record<string, string>>("devyy.playground", seed)
   : {};
 const initialTab: Tab = {
   path: "src/main.rs",
@@ -286,7 +298,8 @@ export default function App() {
     return () => window.removeEventListener("devyy-extension-event", focus);
   }, []);
   const [setupOpen, setSetupOpen] = useState(
-    () => !(playground && import.meta.env.VITE_DEVYY_PLAYGROUND === "1") &&
+    () =>
+      !(playground && import.meta.env.VITE_DEVYY_PLAYGROUND === "1") &&
       !readLocal("devyy.setupCompleted", false),
   );
   function finishSetup() {
@@ -350,7 +363,9 @@ export default function App() {
     if (mode === "split") setFileSplits((groups) => separateTab(groups, path));
   }
   const [runMode, setRunMode] = useState<"run" | "debug">("run");
-  const [section, setSection] = useState<Section>(showcase === "remote" ? "remote" : "files"),
+  const [section, setSection] = useState<Section>(
+      showcase === "remote" ? "remote" : "files",
+    ),
     [sidebar, setSidebar] = useState(playground),
     [panel, setPanel] = useState(playground),
     [panelTab, setPanelTab] = useState<
@@ -473,6 +488,25 @@ export default function App() {
     ),
     [workspaceScan, setWorkspaceScan] = useState(false),
     [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [openingUpdate, setOpeningUpdate] = useState(false);
+  const updateHandoff = useRef(false);
+
+  async function viewUpdate(url: string, onError?: () => void) {
+    if (updateHandoff.current) return;
+    updateHandoff.current = true;
+    setOpeningUpdate(true);
+    try {
+      // Give the webview time to paint before the browser takes focus.
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      await openUrl(url);
+    } catch {
+      if (onError) onError();
+      else showToast.error("Could not open release");
+    } finally {
+      updateHandoff.current = false;
+      setOpeningUpdate(false);
+    }
+  }
 
   useEffect(() => {
     if (!native) return;
@@ -734,16 +768,27 @@ export default function App() {
   useAppearance(settings, notify);
   useAccountSync(settings, setSettings);
   useEffect(() => {
-    if (!showcase || showcase === "hero" || window.parent === window ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const targets = showcase === "agent"
-      ? ['.ai-mode-tab:nth-child(2)', '.ai-mode-tab:nth-child(3)']
-      : showcase === "remote"
-        ? ['.remote-subbar .primary', '.port-dialog .dialog-heading button']
-        : ['button[aria-label="Toggle sidebar"]', 'button[aria-label="Toggle sidebar"]'];
+    if (
+      !showcase ||
+      showcase === "hero" ||
+      window.parent === window ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    const targets =
+      showcase === "agent"
+        ? [".ai-mode-tab:nth-child(2)", ".ai-mode-tab:nth-child(3)"]
+        : showcase === "remote"
+          ? [".remote-subbar .primary", ".port-dialog .dialog-heading button"]
+          : [
+              'button[aria-label="Toggle sidebar"]',
+              'button[aria-label="Toggle sidebar"]',
+            ];
     let index = 0;
     const timer = window.setInterval(() => {
-      document.querySelector<HTMLButtonElement>(targets[index++ % targets.length])?.click();
+      document
+        .querySelector<HTMLButtonElement>(targets[index++ % targets.length])
+        ?.click();
     }, 4500);
     return () => window.clearInterval(timer);
   }, []);
@@ -987,7 +1032,9 @@ export default function App() {
     if (
       debugSession.running &&
       !(await ask(
-        disconnect ? "Stop debugging and disconnect?" : "Stop debugging and open another folder?",
+        disconnect
+          ? "Stop debugging and disconnect?"
+          : "Stop debugging and open another folder?",
         {
           title: "Stop debugging?",
           confirmLabel: disconnect ? "Disconnect" : "Open folder",
@@ -1072,11 +1119,12 @@ export default function App() {
       setMatches([]);
       setPendingRun(null);
       setTerminalId(null);
-      if (!disconnect && !remoteName) setRecent((old) => {
-        const list = [chosen, ...old.filter((p) => p !== chosen)].slice(0, 5);
-        localStorage.setItem("devyy.recent", JSON.stringify(list));
-        return list;
-      });
+      if (!disconnect && !remoteName)
+        setRecent((old) => {
+          const list = [chosen, ...old.filter((p) => p !== chosen)].slice(0, 5);
+          localStorage.setItem("devyy.recent", JSON.stringify(list));
+          return list;
+        });
       void syncExtensionHost(stopped).catch((error) => log(String(error)));
       if (disconnect) {
         log("Disconnected from SSH");
@@ -2160,7 +2208,6 @@ export default function App() {
             uri: fileUri(root.replace(/[\\/]$/, "") + "/" + path),
             text: target.content,
           }).catch(() => {});
-
         }
         if (root === wsRef.current.root) {
           setTabs((old) =>
@@ -2390,14 +2437,16 @@ export default function App() {
         (tab.content !== tab.saved || tab.modified === "devyy:new"),
     );
     if (
-      (settings.confirmDelete || unsaved) && !(await ask(
+      (settings.confirmDelete || unsaved) &&
+      !(await ask(
         `${path}\n\n${directory ? "This permanently deletes the folder and everything inside it." : "This permanently deletes the file."}${unsaved ? " Unsaved changes in affected files will be discarded." : ""}`,
         {
           title: `Delete ${directory ? "folder" : "file"} “${filename(path)}”?`,
           confirmLabel: directory ? "Delete folder" : "Delete file",
           danger: true,
           rememberLabel: "Do not ask again for file and folder deletion",
-          onRemember: () => setSettings(value=>({...value,confirmDelete:false})),
+          onRemember: () =>
+            setSettings((value) => ({ ...value, confirmDelete: false })),
         },
       ))
     )
@@ -2458,14 +2507,16 @@ export default function App() {
         (tab.content !== tab.saved || tab.modified === "devyy:new"),
     );
     if (
-      (settings.confirmDelete || unsaved) && !(await ask(
+      (settings.confirmDelete || unsaved) &&
+      !(await ask(
         `Are you sure you want to permanently delete these ${paths.length} items and their contents?${unsaved ? "\n\nUnsaved changes in affected files will be discarded." : ""}`,
         {
           title: `Delete ${paths.length} items?`,
           confirmLabel: `Delete ${paths.length} items`,
           danger: true,
           rememberLabel: "Do not ask again for file and folder deletion",
-          onRemember: () => setSettings(value=>({...value,confirmDelete:false})),
+          onRemember: () =>
+            setSettings((value) => ({ ...value, confirmDelete: false })),
         },
       ))
     )
@@ -2486,8 +2537,7 @@ export default function App() {
         for (const p of paths) {
           try {
             await invoke("delete_file", { path: p });
-          } catch {
-          }
+          } catch {}
         }
         await refresh();
       }
@@ -2646,16 +2696,20 @@ export default function App() {
             !tabsRef.current.some(
               (t) => t.content !== t.saved || t.modified === "devyy:new",
             )
-          ) return;
+          )
+            return;
           e.preventDefault();
           if (confirmingClose) return;
           confirmingClose = true;
           try {
-            if (await ask("Discard unsaved changes and close devyy?", {
-              title: "Quit Devyy?",
-              confirmLabel: "Discard and quit",
-              danger: true,
-            })) await getCurrentWindow().destroy();
+            if (
+              await ask("Discard unsaved changes and close devyy?", {
+                title: "Quit Devyy?",
+                confirmLabel: "Discard and quit",
+                danger: true,
+              })
+            )
+              await getCurrentWindow().destroy();
           } catch (error) {
             showToast.error(String(error));
           } finally {
@@ -2950,9 +3004,13 @@ export default function App() {
   }
   async function run(command?: string) {
     const { files, root } = wsRef.current;
-    const task = command ?? (files.some((file) => file.path === "Cargo.toml")
-      ? "cargo run"
-      : files.some((file) => file.path === "package.json") ? "npm run dev" : "");
+    const task =
+      command ??
+      (files.some((file) => file.path === "Cargo.toml")
+        ? "cargo run"
+        : files.some((file) => file.path === "package.json")
+          ? "npm run dev"
+          : "");
     if (!native || root === "demo") {
       notify("Open a local project in the desktop app to run commands.", false);
       return;
@@ -2960,7 +3018,10 @@ export default function App() {
     if (!task.trim()) {
       setSection("run");
       showSidebar(true);
-      notify("No default task found. Choose a project task or open the terminal.", false);
+      notify(
+        "No default task found. Choose a project task or open the terminal.",
+        false,
+      );
       return;
     }
     if (!(await saveAll()) || wsRef.current.root !== root) return;
@@ -3179,8 +3240,7 @@ export default function App() {
           ),
         );
         queueDocumentChange(tab.path, file.content);
-      } catch {
-      }
+      } catch {}
     }
     await refresh();
   }
@@ -3642,6 +3702,7 @@ export default function App() {
       return pending;
     };
     const handler = (e: KeyboardEvent) => {
+      if (updateHandoff.current) return;
       const target = targetElement(e.target);
       if (
         e.isComposing ||
@@ -3822,10 +3883,10 @@ export default function App() {
   }
   function copyPath(path: string, absolute = false) {
     void writeClipboardText(
-        absolute && workspace.root !== "demo"
-          ? `${(workspace.remotePath ?? workspace.root).replace(/[\\/]$/, "")}/${path}`
-          : path,
-      )
+      absolute && workspace.root !== "demo"
+        ? `${(workspace.remotePath ?? workspace.root).replace(/[\\/]$/, "")}/${path}`
+        : path,
+    )
       .then(() => notify("Path copied.", false))
       .catch(notify);
   }
@@ -3865,8 +3926,7 @@ export default function App() {
       openMenu(e, [
         {
           label: `Copy relative paths (${selectedPaths.length})`,
-          action: () =>
-            void writeClipboardText(selectedPaths.join("\n")),
+          action: () => void writeClipboardText(selectedPaths.join("\n")),
         },
         {
           label: `Copy absolute paths (${selectedPaths.length})`,
@@ -4020,14 +4080,14 @@ export default function App() {
           separator: true,
           disabled: !window.getSelection()?.toString(),
           action: () =>
-            void writeClipboardText(window.getSelection()?.toString() ?? "")
-              .catch(notify),
+            void writeClipboardText(
+              window.getSelection()?.toString() ?? "",
+            ).catch(notify),
         },
         {
           label: "Copy Markdown",
           action: () =>
-            void writeClipboardText(tab?.content ?? "")
-              .catch(notify),
+            void writeClipboardText(tab?.content ?? "").catch(notify),
         },
       ]);
       return;
@@ -4057,8 +4117,9 @@ export default function App() {
         label: "Copy",
         disabled: selection.empty,
         action: () =>
-          void writeClipboardText(view.state.sliceDoc(selection.from, selection.to))
-            .catch(notify),
+          void writeClipboardText(
+            view.state.sliceDoc(selection.from, selection.to),
+          ).catch(notify),
       },
       {
         label: "Paste",
@@ -4127,7 +4188,10 @@ export default function App() {
   useEffect(() => {
     if (section === "search" && !hasProject) setSection("files");
   }, [section, hasProject, git, workspaceScan]);
-  const visibleRailItems = railItems.filter(item => (item.id !== "search" || hasProject) && (item.id !== "git" || !!git));
+  const visibleRailItems = railItems.filter(
+    (item) =>
+      (item.id !== "search" || hasProject) && (item.id !== "git" || !!git),
+  );
   const openPreviewLink = useCallback(
     (path: string, line?: number) => {
       void openFile(path, line);
@@ -4326,6 +4390,7 @@ export default function App() {
               settings={settings}
               category={settingsPage}
               onCategoryChange={setSettingsPage}
+              onViewUpdate={viewUpdate}
               onSetup={() => {
                 void closeTab("devyy:settings");
                 setSetupOpen(true);
@@ -4606,12 +4671,22 @@ export default function App() {
           <span>Search files and commands</span>
           <kbd>{displayBinding(bindings.files)}</kbd>
         </button>
-        <div className="window-controls" onMouseDown={(event) => {
-          if (native && document.documentElement.dataset.platform !== "macos" && event.button === 0 && event.target === event.currentTarget) {
-            event.preventDefault();
-            void getCurrentWindow().startDragging().catch(() => {});
-          }
-        }}>
+        <div
+          className="window-controls"
+          onMouseDown={(event) => {
+            if (
+              native &&
+              document.documentElement.dataset.platform !== "macos" &&
+              event.button === 0 &&
+              event.target === event.currentTarget
+            ) {
+              event.preventDefault();
+              void getCurrentWindow()
+                .startDragging()
+                .catch(() => {});
+            }
+          }}
+        >
           {(workspace.root !== "demo" || playground) && (
             <>
               <button
@@ -4711,20 +4786,19 @@ export default function App() {
             <button
               className="titlebar-update-button"
               aria-label={`Update available: ${updateStatus.version}`}
-              title={`Update available: v${updateStatus.version}. Click to update.`}
+              title={`View release for v${updateStatus.version}`}
               onClick={() => {
-                if (updateStatus.url) {
-                  void openUrl(updateStatus.url).catch(() => {
-                    setSettingsPage("about");
-                    setSettingsOpen(true);
-                  });
-                } else {
+                const showAbout = () => {
                   setSettingsPage("about");
                   setSettingsOpen(true);
-                }
+                };
+                if (updateStatus.url)
+                  void viewUpdate(updateStatus.url, showAbout);
+                else showAbout();
               }}
             >
-              Restart to Update &rarr;
+              <span>Update</span>
+              <ArrowUpRight size={13} aria-hidden="true" />
             </button>
           )}
           <NativeWindowControls />
@@ -4780,7 +4854,16 @@ export default function App() {
             ))}
           </div>
           <div className="activity-bottom">
-            <button title="Devyy account" aria-label="Devyy account" onClick={()=>{setSettingsPage("account");setSettingsOpen(true);}}><AccountAvatar /></button>
+            <button
+              title="Devyy account"
+              aria-label="Devyy account"
+              onClick={() => {
+                setSettingsPage("account");
+                setSettingsOpen(true);
+              }}
+            >
+              <AccountAvatar />
+            </button>
             <button
               title="Keyboard shortcuts & help"
               aria-label="Help"
@@ -4856,91 +4939,90 @@ export default function App() {
             ) : (
               <>
                 <FileTree
-                root={workspace.root}
-                onMove={moveItem}
-                files={workspace.files}
-                active={active}
-                dirty={dirty}
-                changes={git?.changes ?? []}
-                expanded={expandedFolders}
-                onExpandedChange={setExpandedFolders}
-                onOpen={(path) => void openFile(path)}
-                onExpand={(path) => {
-                  if (workspace.root === "demo") return;
-                  const root = workspace.root;
-                  void invoke<Workspace["files"]>("list_directory", { path })
-                    .then((children) => {
-                      if (wsRef.current.root !== root) return;
-                      setWorkspace((old) => ({
-                        ...old,
-                        files: [
-                          ...old.files.filter(
-                            (entry) =>
-                              !children.some(
-                                (child) => child.path === entry.path,
-                              ),
-                          ),
-                          ...children,
-                        ],
-                      }));
-                    })
-                    .catch(notify);
-                }}
-                onNew={(d) => void newItem(d)}
-                onRename={renameItem}
-                onDelete={(path) => void deleteItem(path)}
-                onRefresh={() => void refresh()}
-                onMenu={fileMenu}
-                onEmptyMenu={(e) =>
-                  openMenu(e, [
-                    menuCommand("new"),
-                    { label: "New folder", action: () => void newItem(true) },
-                    { label: "Refresh files", action: () => void refresh() },
-                    menuCommand("open", { separator: true }),
-                  ])
-                }
-                onDropFiles={async (droppedFiles, targetDir) => {
-                  if (workspace.root === "demo") return;
-                  try {
-                    for (const file of Array.from(droppedFiles)) {
-                      const fileName = file.name;
-                      const targetPath = targetDir
-                        ? `${targetDir}/${fileName}`
-                        : fileName;
-                      const content = await file.text();
-                      try {
-                        await invoke("create_file", {
-                          path: targetPath,
-                          directory: false,
-                        });
-                      } catch {
-                      }
-                      await invoke("write_file", {
-                        path: targetPath,
-                        content,
-                        expected: "devyy:new",
-                      }).catch(async () => {
-                        const doc = await invoke<{ modified: string }>(
-                          "read_file",
-                          { path: targetPath },
-                        );
+                  root={workspace.root}
+                  onMove={moveItem}
+                  files={workspace.files}
+                  active={active}
+                  dirty={dirty}
+                  changes={git?.changes ?? []}
+                  expanded={expandedFolders}
+                  onExpandedChange={setExpandedFolders}
+                  onOpen={(path) => void openFile(path)}
+                  onExpand={(path) => {
+                    if (workspace.root === "demo") return;
+                    const root = workspace.root;
+                    void invoke<Workspace["files"]>("list_directory", { path })
+                      .then((children) => {
+                        if (wsRef.current.root !== root) return;
+                        setWorkspace((old) => ({
+                          ...old,
+                          files: [
+                            ...old.files.filter(
+                              (entry) =>
+                                !children.some(
+                                  (child) => child.path === entry.path,
+                                ),
+                            ),
+                            ...children,
+                          ],
+                        }));
+                      })
+                      .catch(notify);
+                  }}
+                  onNew={(d) => void newItem(d)}
+                  onRename={renameItem}
+                  onDelete={(path) => void deleteItem(path)}
+                  onRefresh={() => void refresh()}
+                  onMenu={fileMenu}
+                  onEmptyMenu={(e) =>
+                    openMenu(e, [
+                      menuCommand("new"),
+                      { label: "New folder", action: () => void newItem(true) },
+                      { label: "Refresh files", action: () => void refresh() },
+                      menuCommand("open", { separator: true }),
+                    ])
+                  }
+                  onDropFiles={async (droppedFiles, targetDir) => {
+                    if (workspace.root === "demo") return;
+                    try {
+                      for (const file of Array.from(droppedFiles)) {
+                        const fileName = file.name;
+                        const targetPath = targetDir
+                          ? `${targetDir}/${fileName}`
+                          : fileName;
+                        const content = await file.text();
+                        try {
+                          await invoke("create_file", {
+                            path: targetPath,
+                            directory: false,
+                          });
+                        } catch {}
                         await invoke("write_file", {
                           path: targetPath,
                           content,
-                          expected: doc.modified,
+                          expected: "devyy:new",
+                        }).catch(async () => {
+                          const doc = await invoke<{ modified: string }>(
+                            "read_file",
+                            { path: targetPath },
+                          );
+                          await invoke("write_file", {
+                            path: targetPath,
+                            content,
+                            expected: doc.modified,
+                          });
                         });
-                      });
-                      await openFile(targetPath);
+                        await openFile(targetPath);
+                      }
+                      await refresh();
+                    } catch (err) {
+                      showToast.error(`Could not import file: ${String(err)}`);
                     }
-                    await refresh();
-                  } catch (err) {
-                    showToast.error(`Could not import file: ${String(err)}`);
-                  }
-                }}
-              />
-              <ExtensionViews container="explorer" />
-            </>
-          ))}
+                  }}
+                />
+                <ExtensionViews container="explorer" />
+              </>
+            ))}
           {section.startsWith("extension:") && (
             <div className="sidebar-content">
               <ExtensionViews container={section.slice(10)} />
@@ -5002,7 +5084,9 @@ export default function App() {
           {section === "remote" && (
             <div className="sidebar-content">
               <RemoteExplorer
-                activeServerId={workspace.remotePath ? activeServerId : undefined}
+                activeServerId={
+                  workspace.remotePath ? activeServerId : undefined
+                }
                 onOpenFolder={openFolder}
                 onDisconnect={() => changeWorkspace({ disconnect: true })}
               />
@@ -5599,72 +5683,75 @@ export default function App() {
                   role="tablist"
                   aria-label="Developer views"
                 >
-                  {(["terminal", "problems", "output", "ports"] as const).map((name) => (
-                    <button
-                      key={name}
-                      className={panelTab === name ? "active" : ""}
-                      role="tab"
-                      aria-label={name}
-                      title={name.charAt(0).toUpperCase() + name.slice(1)}
-                      aria-selected={panelTab === name}
-                      aria-controls={`panel-${name}`}
-                      id={`panel-tab-${name}`}
-                      tabIndex={panelTab === name ? 0 : -1}
-                      onKeyDown={(e) => {
-                        const names = [
-                            "terminal",
-                            "problems",
-                            "output",
-                            "ports",
-                          ] as const,
-                          index = names.indexOf(name);
-                        const next =
-                          e.key === "ArrowRight"
-                            ? (index + 1) % names.length
-                            : e.key === "ArrowLeft"
-                              ? (index + names.length - 1) % names.length
-                              : e.key === "Home"
-                                ? 0
-                                : e.key === "End"
-                                  ? names.length - 1
-                                  : -1;
-                        if (next < 0) return;
-                        e.preventDefault();
-                        setPanelTab(names[next]);
-                        document
-                          .getElementById(`panel-tab-${names[next]}`)
-                          ?.focus();
-                      }}
-                      draggable={name !== "terminal"}
-                      onDragStart={(event) => {
-                        if (name !== "terminal")
-                          writeAIContextDrag(event.dataTransfer, [
-                            {
-                              kind: name === "problems" ? "problems" : "output",
-                              id:
-                                name === "problems"
-                                  ? "workspace-problems"
-                                  : "workbench-output",
-                            },
-                          ]);
-                      }}
-                      onClick={() => setPanelTab(name)}
-                    >
-                      {name === "terminal" ? (
-                        <TerminalSquare size={13} />
-                      ) : name === "problems" ? (
-                        <CircleAlert size={13} />
-                      ) : name === "ports" ? (
-                        <Radio size={13} />
-                      ) : (
-                        <Code2 size={13} />
-                      )}
-                      <span>{name}</span>
-                      {name === "problems" && !!problems.length && (
-                        <small>{problems.length}</small>
-                      )}
-                    </button>
-                  ))}
+                  {(["terminal", "problems", "output", "ports"] as const).map(
+                    (name) => (
+                      <button
+                        key={name}
+                        className={panelTab === name ? "active" : ""}
+                        role="tab"
+                        aria-label={name}
+                        title={name.charAt(0).toUpperCase() + name.slice(1)}
+                        aria-selected={panelTab === name}
+                        aria-controls={`panel-${name}`}
+                        id={`panel-tab-${name}`}
+                        tabIndex={panelTab === name ? 0 : -1}
+                        onKeyDown={(e) => {
+                          const names = [
+                              "terminal",
+                              "problems",
+                              "output",
+                              "ports",
+                            ] as const,
+                            index = names.indexOf(name);
+                          const next =
+                            e.key === "ArrowRight"
+                              ? (index + 1) % names.length
+                              : e.key === "ArrowLeft"
+                                ? (index + names.length - 1) % names.length
+                                : e.key === "Home"
+                                  ? 0
+                                  : e.key === "End"
+                                    ? names.length - 1
+                                    : -1;
+                          if (next < 0) return;
+                          e.preventDefault();
+                          setPanelTab(names[next]);
+                          document
+                            .getElementById(`panel-tab-${names[next]}`)
+                            ?.focus();
+                        }}
+                        draggable={name !== "terminal"}
+                        onDragStart={(event) => {
+                          if (name !== "terminal")
+                            writeAIContextDrag(event.dataTransfer, [
+                              {
+                                kind:
+                                  name === "problems" ? "problems" : "output",
+                                id:
+                                  name === "problems"
+                                    ? "workspace-problems"
+                                    : "workbench-output",
+                              },
+                            ]);
+                        }}
+                        onClick={() => setPanelTab(name)}
+                      >
+                        {name === "terminal" ? (
+                          <TerminalSquare size={13} />
+                        ) : name === "problems" ? (
+                          <CircleAlert size={13} />
+                        ) : name === "ports" ? (
+                          <Radio size={13} />
+                        ) : (
+                          <Code2 size={13} />
+                        )}
+                        <span>{name}</span>
+                        {name === "problems" && !!problems.length && (
+                          <small>{problems.length}</small>
+                        )}
+                      </button>
+                    ),
+                  )}
                 </div>
                 <div
                   className="panel-session-slot"
@@ -5891,14 +5978,14 @@ export default function App() {
                             {
                               label: "Copy Problem Message",
                               action: () =>
-                                void writeClipboardText(p.message)
-                                  .catch(notify),
+                                void writeClipboardText(p.message).catch(
+                                  notify,
+                                ),
                             },
                             {
                               label: "Copy Path",
                               action: () =>
-                                void writeClipboardText(p.path)
-                                  .catch(notify),
+                                void writeClipboardText(p.path).catch(notify),
                             },
                           ]);
                         }}
@@ -6120,6 +6207,7 @@ export default function App() {
             settings={settings}
             category={settingsPage}
             onCategoryChange={setSettingsPage}
+            onViewUpdate={viewUpdate}
             onSetup={() => {
               setSettingsOpen(false);
               setSetupOpen(true);
@@ -6155,6 +6243,7 @@ export default function App() {
         )}
       </AnimatePresence>
       <ExtensionServices onRequest={extensionWorkbenchRequest} />
+      {openingUpdate && <UpdateOverlay />}
       <Toaster
         theme={settings.theme === "paper" ? "light" : "dark"}
         position="bottom-right"
@@ -6165,4 +6254,3 @@ export default function App() {
     </div>
   );
 }
-

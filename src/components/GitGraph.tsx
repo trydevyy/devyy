@@ -228,9 +228,7 @@ export default function GitGraph({
             <X size={17} />
           </button>
         </header>
-        {error && (
-          <ErrorToast message={error} />
-        )}
+        {error && <ErrorToast message={error} />}
         <div className="git-graph-body">
           <section
             className="git-graph-list"
@@ -364,8 +362,9 @@ export default function GitGraph({
                 <button
                   className="git-hash"
                   onClick={() =>
-                    void writeClipboardText(commit.hash)
-                      .catch(() => setError("Could not copy commit hash"))
+                    void writeClipboardText(commit.hash).catch(() =>
+                      setError("Could not copy commit hash"),
+                    )
                   }
                 >
                   <Copy size={12} />

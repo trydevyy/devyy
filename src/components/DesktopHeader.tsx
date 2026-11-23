@@ -16,7 +16,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Check, ChevronRight, Copy, Maximize2, Minus, MoreHorizontal, X } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Copy,
+  Maximize2,
+  Minus,
+  MoreHorizontal,
+  X,
+} from "lucide-react";
 import { native } from "../lib/native";
 import type { MenuItem } from "./ContextMenu";
 
@@ -187,7 +195,9 @@ export function DesktopMenuBar({
         inert
       >
         {menus.map((menu) => (
-          <button key={menu.label} tabIndex={-1}>{menu.label}</button>
+          <button key={menu.label} tabIndex={-1}>
+            {menu.label}
+          </button>
         ))}
       </div>
 

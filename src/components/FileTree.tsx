@@ -383,9 +383,7 @@ export default function FileTree(p: Props) {
           </div>
         )}
       </div>
-      {moveError && (
-        <ErrorToast message={moveError} />
-      )}
+      {moveError && <ErrorToast message={moveError} />}
     </>
   );
 }

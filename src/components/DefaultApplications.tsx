@@ -166,9 +166,7 @@ export default function DefaultApplications() {
           {notice}
         </p>
       )}
-      {error && (
-        <ErrorToast message={error} />
-      )}
+      {error && <ErrorToast message={error} />}
     </div>
   );
 }

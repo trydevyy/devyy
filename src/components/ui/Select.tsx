@@ -26,9 +26,15 @@ import {
 } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
-type Props = Omit<SelectHTMLAttributes<HTMLSelectElement>, "multiple" | "size"> & {
+type Props = Omit<
+  SelectHTMLAttributes<HTMLSelectElement>,
+  "multiple" | "size"
+> & {
   onOpenChange?: (open: boolean) => void;
-  popup?: Pick<ComponentProps<typeof Primitive.Content>, "align" | "side" | "sideOffset" | "className">;
+  popup?: Pick<
+    ComponentProps<typeof Primitive.Content>,
+    "align" | "side" | "sideOffset" | "className"
+  >;
 };
 type Item = {
   value: string;
@@ -97,7 +103,9 @@ export default function Select({
       }}
     >
       <Primitive.Trigger
-        ref={(node) => { if (node) setDialog(node.closest("dialog") ?? undefined); }}
+        ref={(node) => {
+          if (node) setDialog(node.closest("dialog") ?? undefined);
+        }}
         {...(attributes as React.ButtonHTMLAttributes<HTMLButtonElement>)}
         id={id}
         className={`devyy-select ${className ?? ""}`}

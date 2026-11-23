@@ -143,9 +143,7 @@ export default function ProviderSignIn({
           </button>
         </section>
       )}
-      {error && (
-        <ErrorToast message={error} />
-      )}
+      {error && <ErrorToast message={error} />}
     </div>
   );
 }

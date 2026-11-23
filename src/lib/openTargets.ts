@@ -28,9 +28,10 @@ export function resolveOpenTarget(
     throw new Error("Expected an absolute file-open target");
   if (target.directory) return { folder: target.path };
   const root = rootPath(workspaceRoot);
-  const withinWorkspace = /^[a-z]:\//i.test(path) || path.startsWith("//")
-    ? path.toLowerCase().startsWith(root.toLowerCase() + "/")
-    : path.startsWith(root + "/");
+  const withinWorkspace =
+    /^[a-z]:\//i.test(path) || path.startsWith("//")
+      ? path.toLowerCase().startsWith(root.toLowerCase() + "/")
+      : path.startsWith(root + "/");
   if (workspaceRoot !== "demo" && withinWorkspace)
     return { file: path.slice(root.length + 1) };
   let folder = path.slice(0, path.lastIndexOf("/")) || "/";
