@@ -289,7 +289,10 @@ pub fn install(
     emit(&progress, "copy", "Preparing Devyy", 0.0);
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        if entry.name().contains('\\') {
+        let name = entry
+            .name()
+            .map_err(|_| "The package contains an invalid file path")?;
+        if name.contains('\\') {
             return Err("The package contains an invalid file path".into());
         }
         let relative = entry
