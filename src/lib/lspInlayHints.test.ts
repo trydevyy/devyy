@@ -19,12 +19,9 @@ import { formatInlayHintLabel, InlayHintWidget } from "./lspInlayHints";
 describe("lspInlayHints", () => {
   it("formats string labels and part arrays", () => {
     expect(formatInlayHintLabel(": i32")).toBe(": i32");
-    expect(
-      formatInlayHintLabel([
-        { value: "x: " },
-        { value: "i32" },
-      ]),
-    ).toBe("x: i32");
+    expect(formatInlayHintLabel([{ value: "x: " }, { value: "i32" }])).toBe(
+      "x: i32",
+    );
     expect(formatInlayHintLabel([])).toBe("");
   });
 

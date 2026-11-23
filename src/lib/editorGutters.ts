@@ -34,9 +34,7 @@ export const transparentGutters = ViewPlugin.fromClass(
             gutter?.getBoundingClientRect().right ??
             view.scrollDOM.getBoundingClientRect().left;
           return [
-            ...view.scrollDOM.querySelectorAll<HTMLElement>(
-              ".cm-content",
-            ),
+            ...view.scrollDOM.querySelectorAll<HTMLElement>(".cm-content"),
           ].map((element) => ({
             element,
             left: Math.max(0, edge - element.getBoundingClientRect().left),

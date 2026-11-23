@@ -20,16 +20,36 @@ describe("CodeLens grouping and parsing", () => {
   it("groups code lenses on the same line together in order", () => {
     const lenses: CodeLens[] = [
       {
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
-        command: { title: "▶ Run Test", command: "test.run", arguments: ["test_1"] },
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 10 },
+        },
+        command: {
+          title: "▶ Run Test",
+          command: "test.run",
+          arguments: ["test_1"],
+        },
       },
       {
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
-        command: { title: "Debug", command: "test.debug", arguments: ["test_1"] },
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 10 },
+        },
+        command: {
+          title: "Debug",
+          command: "test.debug",
+          arguments: ["test_1"],
+        },
       },
       {
-        range: { start: { line: 5, character: 2 }, end: { line: 5, character: 15 } },
-        command: { title: "3 references", command: "editor.action.findReferences" },
+        range: {
+          start: { line: 5, character: 2 },
+          end: { line: 5, character: 15 },
+        },
+        command: {
+          title: "3 references",
+          command: "editor.action.findReferences",
+        },
       },
     ];
 
@@ -53,7 +73,10 @@ describe("CodeLens grouping and parsing", () => {
       null as unknown as CodeLens,
       { range: null } as unknown as CodeLens,
       {
-        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 5 } },
+        range: {
+          start: { line: 2, character: 0 },
+          end: { line: 2, character: 5 },
+        },
       },
     ];
 

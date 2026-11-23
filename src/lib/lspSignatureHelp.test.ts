@@ -52,10 +52,7 @@ describe("lspSignatureHelp", () => {
       signatures: [
         {
           label: "fn calculate(x: i32, y: i32) -> i32",
-          parameters: [
-            { label: [13, 19] },
-            { label: [21, 27] },
-          ],
+          parameters: [{ label: [13, 19] }, { label: [21, 27] }],
         },
       ],
       activeSignature: 0,
@@ -71,10 +68,7 @@ describe("lspSignatureHelp", () => {
 
   it("handles multiple signatures with counter", () => {
     const help: SignatureHelp = {
-      signatures: [
-        { label: "print()" },
-        { label: "print(message: string)" },
-      ],
+      signatures: [{ label: "print()" }, { label: "print(message: string)" }],
       activeSignature: 1,
     };
 
@@ -109,7 +103,9 @@ describe("lspSignatureHelp", () => {
     try {
       let closed = false;
       const help: SignatureHelp = {
-        signatures: [{ label: "test(a: i32)", parameters: [{ label: "a: i32" }] }],
+        signatures: [
+          { label: "test(a: i32)", parameters: [{ label: "a: i32" }] },
+        ],
       };
       const dom = createSignatureHelpDOM(help, () => {
         closed = true;

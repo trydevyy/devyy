@@ -189,9 +189,7 @@ export default function LanguageServers() {
             />{" "}
             Enable this language server
           </label>
-          {error && (
-            <ErrorToast message={error} />
-          )}
+          {error && <ErrorToast message={error} />}
           <div className="server-edit-actions">
             <button className="primary" disabled={busy} type="submit">
               <Save size={13} /> Save server

@@ -18,11 +18,7 @@ import { decodeSemanticTokens } from "./lspSemanticTokens";
 
 describe("Semantic tokens 5-tuple decoding", () => {
   it("decodes multiple tokens on same and subsequent lines", () => {
-    const data = [
-      0, 0, 5, 0, 0,
-      0, 6, 4, 7, 1,
-      2, 4, 8, 11, 4,
-    ];
+    const data = [0, 0, 5, 0, 0, 0, 6, 4, 7, 1, 2, 4, 8, 11, 4];
 
     const decoded = decodeSemanticTokens(data);
     expect(decoded.length).toBe(3);

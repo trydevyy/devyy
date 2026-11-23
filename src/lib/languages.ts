@@ -73,8 +73,9 @@ export function languageId(path: string): string {
 const loading = new Map<string, Promise<LanguageSupport>>();
 export async function loadLanguage(pathOrName: string, fence = false) {
   const description = fence
-    ? (languages.find((language) => language.name.toLowerCase() === pathOrName.toLowerCase()) ??
-      LanguageDescription.matchLanguageName(languages, pathOrName, true))
+    ? (languages.find(
+        (language) => language.name.toLowerCase() === pathOrName.toLowerCase(),
+      ) ?? LanguageDescription.matchLanguageName(languages, pathOrName, true))
     : languageDescription(pathOrName);
   if (!description) return null;
   if (!loading.has(description.name)) {
