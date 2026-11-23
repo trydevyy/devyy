@@ -25,18 +25,12 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          editor: [
-            "@codemirror/state",
-            "@codemirror/view",
-            "@codemirror/language",
-            "@codemirror/commands",
-            "@codemirror/search",
-            "@codemirror/autocomplete",
-            "@codemirror/lint",
+        codeSplitting: {
+          groups: [
+            { name: "react", test: /\/node_modules\/(react|react-dom)\// },
+            { name: "editor", test: /\/node_modules\/@codemirror\// },
           ],
         },
       },

@@ -26,7 +26,7 @@ import {
   Download,
   ExternalLink,
   GitBranch,
-  Github,
+  GitFork,
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
@@ -278,7 +278,7 @@ export default function GitHubSettings({
       >
         <header>
           <div className="workbench-section-title">
-            <Github size={18} />
+            <GitFork size={18} />
             <div>
               <h3 id="github-heading">GitHub</h3>
               <p>
@@ -320,7 +320,7 @@ export default function GitHubSettings({
               disabled={!native || !status?.cliInstalled || !!busy}
               onClick={() => void login()}
             >
-              <Github size={14} /> Continue with GitHub
+              <GitFork size={14} /> Continue with GitHub
             </button>
             {native && status && !status.cliInstalled && (
               <p className="workbench-muted">
