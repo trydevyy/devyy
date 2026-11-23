@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an improvement to Devyy
+title: "[Feature] "
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Devyy to do?
+    validations:
+      required: true

@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible problem in Devyy or its installer
+title: "[Bug] "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Devyy version and OS
+      placeholder: "Devyy 0.1.0, Windows 11 x64, Setup EXE"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots or logs
+      description: Remove credentials, personal paths, and private workspace data.

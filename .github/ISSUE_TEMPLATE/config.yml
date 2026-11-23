@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/trydevyy/devyy/security/advisories/new
+    about: Share vulnerabilities privately with maintainers.
