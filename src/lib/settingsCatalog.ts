@@ -18,7 +18,7 @@ import {
   Code2,
   Files,
   AppWindow,
-  UserRound,
+  AtSign,
   Keyboard,
   Layout,
   Palette,
@@ -33,7 +33,12 @@ import {
 } from "lucide-react";
 import type { Settings } from "./types";
 export const categories = [
-  {id:"account",label:"Account & sync",description:"Devyy account, devices and selective synchronization.",icon:UserRound},
+  {
+    id: "account",
+    label: "Account & sync",
+    description: "Devyy account, devices and selective synchronization.",
+    icon: AtSign,
+  },
   {
     id: "appearance",
     label: "Appearance",
@@ -97,7 +102,8 @@ export const categories = [
   {
     id: "git",
     label: "Source control",
-    description: "Source control provider (Hit / Git), GitHub sign-in, and commit identity.",
+    description:
+      "Source control provider (Hit / Git), GitHub sign-in, and commit identity.",
     icon: GitBranch,
   },
   {
@@ -554,7 +560,13 @@ export const controls: SettingControl[] = [
       { value: 5000, label: "5 seconds" },
     ],
   },
-  ...switches("files", "Deletion", [["confirmDelete", "Confirm file deletion", "Ask before deleting files and folders. Unsaved changes always require confirmation."]]),
+  ...switches("files", "Deletion", [
+    [
+      "confirmDelete",
+      "Confirm file deletion",
+      "Ask before deleting files and folders. Unsaved changes always require confirmation.",
+    ],
+  ]),
   ...switches("layout", "Workspace", [
     [
       "aiPanelOnDrag",
@@ -663,7 +675,8 @@ export const controls: SettingControl[] = [
     category: "git",
     section: "Version control provider",
     label: "Active source control provider",
-    description: "Choose between Hit (next-gen blazingly fast VCS, default) and standard Git.",
+    description:
+      "Choose between Hit (next-gen blazingly fast VCS, default) and standard Git.",
     keywords: "git hit vcs source control version repository",
     type: "select",
     options: [

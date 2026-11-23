@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserRound } from "lucide-react";
+import { AtSign } from "lucide-react";
 import { accountRequest, ACCOUNT_ORIGIN } from "../lib/account";
 import { native } from "../lib/native";
 
@@ -57,9 +57,7 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
           onError={() => setFailed(true)}
         />
       ) : (
-        profile?.name.trim().charAt(0).toUpperCase() || (
-          <UserRound size={large ? 22 : 14} />
-        )
+        <AtSign size={large ? 24 : 17} />
       )}
     </span>
   );
