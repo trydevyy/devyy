@@ -1,1 +1,4 @@
-{ "bundle": { "targets": ["appimage"] } }
+{
+  "build": { "runner": "cargo" },
+  "bundle": { "targets": ["appimage"] }
+}

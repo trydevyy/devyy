@@ -1,8 +1,6 @@
 {
   "bundle": {
-    "targets": [
-      "app"
-    ]
+    "targets": ["app"]
   },
   "app": {
     "windows": [
