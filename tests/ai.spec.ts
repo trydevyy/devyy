@@ -500,11 +500,13 @@ test("native startup shows home and opens real projects with a compact AI gutter
     page.locator(".editor-document.visible .cm-content"),
   ).toContainText("fn main()");
   await start(page);
-  await expect.poll(async () =>
-    page
-      .locator(".ai-workspace")
-      .evaluate((element) => getComputedStyle(element).paddingLeft),
-  ).toBe("8px");
+  await expect
+    .poll(async () =>
+      page
+        .locator(".ai-workspace")
+        .evaluate((element) => getComputedStyle(element).paddingLeft),
+    )
+    .toBe("8px");
   const handle = page.getByRole("separator", {
     name: "Resize AI sidebar",
     exact: true,
@@ -627,9 +629,7 @@ test("provider settings save keys through native IPC, discover models, and show 
     .click();
   await expect(card.getByText("Provider saved", { exact: true })).toBeVisible();
   await expect(card.getByLabel("API key", { exact: true })).toHaveValue("");
-  await card
-    .getByRole("button", { name: "Load models", exact: true })
-    .click();
+  await card.getByRole("button", { name: "Load models", exact: true }).click();
   await expect(card.getByText("2 models available")).toBeVisible();
   await page.getByRole("tab", { name: /^ChatGPT/ }).click();
   await expect(codex.getByLabel("Model ID", { exact: true })).toHaveValue(
@@ -1133,12 +1133,23 @@ test("conversations can branch, edit a prompt, and rename without changing the o
   );
   await page.getByRole("button", { name: "AI conversation history" }).click();
   const history = page.getByRole("dialog", { name: "Conversation history" });
-  await history.getByRole("button", { name: "Actions for Original prompt (branch)", exact: true }).click();
+  await history
+    .getByRole("button", {
+      name: "Actions for Original prompt (branch)",
+      exact: true,
+    })
+    .click();
   await page.getByRole("button", { name: "Rename", exact: true }).click();
-  await history.getByRole("textbox", { name: "Conversation title", exact: true }).fill("Refinement");
+  await history
+    .getByRole("textbox", { name: "Conversation title", exact: true })
+    .fill("Refinement");
   await history.getByRole("button", { name: "Save name", exact: true }).click();
-  await expect(history.getByRole("button", { name: /^Refinement/ })).toBeVisible();
-  await history.getByRole("button", { name: /^Original prompt [A-Z][a-z]+ \d/ }).click();
+  await expect(
+    history.getByRole("button", { name: /^Refinement/ }),
+  ).toBeVisible();
+  await history
+    .getByRole("button", { name: /^Original prompt [A-Z][a-z]+ \d/ })
+    .click();
   await expect(page.locator(".ai-message-user")).toContainText(
     "Original prompt",
   );
@@ -1161,17 +1172,23 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
     .getByRole("button", { name: "Continue with ChatGPT", exact: true })
     .click();
   await expect(
-    provider.locator(".ai-provider-account-row").getByText("person0@example.test"),
+    provider
+      .locator(".ai-provider-account-row")
+      .getByText("person0@example.test"),
   ).toBeVisible();
   await provider
     .getByRole("button", { name: "Add ChatGPT account or workspace" })
     .click();
   await expect(
-    provider.locator(".ai-provider-account-row").getByText("person1@example.test"),
+    provider
+      .locator(".ai-provider-account-row")
+      .getByText("person1@example.test"),
   ).toBeVisible();
   await chooseOption(provider.getByLabel("Saved accounts"), "oaiapp_fixture_0");
   await expect(
-    provider.locator(".ai-provider-account-row").getByText("person0@example.test"),
+    provider
+      .locator(".ai-provider-account-row")
+      .getByText("person0@example.test"),
   ).toBeVisible();
   await provider
     .getByRole("button", { name: "Disconnect", exact: true })
@@ -1262,7 +1279,8 @@ test("header toggles the AI workspace and provider Usage navigates within Settin
   ).toBeFocused();
   await page.getByRole("button", { name: "Back to providers" }).click();
   await expect(detail).toBeVisible();
-  await expect(detail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
+  await expect(detail.getByLabel("Model", { exact: true })).toHaveAttribute(
+    "data-value",
     "preserve-unsaved-default",
   );
   await expect(usage).toBeFocused();
@@ -1561,7 +1579,9 @@ test("workspace access requires consent and agent proposals are reviewed before 
   const paneBox = await pane.boundingBox();
   const choicesBox = await choices.boundingBox();
   expect(choicesBox!.x + choicesBox!.width).toBeLessThan(paneBox!.x);
-  await choices.getByRole("option", { name: "Full workspace", exact: true }).click();
+  await choices
+    .getByRole("option", { name: "Full workspace", exact: true })
+    .click();
   const consent = page.getByRole("dialog", {
     name: "Workspace access",
     exact: true,
@@ -1574,7 +1594,9 @@ test("workspace access requires consent and agent proposals are reviewed before 
   await consent
     .getByRole("button", { name: "Allow full workspace access", exact: true })
     .click();
-  await expect(page.getByRole("button", { name: /Agent options:/ })).toHaveAccessibleName("Agent options: Agent, Full workspace");
+  await expect(
+    page.getByRole("button", { name: /Agent options:/ }),
+  ).toHaveAccessibleName("Agent options: Agent, Full workspace");
   await page
     .getByRole("textbox", { name: "Message Devyy AI" })
     .fill("Inspect the workspace and propose a focused edit");
@@ -1704,15 +1726,17 @@ test("default-app settings use native associations and imported editors show the
   await page.getByRole("tab", { name: "Setup & import", exact: true }).click();
   const icons = page.locator(".import-sources .ide-import-icon");
   await expect(icons).toHaveCount(2);
-  await expect.poll(() =>
-    icons.evaluateAll((images) =>
-      images.every(
-        (img) =>
-          (img as HTMLImageElement).complete &&
-          (img as HTMLImageElement).naturalWidth > 0,
+  await expect
+    .poll(() =>
+      icons.evaluateAll((images) =>
+        images.every(
+          (img) =>
+            (img as HTMLImageElement).complete &&
+            (img as HTMLImageElement).naturalWidth > 0,
+        ),
       ),
-    ),
-  ).toBe(true);
+    )
+    .toBe(true);
 });
 
 test("Antigravity and OpenCode providers display real logos, models, and CLI notices", async ({
@@ -1737,7 +1761,8 @@ test("Antigravity and OpenCode providers display real logos, models, and CLI not
   await agDetail
     .getByRole("button", { name: "Load models", exact: true })
     .click();
-  await expect(agDetail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
+  await expect(agDetail.getByLabel("Model", { exact: true })).toHaveAttribute(
+    "data-value",
     "fixture-model",
   );
 
@@ -1755,7 +1780,8 @@ test("Antigravity and OpenCode providers display real logos, models, and CLI not
   await ocDetail
     .getByRole("button", { name: "Load models", exact: true })
     .click();
-  await expect(ocDetail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
+  await expect(ocDetail.getByLabel("Model", { exact: true })).toHaveAttribute(
+    "data-value",
     "fixture-model",
   );
 });
@@ -1787,7 +1813,11 @@ test("Google and OpenCode sign-in open provider-owned sessions and clean up on c
               .at(-1)?.args.options,
         ),
       )
-      .toMatchObject({ local: true, shellPath: "/fixture/cli", shellArgs: expectedArgs });
+      .toMatchObject({
+        local: true,
+        shellPath: "/fixture/cli",
+        shellArgs: expectedArgs,
+      });
     await detail
       .getByRole("button", { name: "Close sign-in session", exact: true })
       .click();
@@ -2042,7 +2072,9 @@ test("composer input box has corner drag thumb and dropping context keeps AI wor
     page.getByRole("textbox", { name: "Message Devyy AI" }),
   );
 
-  await expect(page.locator(".ai-workspace")).not.toHaveClass(/ai-workspace-hidden/);
+  await expect(page.locator(".ai-workspace")).not.toHaveClass(
+    /ai-workspace-hidden/,
+  );
   await expect(page.locator(".ai-attachment-chip")).toContainText(
     "Problem: main.rs",
   );

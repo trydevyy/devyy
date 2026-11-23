@@ -33,7 +33,10 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   const port = page.getByRole("dialog", { name: "Forward a port" });
   await port.getByLabel("Local port").fill("3000");
   const box = await port.boundingBox();
-  expect(box!.x + box!.width / 2).toBeCloseTo(page.viewportSize()!.width / 2, 0);
+  expect(box!.x + box!.width / 2).toBeCloseTo(
+    page.viewportSize()!.width / 2,
+    0,
+  );
   await chooseOption(port.getByRole("combobox", { name: "Access" }), "public");
   await expect(
     port.getByText("Anyone with the address can open this service."),
@@ -55,22 +58,35 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await expect(
     settings.getByRole("heading", { name: "Commit author" }),
   ).toBeVisible();
-  await expect(settings.getByText("Source control provider", { exact: true })).toHaveCount(1);
+  await expect(
+    settings.getByText("Source control provider", { exact: true }),
+  ).toHaveCount(1);
   await page.screenshot({ path: testInfo.outputPath("source-control.png") });
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Toggle AI workspace" }).click();
-  const title = page.getByRole("button", { name: "AI conversation history", exact: true });
+  const title = page.getByRole("button", {
+    name: "AI conversation history",
+    exact: true,
+  });
   await title.click();
-  await expect(page.getByRole("dialog", { name: "Conversation history" }).getByRole("textbox", { name: "Search conversations" })).toBeFocused();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Conversation history" })
+      .getByRole("textbox", { name: "Search conversations" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Skills", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Skills", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "Skills", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Chat", exact: true }).click();
   const options = page.getByRole("button", { name: /Agent options:/ });
   await options.click();
   await chooseOption(page.getByRole("combobox", { name: "Agent mode" }), "ask");
-  await expect(options).toHaveAccessibleName("Agent options: Ask, Attachments only");
+  await expect(options).toHaveAccessibleName(
+    "Agent options: Ask, Attachments only",
+  );
   await page.keyboard.press("Escape");
   await page.screenshot({ path: testInfo.outputPath("agent.png") });
   await page.getByLabel("Conversation actions").click();

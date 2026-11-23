@@ -378,7 +378,9 @@ test("file list supports Cmd+A select all and shift multi-selection", async ({
   await tree.focus();
   await page.keyboard.press(`${mod}+a`);
   const selectedRows = page.locator(".tree-row.selected");
-  await expect(selectedRows).toHaveCount(await page.locator(".tree-row").count());
+  await expect(selectedRows).toHaveCount(
+    await page.locator(".tree-row").count(),
+  );
 
   const firstFile = page.locator(".tree-file").first();
   await firstFile.click();
@@ -402,7 +404,9 @@ test("cursor is visible when editor is clicked", async ({ page }) => {
       cursorDisplay: cursor ? getComputedStyle(cursor).display : null,
       cursorVisibility: cursor ? getComputedStyle(cursor).visibility : null,
       cursorOpacity: cursor ? getComputedStyle(cursor).opacity : null,
-      cursorLayerClip: cursorLayer ? (cursorLayer as HTMLElement).style.clipPath : "",
+      cursorLayerClip: cursorLayer
+        ? (cursorLayer as HTMLElement).style.clipPath
+        : "",
       cursorRect: cursor ? cursor.getBoundingClientRect() : null,
     };
   });

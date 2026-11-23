@@ -56,9 +56,20 @@ test("settings pages reverse direction with progressive blur and modals animate 
       const previous = document.querySelector(".settings-inner");
       const values = { exit: [] as number[], enter: [] as number[] };
       w.settingsFrames = values;
+      const observer = new MutationObserver(() => {
+        const entering = document.querySelector<HTMLElement>(".settings-inner");
+        // Record the entrance start position even if the browser skips painted frames.
+        if (entering && entering !== previous && entering.style.transform) {
+          values.enter.push(new DOMMatrix(entering.style.transform).m42);
+        }
+      });
+      observer.observe(document.querySelector(".settings-scroll")!, {
+        childList: true,
+      });
       let running = true;
       w.stopSettingsFrames = () => {
         running = false;
+        observer.disconnect();
       };
       function sample() {
         if (!running) return;

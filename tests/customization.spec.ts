@@ -70,12 +70,8 @@ test("workspace dropdown lists recent folders and find buttons use proper SVG ic
   await page
     .getByRole("button", { name: "Choose workspace", exact: true })
     .click();
-  await expect(
-    page.getByRole("button", { name: /^first / }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /^second / }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /^first / })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^second / })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Open another folder…", exact: true }),
   ).toBeVisible();
@@ -470,10 +466,17 @@ test("AI code completion is opt-in, chooses a small model and records usage", as
   await preferences
     .getByRole("switch", { name: "AI code suggestions", exact: true })
     .click();
-  await chooseOption(preferences.getByRole("combobox", { name: "AI completion provider" }), "fixture");
-  const model = preferences.getByRole("combobox", { name: "AI completion model" });
+  await chooseOption(
+    preferences.getByRole("combobox", { name: "AI completion provider" }),
+    "fixture",
+  );
+  const model = preferences.getByRole("combobox", {
+    name: "AI completion model",
+  });
   await model.click();
-  await expect(page.getByRole("option", { name: "Mini", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "Mini", exact: true }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 

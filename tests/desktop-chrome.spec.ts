@@ -61,7 +61,9 @@ for (const platform of ["Win32", "Linux x86_64"])
     await expect(more).toBeVisible();
     await more.click();
     await expect(
-      page.locator(".header-popover-content").getByRole("button", { name: "Help", exact: true }),
+      page
+        .locator(".header-popover-content")
+        .getByRole("button", { name: "Help", exact: true }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
     expect(

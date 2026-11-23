@@ -158,7 +158,15 @@ test("native About reports metadata and handles available, failed and current up
         },
         transformCallback: () => ++callback,
         unregisterCallback: () => {},
-        invoke: async (cmd: string) => {
+        invoke: async (cmd: string, args?: { url: string }) => {
+          if (cmd === "plugin:opener|open_url") {
+            document.body.dataset.openedRelease = args?.url;
+            return new Promise<void>((resolve) => {
+              window.addEventListener("test:release-opened", () => resolve(), {
+                once: true,
+              });
+            });
+          }
           if (cmd === "plugin:event|listen") return ++callback;
           if (cmd === "set_appearance") return { material: "vibrancy" };
           if (cmd === "terminal_profiles") return [];
@@ -189,15 +197,43 @@ test("native About reports metadata and handles available, failed and current up
     });
   });
   await page.goto("/?playground=1");
+  const update = page.getByRole("button", {
+    name: "Update available: 0.2.0",
+    exact: true,
+  });
+  const progress = page.getByRole("progressbar", { name: "Opening release" });
+  const release = "https://github.com/trydevyy/devyy/releases/tag/v0.2.0";
+  await update.click();
+  await expect(progress).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-opened-release",
+    release,
+  );
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("test:release-opened"));
+    delete document.body.dataset.openedRelease;
+  });
+  await expect(progress).toHaveCount(0);
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("tab", { name: "About devyy", exact: true }).click();
   const about = page.getByRole("region", { name: "About devyy", exact: true });
   await expect(about).toContainText("26.1 (25B78)");
   await expect(about).toContainText("test-build (aarch64)");
   await expect(about.getByRole("status")).toContainText("0.2.0 is available");
-  await expect(
-    about.getByRole("button", { name: "View release", exact: true }),
-  ).toBeVisible();
+  const viewRelease = about.getByRole("button", {
+    name: "View release",
+    exact: true,
+  });
+  await viewRelease.click();
+  await expect(progress).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-opened-release",
+    release,
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("test:release-opened")),
+  );
+  await expect(progress).toHaveCount(0);
   await about
     .getByRole("button", { name: "Check for updates", exact: true })
     .click();

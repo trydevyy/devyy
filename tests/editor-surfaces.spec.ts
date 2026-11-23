@@ -61,15 +61,21 @@ async function fixture(page: Page, lsp = false, dependencyTree = false) {
       });
       let dependenciesReady = false;
       let extensionHostReady = false;
-      window.addEventListener("devyy-extension-host-reset", () => { extensionHostReady = false; });
-      window.addEventListener("devyy-extension-host-ready", () => { extensionHostReady = true; });
+      window.addEventListener("devyy-extension-host-reset", () => {
+        extensionHostReady = false;
+      });
+      window.addEventListener("devyy-extension-host-ready", () => {
+        extensionHostReady = true;
+      });
       Object.assign(window, {
         isTauri: true,
         surfaceFixture: {
           emit,
           hostEvent,
           calls,
-          get extensionHostReady() { return extensionHostReady; },
+          get extensionHostReady() {
+            return extensionHostReady;
+          },
           loadDependencies() {
             dependenciesReady = true;
             hostEvent("treeChanged", { id: "rustDependencies" });
@@ -236,9 +242,14 @@ async function fixture(page: Page, lsp = false, dependencyTree = false) {
   await page.goto("/");
   await page.keyboard.press(`${mod}+o`);
   await expect(page.locator('.tree-file[title="main.rs"]')).toBeVisible();
-  await page.waitForFunction(() => (window as unknown as {
-    surfaceFixture: { extensionHostReady: boolean };
-  }).surfaceFixture.extensionHostReady);
+  await page.waitForFunction(
+    () =>
+      (
+        window as unknown as {
+          surfaceFixture: { extensionHostReady: boolean };
+        }
+      ).surfaceFixture.extensionHostReady,
+  );
 }
 async function host(
   page: Page,
@@ -274,8 +285,12 @@ test("extension progress shows one current report per owner and restores the rem
     title: "Indexing",
   });
   const footer = page.locator(".statusbar");
-  await expect(footer.getByRole("progressbar", { name: "Indexing", exact: true })).toBeVisible();
-  await expect(footer.getByRole("progressbar", { name: "cargo check", exact: true })).toHaveCount(0);
+  await expect(
+    footer.getByRole("progressbar", { name: "Indexing", exact: true }),
+  ).toBeVisible();
+  await expect(
+    footer.getByRole("progressbar", { name: "cargo check", exact: true }),
+  ).toHaveCount(0);
   await host(page, "progressReport", {
     id: "check",
     message: "Checking crate",
@@ -478,9 +493,19 @@ test("native LSP work reports and server health use the footer; Run and Debug re
       .locator(".statusbar")
       .getByRole("button", { name: /rust.*Checking dependencies/ }),
   ).toBeVisible();
-  await emit("experimental/serverStatus", { health:"warning", quiescent:true, message:"Workspace configuration needs attention" });
-  await expect(page.locator('[data-sonner-toast]').filter({hasText:'Workspace configuration needs attention'})).toBeVisible();
-  await expect(page.locator('.statusbar')).not.toContainText('Workspace configuration needs attention');
+  await emit("experimental/serverStatus", {
+    health: "warning",
+    quiescent: true,
+    message: "Workspace configuration needs attention",
+  });
+  await expect(
+    page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: "Workspace configuration needs attention" }),
+  ).toBeVisible();
+  await expect(page.locator(".statusbar")).not.toContainText(
+    "Workspace configuration needs attention",
+  );
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Run commands", exact: true }),
@@ -580,16 +605,17 @@ test("local completions appear while a language server is still responding", asy
   await page.evaluate(() => {
     const w = window as any;
     const original = w.__TAURI_INTERNALS__.invoke;
+    const completion = new Promise((resolve) => {
+      w.surfaceFixture.releaseCompletion = () =>
+        resolve([{ label: "uniqueServer", kind: 6 }]);
+    });
     w.__TAURI_INTERNALS__.invoke = (command: string, args: any) => {
       if (
         command === "lsp_request" &&
         args.method === "textDocument/completion"
       ) {
         w.surfaceFixture.completionRequested = true;
-        return new Promise((resolve) => {
-          w.surfaceFixture.releaseCompletion = () =>
-            resolve([{ label: "uniqueServer", kind: 6 }]);
-        });
+        return completion;
       }
       return original(command, args);
     };
@@ -661,6 +687,9 @@ test("language-server snippets apply their imports and select the editable argum
     const w = window as any;
     const original = w.__TAURI_INTERNALS__.invoke;
     w.__TAURI_INTERNALS__.invoke = (command: string, args: any) => {
+      // Inline decorations from the shared fixture can split the inserted text.
+      if (command === "lsp_request" && args.method === "textDocument/inlayHint")
+        return Promise.resolve([]);
       if (
         command === "lsp_request" &&
         args.method === "textDocument/completion"

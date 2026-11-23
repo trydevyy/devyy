@@ -540,7 +540,9 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
     .getByRole("button", { name: "Commit staged changes", exact: true })
     .click();
   await expect(
-    page.getByRole("tabpanel", { name: "Changes" }).getByText("No local changes", { exact: true }),
+    page
+      .getByRole("tabpanel", { name: "Changes" })
+      .getByText("No local changes", { exact: true }),
   ).toBeVisible();
   await chooseOption(selector, "");
   await expect(

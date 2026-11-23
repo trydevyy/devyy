@@ -536,7 +536,9 @@ test("terminal sessions keep their processes through switching, splits, resizing
     page.getByText("No active terminals", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
-  await page.getByRole("button", { name: "Check cargo check", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Check cargo check", exact: true })
+    .click();
   await expect(page.locator("#run-command")).toHaveCount(0);
   await expect.poll(async () => (await state()).created.length).toBe(4);
   await expect
@@ -735,24 +737,44 @@ test("output panel supports service filtering, extension channels, text filterin
   await expect(page.getByRole("button", { name: "Copy output" })).toBeVisible();
 });
 
-test("remote action menus keep rows steady and the active SSH server disconnects", async ({ page }) => {
+test("remote action menus keep rows steady and the active SSH server disconnects", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     const path = "/virtual/devyy-ssh";
-    const server = { id: "server", label: "Build server", host: "server.example.test", user: "dev", sshPort: 22, localPort: 3000, remotePort: 3000, remotePath: "/work" };
+    const server = {
+      id: "server",
+      label: "Build server",
+      host: "server.example.test",
+      user: "dev",
+      sshPort: 22,
+      localPort: 3000,
+      remotePort: 3000,
+      remotePath: "/work",
+    };
     localStorage.setItem("devyy.ssh.servers", JSON.stringify([server]));
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
-        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+        metadata: {
+          currentWindow: { label: "main" },
+          currentWebview: { label: "main" },
+        },
         transformCallback: () => 1,
         unregisterCallback: () => {},
         invoke: async (command: string, args: { path?: string }) => {
           if (command === "account_request") return null;
-          if (command === "git_status") throw new Error("Remote Git unavailable");
+          if (command === "git_status")
+            throw new Error("Remote Git unavailable");
           if (command === "terminal_create") return 1;
           if (command === "ssh_open_workspace") return path;
           if (["open_workspace", "refresh_workspace"].includes(command))
-            return { root: path, name: server.label, remotePath: server.remotePath, files: [] };
+            return {
+              root: path,
+              name: server.label,
+              remotePath: server.remotePath,
+              files: [],
+            };
           if (command === "close_ssh_workspace") {
             if (args.path !== path) throw new Error("Wrong workspace");
             document.documentElement.dataset.fixtureDisconnected = "true";
@@ -764,14 +786,23 @@ test("remote action menus keep rows steady and the active SSH server disconnects
     });
   });
   await page.goto("/?playground=1");
-  await page.getByRole("button", { name: "Remote Explorer", exact: true }).click();
-  const server = page.getByRole("button", { name: "Build server", exact: true });
+  await page
+    .getByRole("button", { name: "Remote Explorer", exact: true })
+    .click();
+  const server = page.getByRole("button", {
+    name: "Build server",
+    exact: true,
+  });
   const row = page.locator(".ssh-list li").first();
   const original = await row.boundingBox();
-  const actions = page.getByRole("button", { name: "Actions for Build server" });
+  const actions = page.getByRole("button", {
+    name: "Actions for Build server",
+  });
   await actions.press("Enter");
   const menu = page.getByRole("dialog", { name: "Actions for Build server" });
-  await expect(menu.getByRole("button", { name: "Open workspace" })).toBeVisible();
+  await expect(
+    menu.getByRole("button", { name: "Open workspace" }),
+  ).toBeVisible();
   expect(await row.boundingBox()).toEqual(original);
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
@@ -780,17 +811,25 @@ test("remote action menus keep rows steady and the active SSH server disconnects
   await expect(server).toHaveAttribute("aria-pressed", "true");
   await server.click();
   await expect(server).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator("html")).toHaveAttribute("data-fixture-disconnected", "true");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-fixture-disconnected",
+    "true",
+  );
 });
 
-test("forwarded port status refreshes automatically and its menu does not resize the row", async ({ page }) => {
+test("forwarded port status refreshes automatically and its menu does not resize the row", async ({
+  page,
+}) => {
   await page.clock.install();
   await page.addInitScript(() => {
     let connected = true;
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
-        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+        metadata: {
+          currentWindow: { label: "main" },
+          currentWebview: { label: "main" },
+        },
         transformCallback: () => 1,
         unregisterCallback: () => {},
         invoke: async (command: string, args: { path?: string }) => {
@@ -798,7 +837,15 @@ test("forwarded port status refreshes automatically and its menu does not resize
           if (command === "account_request" && args.path === "/me")
             return { name: "Tester", email: "tester@example.test" };
           if (command === "account_request" && args.path === "/tunnels") {
-            const row = { id: "port", port: 3000, label: "Local app", url: "https://port.example.test", visibility: "private", protocol: "http", connected };
+            const row = {
+              id: "port",
+              port: 3000,
+              label: "Local app",
+              url: "https://port.example.test",
+              visibility: "private",
+              protocol: "http",
+              connected,
+            };
             connected = false;
             return [row];
           }
