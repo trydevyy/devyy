@@ -104,6 +104,19 @@ fn build_metadata_reports_actual_native_os_and_compilation_time() {
             .as_secs()
     );
 }
+// These tests send POSIX commands straight to the PTY, without a terminal
+// emulator to answer input negotiation from shells such as fish.
+#[cfg(unix)]
+fn posix_test_profile() -> Option<String> {
+    if cfg!(target_os = "linux") {
+        return crate::shells::discover()
+            .into_iter()
+            .find(|profile| profile.name == "Bash")
+            .map(|profile| profile.id);
+    }
+    None
+}
+
 #[test]
 #[cfg(unix)]
 fn terminal_runs_a_real_shell_and_closes_it() {
@@ -117,7 +130,11 @@ fn terminal_runs_a_real_shell_and_closes_it() {
     app.listen("terminal-output", move |e| {
         let _ = tx.send(e.payload().to_owned());
     });
-    let id = call(&view, "terminal_create", json!({"cols":80,"rows":24}));
+    let id = call(
+        &view,
+        "terminal_create",
+        json!({"cols":80,"rows":24,"profile":posix_test_profile()}),
+    );
     call(
         &view,
         "terminal_write",
@@ -301,8 +318,17 @@ fn terminal_sessions_keep_independent_shell_state_and_survive_closing_a_neighbor
     app.listen("terminal-output", move |e| {
         let _ = tx.send(e.payload().to_owned());
     });
-    let a = call(&view, "terminal_create", json!({"cols":80,"rows":24}));
-    let b = call(&view, "terminal_create", json!({"cols":100,"rows":30}));
+    let profile = posix_test_profile();
+    let a = call(
+        &view,
+        "terminal_create",
+        json!({"cols":80,"rows":24,"profile":profile}),
+    );
+    let b = call(
+        &view,
+        "terminal_create",
+        json!({"cols":100,"rows":30,"profile":profile}),
+    );
     assert_ne!(a, b);
     call(
         &view,

@@ -335,7 +335,11 @@ impl SshWorkspace {
     async fn read_at(&self, path: &str, max: u64) -> Result<Vec<u8>> {
         let mut data = Vec::new();
         let mut file = self.files.open(path).await.map_err(message)?;
-        (&mut file).take(max + 1).read_to_end(&mut data).await.map_err(message)?;
+        (&mut file)
+            .take(max + 1)
+            .read_to_end(&mut data)
+            .await
+            .map_err(message)?;
         file.shutdown().await.map_err(message)?;
         if data.len() as u64 > max {
             return Err("This file exceeds the preview or editing limit.".into());

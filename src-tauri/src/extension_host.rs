@@ -37,9 +37,15 @@ struct ResourceGrant {
     owner: String,
     roots: Vec<PathBuf>,
 }
+pub enum ExtensionFailure {
+    Exited,
+    Execution { id: Option<String> },
+}
+
 #[derive(Default)]
 pub struct ExtensionHost {
     client: Mutex<Option<Arc<Client>>>,
+    on_failure: Option<fn(&AppHandle, ExtensionFailure)>,
     pub servers: Arc<Mutex<HashMap<String, ServerConfig>>>,
     epoch: Arc<AtomicU64>,
     documents: Mutex<HashMap<String, (String, String, u64)>>,
@@ -183,6 +189,7 @@ fn start(
     let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
     let responses = pending.clone();
     let handle = app.clone();
+    let on_failure = state.on_failure;
     let servers = state.servers.clone();
     let epoch = state.epoch.clone();
     let resources = state.resources.clone();
@@ -216,6 +223,14 @@ fn start(
                     }
                 }
             } else if let Some(event) = message["event"].as_str() {
+                if event == "hostError"
+                    || (event == "extensionStatus" && message["payload"]["status"] == "error")
+                {
+                    if let Some(report) = on_failure {
+                        let id = message["payload"]["id"].as_str().map(str::to_owned);
+                        report(&handle, ExtensionFailure::Execution { id });
+                    }
+                }
                 if event == "languageServer" {
                     if let Ok(config) =
                         serde_json::from_value::<ServerConfig>(message["payload"].clone())
@@ -258,6 +273,11 @@ fn start(
                     }
                 }
                 let _ = handle.emit("extension-host", &message);
+            }
+        }
+        if epoch.load(Ordering::SeqCst) == generation {
+            if let Some(report) = on_failure {
+                report(&handle, ExtensionFailure::Exited);
             }
         }
         if let Ok(mut map) = responses.lock() {
@@ -502,6 +522,14 @@ pub fn webview_response<R: tauri::Runtime>(
 }
 
 impl ExtensionHost {
+    #[allow(dead_code)] // Standalone extension smoke examples use the default host.
+    pub fn with_failure_reporting(on_failure: fn(&AppHandle, ExtensionFailure)) -> Self {
+        Self {
+            on_failure: Some(on_failure),
+            ..Self::default()
+        }
+    }
+
     pub fn shutdown(&self) {
         self.epoch.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut slot) = self.client.lock() {

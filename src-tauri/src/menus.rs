@@ -203,6 +203,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 pub fn install_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 

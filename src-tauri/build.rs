@@ -1,4 +1,9 @@
+#[path = "../shared/seal_webhook.rs"]
+mod seal_webhook;
+
 fn main() {
+    println!("cargo:rerun-if-changed=../shared/seal_webhook.rs");
+    seal_webhook::seal_webhook("DEVYY_CRASH_WEBHOOK_URL");
     use std::{
         process::Command,
         time::{SystemTime, UNIX_EPOCH},
@@ -23,9 +28,8 @@ fn main() {
         // linker for the manifest so test harnesses also load Common Controls v6.
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
         println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
-        let attributes = tauri_build::Attributes::new().windows_attributes(
-            tauri_build::WindowsAttributes::new_without_app_manifest(),
-        );
+        let attributes = tauri_build::Attributes::new()
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
         tauri_build::try_build(attributes).expect("configure Devyy");
     } else {
         tauri_build::build();

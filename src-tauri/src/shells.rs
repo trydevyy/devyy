@@ -35,9 +35,8 @@ fn executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return path
-            .metadata()
-            .is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
+        path.metadata()
+            .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
     }
     #[cfg(not(unix))]
     {
@@ -132,6 +131,17 @@ fn git_bash() -> Option<PathBuf> {
         .find(|bash| executable(bash))
 }
 
+fn shell_identity(path: &Path) -> (PathBuf, Option<std::ffi::OsString>) {
+    let executable = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    // On Linux, sh and rbash can point to Bash and select different modes via argv[0].
+    let invocation = if cfg!(target_os = "linux") {
+        path.file_name().map(std::ffi::OsStr::to_owned)
+    } else {
+        None
+    };
+    (executable, invocation)
+}
+
 pub fn discover() -> Vec<ShellProfile> {
     let mut candidates = Vec::new();
     #[cfg(unix)]
@@ -197,8 +207,7 @@ pub fn discover() -> Vec<ShellProfile> {
         {
             continue;
         }
-        let identity = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if !seen.insert(identity) {
+        if !seen.insert(shell_identity(&path)) {
             continue;
         }
         profiles.push(profile(path, profiles.is_empty()));
@@ -253,7 +262,7 @@ mod tests {
         let mut identities = HashSet::new();
         for p in &profiles {
             assert!(executable(Path::new(&p.path)));
-            assert!(identities.insert(std::fs::canonicalize(&p.path).unwrap()));
+            assert!(identities.insert(shell_identity(Path::new(&p.path))));
             assert_eq!(select(Some(&p.id)).unwrap().id, p.id);
         }
         assert!(select(Some("/not/a/real/shell")).is_err());

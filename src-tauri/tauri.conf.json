@@ -49,386 +49,289 @@
     ],
     "fileAssociations": [
       {
-        "ext": [
-          "rs"
-        ],
+        "ext": ["rs"],
         "name": "RS file",
         "role": "Editor",
         "mimeType": "text/x-rust"
       },
       {
-        "ext": [
-          "js"
-        ],
+        "ext": ["js"],
         "name": "JS file",
         "role": "Editor",
         "mimeType": "application/javascript"
       },
       {
-        "ext": [
-          "ts"
-        ],
+        "ext": ["ts"],
         "name": "TS file",
         "role": "Editor",
         "mimeType": "text/typescript"
       },
       {
-        "ext": [
-          "tsx"
-        ],
+        "ext": ["tsx"],
         "name": "TSX file",
         "role": "Editor",
         "mimeType": "text/tsx"
       },
       {
-        "ext": [
-          "jsx"
-        ],
+        "ext": ["jsx"],
         "name": "JSX file",
         "role": "Editor",
         "mimeType": "text/jsx"
       },
       {
-        "ext": [
-          "py"
-        ],
+        "ext": ["py"],
         "name": "PY file",
         "role": "Editor",
         "mimeType": "text/x-python"
       },
       {
-        "ext": [
-          "go"
-        ],
+        "ext": ["go"],
         "name": "GO file",
         "role": "Editor",
         "mimeType": "text/x-go"
       },
       {
-        "ext": [
-          "html",
-          "htm"
-        ],
+        "ext": ["html", "htm"],
         "name": "HTML file",
         "role": "Editor",
         "mimeType": "text/html"
       },
       {
-        "ext": [
-          "css"
-        ],
+        "ext": ["css"],
         "name": "CSS file",
         "role": "Editor",
         "mimeType": "text/css"
       },
       {
-        "ext": [
-          "json"
-        ],
+        "ext": ["json"],
         "name": "JSON file",
         "role": "Editor",
         "mimeType": "application/json"
       },
       {
-        "ext": [
-          "toml"
-        ],
+        "ext": ["toml"],
         "name": "TOML file",
         "role": "Editor",
         "mimeType": "application/toml"
       },
       {
-        "ext": [
-          "yaml"
-        ],
+        "ext": ["yaml"],
         "name": "YAML file",
         "role": "Editor",
         "mimeType": "application/yaml"
       },
       {
-        "ext": [
-          "md"
-        ],
+        "ext": ["md"],
         "name": "MD file",
         "role": "Editor",
         "mimeType": "text/markdown"
       },
       {
-        "ext": [
-          "txt"
-        ],
+        "ext": ["txt"],
         "name": "TXT file",
         "role": "Editor",
         "mimeType": "text/plain"
       },
       {
-        "ext": [
-          "mjs"
-        ],
+        "ext": ["mjs"],
         "name": "JavaScript module",
         "role": "Editor",
         "mimeType": "application/javascript"
       },
       {
-        "ext": [
-          "cjs"
-        ],
+        "ext": ["cjs"],
         "name": "CommonJS module",
         "role": "Editor",
         "mimeType": "application/javascript"
       },
       {
-        "ext": [
-          "mts"
-        ],
+        "ext": ["mts"],
         "name": "TypeScript module",
         "role": "Editor",
         "mimeType": "text/typescript"
       },
       {
-        "ext": [
-          "cts"
-        ],
+        "ext": ["cts"],
         "name": "CommonJS TypeScript module",
         "role": "Editor",
         "mimeType": "text/typescript"
       },
       {
-        "ext": [
-          "jsonc"
-        ],
+        "ext": ["jsonc"],
         "name": "JSON with comments",
         "role": "Editor",
         "mimeType": "application/jsonc"
       },
       {
-        "ext": [
-          "yml"
-        ],
+        "ext": ["yml"],
         "name": "YAML file",
         "role": "Editor",
         "mimeType": "application/yaml"
       },
       {
-        "ext": [
-          "scss"
-        ],
+        "ext": ["scss"],
         "name": "SCSS stylesheet",
         "role": "Editor",
         "mimeType": "text/x-scss"
       },
       {
-        "ext": [
-          "sass"
-        ],
+        "ext": ["sass"],
         "name": "Sass stylesheet",
         "role": "Editor",
         "mimeType": "text/x-sass"
       },
       {
-        "ext": [
-          "less"
-        ],
+        "ext": ["less"],
         "name": "Less stylesheet",
         "role": "Editor",
         "mimeType": "text/x-less"
       },
       {
-        "ext": [
-          "vue"
-        ],
+        "ext": ["vue"],
         "name": "Vue component",
         "role": "Editor",
         "mimeType": "text/x-vue"
       },
       {
-        "ext": [
-          "svelte"
-        ],
+        "ext": ["svelte"],
         "name": "Svelte component",
         "role": "Editor",
         "mimeType": "text/x-svelte"
       },
       {
-        "ext": [
-          "c"
-        ],
+        "ext": ["c"],
         "name": "C source",
         "role": "Editor",
         "mimeType": "text/x-csrc"
       },
       {
-        "ext": [
-          "h"
-        ],
+        "ext": ["h"],
         "name": "C header",
         "role": "Editor",
         "mimeType": "text/x-chdr"
       },
       {
-        "ext": [
-          "cpp"
-        ],
+        "ext": ["cpp"],
         "name": "C++ source",
         "role": "Editor",
         "mimeType": "text/x-c++src"
       },
       {
-        "ext": [
-          "hpp"
-        ],
+        "ext": ["hpp"],
         "name": "C++ header",
         "role": "Editor",
         "mimeType": "text/x-c++hdr"
       },
       {
-        "ext": [
-          "cs"
-        ],
+        "ext": ["cs"],
         "name": "C# source",
         "role": "Editor",
         "mimeType": "text/x-csharp"
       },
       {
-        "ext": [
-          "java"
-        ],
+        "ext": ["java"],
         "name": "Java source",
         "role": "Editor",
         "mimeType": "text/x-java"
       },
       {
-        "ext": [
-          "kt"
-        ],
+        "ext": ["kt"],
         "name": "Kotlin source",
         "role": "Editor",
         "mimeType": "text/x-kotlin"
       },
       {
-        "ext": [
-          "swift"
-        ],
+        "ext": ["swift"],
         "name": "Swift source",
         "role": "Editor",
         "mimeType": "text/x-swift"
       },
       {
-        "ext": [
-          "rb"
-        ],
+        "ext": ["rb"],
         "name": "Ruby source",
         "role": "Editor",
         "mimeType": "application/x-ruby"
       },
       {
-        "ext": [
-          "php"
-        ],
+        "ext": ["php"],
         "name": "PHP source",
         "role": "Editor",
         "mimeType": "application/x-php"
       },
       {
-        "ext": [
-          "lua"
-        ],
+        "ext": ["lua"],
         "name": "Lua source",
         "role": "Editor",
         "mimeType": "text/x-lua"
       },
       {
-        "ext": [
-          "sql"
-        ],
+        "ext": ["sql"],
         "name": "SQL script",
         "role": "Editor",
         "mimeType": "application/sql"
       },
       {
-        "ext": [
-          "xml"
-        ],
+        "ext": ["xml"],
         "name": "XML document",
         "role": "Editor",
         "mimeType": "application/xml"
       },
       {
-        "ext": [
-          "ini"
-        ],
+        "ext": ["ini"],
         "name": "INI configuration",
         "role": "Editor",
         "mimeType": "text/x-ini"
       },
       {
-        "ext": [
-          "cfg"
-        ],
+        "ext": ["cfg"],
         "name": "Configuration file",
         "role": "Editor",
         "mimeType": "text/x-config"
       },
       {
-        "ext": [
-          "env"
-        ],
+        "ext": ["env"],
         "name": "Environment configuration",
         "role": "Editor",
         "mimeType": "text/x-env"
       },
       {
-        "ext": [
-          "sh"
-        ],
+        "ext": ["sh"],
         "name": "Shell script",
         "role": "Editor",
         "mimeType": "application/x-shellscript"
       },
       {
-        "ext": [
-          "ps1"
-        ],
+        "ext": ["ps1"],
         "name": "PowerShell script",
         "role": "Editor",
         "mimeType": "text/x-powershell"
       },
       {
-        "ext": [
-          "log"
-        ],
+        "ext": ["log"],
         "name": "Log file",
         "role": "Editor",
         "mimeType": "text/x-log"
       },
       {
-        "ext": [
-          "csv"
-        ],
+        "ext": ["csv"],
         "name": "CSV file",
         "role": "Editor",
         "mimeType": "text/csv"
       },
       {
-        "ext": [
-          "tsv"
-        ],
+        "ext": ["tsv"],
         "name": "TSV file",
         "role": "Editor",
         "mimeType": "text/tab-separated-values"
       },
       {
-        "ext": [
-          "markdown"
-        ],
+        "ext": ["markdown"],
         "name": "Markdown document",
         "role": "Editor",
         "mimeType": "text/markdown"
       },
       {
-        "ext": [
-          "tsbuildinfo"
-        ],
+        "ext": ["tsbuildinfo"],
         "name": "TypeScript build info",
         "role": "Editor",
         "mimeType": "application/x-typescript-buildinfo"
@@ -446,9 +349,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "devyy"
-        ]
+        "schemes": ["devyy"]
       }
     }
   },

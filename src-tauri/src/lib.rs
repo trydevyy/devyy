@@ -18,17 +18,14 @@ mod ai;
 mod app_info;
 mod appearance;
 mod associations;
-#[path = "../../shared/file_types.rs"]
-mod file_types;
-#[cfg(windows)]
-#[allow(dead_code)]
-#[path = "../../shared/windows_file_associations.rs"]
-mod windows_file_associations;
+mod crash_report;
 mod debug;
 mod extension_host;
 mod extension_secrets;
 mod extension_servers;
 mod extensions;
+#[path = "../../shared/file_types.rs"]
+mod file_types;
 mod git;
 mod github;
 mod language_config;
@@ -36,10 +33,16 @@ mod lsp;
 mod menus;
 mod process;
 mod remote;
-mod ssh;
 mod setup_import;
 mod shells;
+mod ssh;
 mod terminal;
+#[path = "../../shared/webhook.rs"]
+mod webhook;
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../../shared/windows_file_associations.rs"]
+mod windows_file_associations;
 mod workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -82,9 +85,13 @@ pub fn run() {
         .manage(lsp::LanguageServers::default())
         .manage(debug::Debugger::default())
         .manage(extensions::ExtensionStore::default())
-        .manage(extension_host::ExtensionHost::default())
+        .manage(extension_host::ExtensionHost::with_failure_reporting(
+            crash_report::extension_failure,
+        ))
         .setup(|app| {
+            crash_report::install(app.handle());
             menus::install(app.handle())?;
+            #[cfg(any(windows, target_os = "macos"))]
             if let Err(error) = menus::install_tray(app.handle()) {
                 eprintln!("Could not open the system tray: {error}");
             }
@@ -114,6 +121,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crash_report::report_frontend_crash,
             account::account_begin,
             account::account_finish,
             account::account_request,

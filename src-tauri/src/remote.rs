@@ -372,9 +372,7 @@ async fn handle_local_ws(
     stream_id: String,
     path: String,
     streams_map: Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<String, tokio::sync::mpsc::Sender<Value>>,
-        >,
+        tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::mpsc::Sender<Value>>>,
     >,
     to_server: tokio::sync::mpsc::Sender<Value>,
 ) {

@@ -13,6 +13,7 @@ name = "devyy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+ring = "0.17"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -22,7 +23,7 @@ jsonwebtoken = "9.3"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
 mime_guess = "2"
-tauri = { version = "2", features = ["macos-private-api", "image-png", "tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"
@@ -32,7 +33,7 @@ ignore = "0.4"
 portable-pty = "0.9"
 window-vibrancy = "0.8"
 tauri-plugin-opener = "2.7.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 semver = "1.0.28"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 json5 = "0.4"
@@ -78,3 +79,11 @@ features = ["sync-secret-service", "crypto-rust", "vendored"]
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+# Tauri CLI 2.12 merges direct target features when bundling Linux. It skips
+# workspace-inherited entries, so the Linux package has no AppIndicator dependency.
+tauri = { workspace = true, features = ["tray-icon"] }
+
+[workspace.dependencies]
+tauri = "2"

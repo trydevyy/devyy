@@ -930,7 +930,7 @@ pub async fn git_diff(
         if staged {
             args.push("--cached");
         }
-        args.extend(["--", &path]);
+        args.extend(["--", path]);
         git(&base, &args)
     })
     .await
@@ -1001,12 +1001,12 @@ pub async fn git_discard(
                 "ls-files",
                 "--error-unmatch",
                 "--",
-                &path,
+                path,
             ],
         )?;
         git(
             &base,
-            &["--literal-pathspecs", "restore", "--worktree", "--", &path],
+            &["--literal-pathspecs", "restore", "--worktree", "--", path],
         )?;
         Ok(())
     })

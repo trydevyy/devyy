@@ -21,7 +21,10 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 fn types() -> impl Iterator<Item = (&'static str, &'static str)> {
     crate::file_types::types().iter().flat_map(|file_type| {
-        file_type.ext.iter().map(|ext| (ext.as_str(), file_type.mime_type.as_str()))
+        file_type
+            .ext
+            .iter()
+            .map(|ext| (ext.as_str(), file_type.mime_type.as_str()))
     })
 }
 const APP_ID: &str = "xyz.devyy.editor";
@@ -196,10 +199,7 @@ fn register_linux(extension: &str) -> Result<(), String> {
         .replace('$', "\\$")
         .replace('%', "%%")
         .replace(['\n', '\r'], "");
-    let mime_types = types()
-        .map(|(_, mime)| mime)
-        .collect::<Vec<_>>()
-        .join(";");
+    let mime_types = types().map(|(_, mime)| mime).collect::<Vec<_>>().join(";");
     let icons = data.join("icons/hicolor/128x128/apps");
     std::fs::create_dir_all(&icons).map_err(|e| e.to_string())?;
     std::fs::write(
@@ -395,11 +395,7 @@ mod tests {
         let file = cwd.path().join("source file.rs");
         std::fs::write(&file, "source").unwrap();
         let targets = launch_paths(
-            vec![
-                "source file.rs",
-                "--wait",
-                &file.to_string_lossy(),
-            ],
+            vec!["source file.rs", "--wait", &file.to_string_lossy()],
             cwd.path(),
         );
         assert_eq!(targets.len(), 2);

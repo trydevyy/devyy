@@ -103,9 +103,7 @@ async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
     Ok(value)
 }
 #[tauri::command]
-pub fn account_begin(
-    state: tauri::State<'_, Accounts>,
-) -> Result<Value, String> {
+pub fn account_begin(state: tauri::State<'_, Accounts>) -> Result<Value, String> {
     let server = ACCOUNT_ORIGIN.to_owned();
     let verifier = random();
     let nonce = random();
