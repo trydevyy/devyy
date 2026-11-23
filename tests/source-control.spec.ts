@@ -265,7 +265,7 @@ async function repository(page: Page, includeSubmodules = false) {
   await page.goto("/?playground=1");
   await page.locator(".project-title").click();
   await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .getByRole("button", { name: "Open another folder…", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Source control", exact: true })
@@ -540,7 +540,7 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
     .getByRole("button", { name: "Commit staged changes", exact: true })
     .click();
   await expect(
-    page.getByText("Working tree clean", { exact: true }),
+    page.getByRole("tabpanel", { name: "Changes" }).getByText("No local changes", { exact: true }),
   ).toBeVisible();
   await chooseOption(selector, "");
   await expect(

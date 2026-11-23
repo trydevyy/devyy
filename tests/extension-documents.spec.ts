@@ -357,7 +357,7 @@ test("native extension terminals survive renderer initialization and close only 
   await fixture(page);
   await page.locator(".project-title").click();
   await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .getByRole("button", { name: "Open another folder…", exact: true })
     .click();
   await expect(
     page.getByRole("tab", { name: "main.rs", exact: true }),

@@ -570,7 +570,7 @@ test("streams native chat, attaches explicit file context, reviews changes, and 
   await page.getByRole("button", { name: "AI conversation history" }).click();
   await expect(
     page
-      .locator(".ai-history")
+      .getByRole("dialog", { name: "Conversation history" })
       .getByRole("button", { name: /^Replace this file with/ }),
   ).toBeVisible();
 });
@@ -616,7 +616,8 @@ test("provider settings save keys through native IPC, discover models, and show 
     exact: true,
   });
   await page.getByRole("tab", { name: /^ChatGPT/ }).click();
-  await codex.getByLabel("Model", { exact: true }).fill("unsubmitted-model");
+  await codex.getByRole("button", { name: "Enter model ID" }).click();
+  await codex.getByLabel("Model ID", { exact: true }).fill("unsubmitted-model");
   await page.getByRole("tab", { name: /^Local test model/ }).click();
   await card
     .getByLabel("API key", { exact: true })
@@ -627,14 +628,14 @@ test("provider settings save keys through native IPC, discover models, and show 
   await expect(card.getByText("Provider saved", { exact: true })).toBeVisible();
   await expect(card.getByLabel("API key", { exact: true })).toHaveValue("");
   await card
-    .getByRole("button", { name: "Refresh models", exact: true })
+    .getByRole("button", { name: "Load models", exact: true })
     .click();
   await expect(card.getByText("2 models available")).toBeVisible();
   await page.getByRole("tab", { name: /^ChatGPT/ }).click();
-  await expect(codex.getByLabel("Model", { exact: true })).toHaveValue(
+  await expect(codex.getByLabel("Model ID", { exact: true })).toHaveValue(
     "unsubmitted-model",
   );
-  await codex.getByRole("button", { name: "Check account & usage" }).click();
+  await codex.getByRole("button", { name: "Check sign-in" }).click();
   await codex.getByRole("button", { name: "Usage", exact: true }).click();
   await expect(
     page.getByRole("meter", { name: "ChatGPT session remaining" }),
@@ -1006,7 +1007,7 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     name: "ChatGPT",
     exact: true,
   });
-  await detail.getByRole("button", { name: "Check account & usage" }).click();
+  await detail.getByRole("button", { name: "Check sign-in" }).click();
   await expect(detail.getByText("fixture@example.test")).toBeVisible();
   await expect(page.locator(".settings-empty")).toHaveCount(0);
   await page
@@ -1131,25 +1132,13 @@ test("conversations can branch, edit a prompt, and rename without changing the o
     "Revised prompt",
   );
   await page.getByRole("button", { name: "AI conversation history" }).click();
-  await page
-    .getByRole("button", {
-      name: "Rename conversation Original prompt (branch)",
-      exact: true,
-    })
-    .click();
-  await page
-    .getByRole("textbox", { name: "Conversation title", exact: true })
-    .fill("Refinement");
-  await page
-    .getByRole("button", { name: "Save conversation title", exact: true })
-    .click();
-  await expect(
-    page.locator(".ai-history").getByRole("button", { name: /^Refinement/ }),
-  ).toBeVisible();
-  await page
-    .locator(".ai-history")
-    .getByRole("button", { name: /^Original prompt Local/ })
-    .click();
+  const history = page.getByRole("dialog", { name: "Conversation history" });
+  await history.getByRole("button", { name: "Actions for Original prompt (branch)", exact: true }).click();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await history.getByRole("textbox", { name: "Conversation title", exact: true }).fill("Refinement");
+  await history.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(history.getByRole("button", { name: /^Refinement/ })).toBeVisible();
+  await history.getByRole("button", { name: /^Original prompt [A-Z][a-z]+ \d/ }).click();
   await expect(page.locator(".ai-message-user")).toContainText(
     "Original prompt",
   );
@@ -1172,17 +1161,17 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
     .getByRole("button", { name: "Continue with ChatGPT", exact: true })
     .click();
   await expect(
-    provider.locator(".ai-connection-card").getByText("person0@example.test"),
+    provider.locator(".ai-provider-account-row").getByText("person0@example.test"),
   ).toBeVisible();
   await provider
     .getByRole("button", { name: "Add ChatGPT account or workspace" })
     .click();
   await expect(
-    provider.locator(".ai-connection-card").getByText("person1@example.test"),
+    provider.locator(".ai-provider-account-row").getByText("person1@example.test"),
   ).toBeVisible();
   await chooseOption(provider.getByLabel("Saved accounts"), "oaiapp_fixture_0");
   await expect(
-    provider.locator(".ai-connection-card").getByText("person0@example.test"),
+    provider.locator(".ai-provider-account-row").getByText("person0@example.test"),
   ).toBeVisible();
   await provider
     .getByRole("button", { name: "Disconnect", exact: true })
@@ -1255,10 +1244,12 @@ test("header toggles the AI workspace and provider Usage navigates within Settin
     .click();
   await page.getByRole("tab", { name: /^ChatGPT/ }).click();
   const detail = page.getByRole("region", { name: "ChatGPT", exact: true });
+  await detail.getByRole("button", { name: "Enter model ID" }).click();
   await detail
-    .getByLabel("Model", { exact: true })
+    .getByLabel("Model ID", { exact: true })
     .fill("preserve-unsaved-default");
   const usage = detail.getByRole("button", { name: "Usage", exact: true });
+  await detail.getByRole("button", { name: "Use model list" }).click();
   await usage.click();
   await expect(
     page.getByRole("region", { name: "AI usage", exact: true }),
@@ -1271,7 +1262,7 @@ test("header toggles the AI workspace and provider Usage navigates within Settin
   ).toBeFocused();
   await page.getByRole("button", { name: "Back to providers" }).click();
   await expect(detail).toBeVisible();
-  await expect(detail.getByLabel("Model", { exact: true })).toHaveValue(
+  await expect(detail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
     "preserve-unsaved-default",
   );
   await expect(usage).toBeFocused();
@@ -1297,13 +1288,15 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   ).toBeVisible();
   await control(page, "reasoning", "Checking the attached constraints. ");
   await control(page, "reasoning", "Comparing the available approaches.");
-  const thinking = page.locator(".ai-thoughts");
+  const thinking = page.locator(".agent-activity");
+  const summary = thinking.locator(":scope > summary");
+  const reasoning = thinking.locator(".agent-reasoning");
   await expect(thinking).toHaveCount(1);
-  await expect(
-    thinking.getByRole("button", { name: "Thinking summary" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await thinking.getByRole("button", { name: "Thinking summary" }).click();
-  await expect(thinking).toContainText(
+  await expect(reasoning).toBeHidden();
+  await summary.click();
+  await reasoning.locator("summary").click();
+  await expect(reasoning.locator("p")).toBeVisible();
+  await expect(reasoning).toContainText(
     "Checking the attached constraints. Comparing the available approaches.",
   );
   await expect(
@@ -1311,9 +1304,7 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   ).not.toContainText("Comparing the available approaches.");
   await control(page, "delta", "Here is the answer.");
   await control(page, "finish");
-  await expect(
-    thinking.getByRole("button", { name: "Thinking summary" }),
-  ).toHaveText("Thoughts");
+  await expect(summary).toHaveText("Reasoning");
   await expect
     .poll(() =>
       page.evaluate(
@@ -1562,8 +1553,15 @@ test("workspace access requires consent and agent proposals are reviewed before 
   await start(page);
   const access = page.getByRole("combobox", { name: "Agent workspace access" });
   await page.getByRole("button", { name: /Agent options:/ }).click();
-  await expect(access).toHaveValue("attached");
-  await access.selectOption("full");
+  await expect(access).toHaveAttribute("data-value", "attached");
+  await access.click();
+  const pane = page.locator(".agent-options-popover");
+  const choices = page.locator(".agent-option-select-popup");
+  await expect(choices).toHaveAttribute("data-side", "left");
+  const paneBox = await pane.boundingBox();
+  const choicesBox = await choices.boundingBox();
+  expect(choicesBox!.x + choicesBox!.width).toBeLessThan(paneBox!.x);
+  await choices.getByRole("option", { name: "Full workspace", exact: true }).click();
   const consent = page.getByRole("dialog", {
     name: "Workspace access",
     exact: true,
@@ -1571,8 +1569,8 @@ test("workspace access requires consent and agent proposals are reviewed before 
   await expect(consent).toContainText("including ignored files");
   await consent.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: /Agent options:/ }).click();
-  await expect(access).toHaveValue("attached");
-  await access.selectOption("full");
+  await expect(access).toHaveAttribute("data-value", "attached");
+  await chooseOption(access, "full");
   await consent
     .getByRole("button", { name: "Allow full workspace access", exact: true })
     .click();
@@ -1648,8 +1646,8 @@ test("workspace access requires consent and agent proposals are reviewed before 
     )
     .toBe(true);
   await page.getByRole("button", { name: /Agent options:/ }).click();
-  await access.selectOption("attached");
-  await expect(access).toHaveValue("attached");
+  await chooseOption(access, "attached");
+  await expect(access).toHaveAttribute("data-value", "attached");
 });
 
 test("workspace shell and first document appear while indexing and services remain pending", async ({
@@ -1706,8 +1704,8 @@ test("default-app settings use native associations and imported editors show the
   await page.getByRole("tab", { name: "Setup & import", exact: true }).click();
   const icons = page.locator(".import-sources .ide-import-icon");
   await expect(icons).toHaveCount(2);
-  expect(
-    await icons.evaluateAll((images) =>
+  await expect.poll(() =>
+    icons.evaluateAll((images) =>
       images.every(
         (img) =>
           (img as HTMLImageElement).complete &&
@@ -1737,9 +1735,9 @@ test("Antigravity and OpenCode providers display real logos, models, and CLI not
   const agIcon = agDetail.locator('img[src="/providers/antigravity.png"]');
   await expect(agIcon.first()).toBeVisible();
   await agDetail
-    .getByRole("button", { name: "Refresh models", exact: true })
+    .getByRole("button", { name: "Load models", exact: true })
     .click();
-  await expect(agDetail.getByLabel("Model", { exact: true })).toHaveValue(
+  await expect(agDetail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
     "fixture-model",
   );
 
@@ -1755,9 +1753,9 @@ test("Antigravity and OpenCode providers display real logos, models, and CLI not
   const ocIcon = ocDetail.locator('img[src="/providers/opencode.png"]');
   await expect(ocIcon.first()).toBeVisible();
   await ocDetail
-    .getByRole("button", { name: "Refresh models", exact: true })
+    .getByRole("button", { name: "Load models", exact: true })
     .click();
-  await expect(ocDetail.getByLabel("Model", { exact: true })).toHaveValue(
+  await expect(ocDetail.getByLabel("Model", { exact: true })).toHaveAttribute("data-value",
     "fixture-model",
   );
 });
@@ -1789,7 +1787,7 @@ test("Google and OpenCode sign-in open provider-owned sessions and clean up on c
               .at(-1)?.args.options,
         ),
       )
-      .toMatchObject({ shellPath: "/fixture/cli", shellArgs: expectedArgs });
+      .toMatchObject({ local: true, shellPath: "/fixture/cli", shellArgs: expectedArgs });
     await detail
       .getByRole("button", { name: "Close sign-in session", exact: true })
       .click();
@@ -1805,7 +1803,7 @@ test("model and access controls share a row", async ({ page }) => {
   const controls = page.locator(".ai-chat-controls");
   await expect(controls).toBeVisible();
   const model = await controls.locator(".ai-model-control").boundingBox();
-  const access = await controls.locator(".ai-access-control").boundingBox();
+  const access = await controls.locator(".agent-options-trigger").boundingBox();
   expect(
     Math.abs(model!.y + model!.height / 2 - (access!.y + access!.height / 2)),
   ).toBeLessThan(4);
@@ -1987,7 +1985,8 @@ test("changing a provider default updates conversations that still use the old d
     name: "Local test model",
     exact: true,
   });
-  await provider.getByLabel("Model", { exact: true }).fill("another-model");
+  await provider.getByRole("button", { name: "Enter model ID" }).click();
+  await provider.getByLabel("Model ID", { exact: true }).fill("another-model");
   await provider
     .getByRole("button", { name: "Save provider", exact: true })
     .click();

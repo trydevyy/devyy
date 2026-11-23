@@ -22,7 +22,7 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await server.getByLabel("Display name").fill("Dev server");
   await server.getByRole("button", { name: "Save server" }).click();
   await expect(
-    ssh.getByRole("button", { name: /Dev server dev@test.example.com/ }),
+    ssh.getByRole("button", { name: "Dev server", exact: true }),
   ).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath("ssh.png") });
@@ -60,16 +60,16 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Toggle AI workspace" }).click();
-  const title = page.getByRole("button", { name: "New conversation", exact: true }).first();
+  const title = page.getByRole("button", { name: "AI conversation history", exact: true });
   await title.click();
-  await expect(page.getByRole("dialog", { name: "Sessions" }).getByRole("textbox", { name: "Search sessions" })).toBeFocused();
+  await expect(page.getByRole("dialog", { name: "Conversation history" }).getByRole("textbox", { name: "Search conversations" })).toBeFocused();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Skills", exact: true }).click();
   await expect(page.getByRole("button", { name: "Skills", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Chat", exact: true }).click();
   const options = page.getByRole("button", { name: /Agent options:/ });
   await options.click();
-  await page.getByRole("combobox", { name: "Agent mode" }).selectOption("ask");
+  await chooseOption(page.getByRole("combobox", { name: "Agent mode" }), "ask");
   await expect(options).toHaveAccessibleName("Agent options: Ask, Attachments only");
   await page.keyboard.press("Escape");
   await page.screenshot({ path: testInfo.outputPath("agent.png") });

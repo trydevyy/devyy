@@ -60,12 +60,16 @@ async function fixture(page: Page, lsp = false, dependencyTree = false) {
         },
       });
       let dependenciesReady = false;
+      let extensionHostReady = false;
+      window.addEventListener("devyy-extension-host-reset", () => { extensionHostReady = false; });
+      window.addEventListener("devyy-extension-host-ready", () => { extensionHostReady = true; });
       Object.assign(window, {
         isTauri: true,
         surfaceFixture: {
           emit,
           hostEvent,
           calls,
+          get extensionHostReady() { return extensionHostReady; },
           loadDependencies() {
             dependenciesReady = true;
             hostEvent("treeChanged", { id: "rustDependencies" });
@@ -230,13 +234,11 @@ async function fixture(page: Page, lsp = false, dependencyTree = false) {
     { lsp, dependencyTree },
   );
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Choose workspace", exact: true })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
-    .click();
+  await page.keyboard.press(`${mod}+o`);
   await expect(page.locator('.tree-file[title="main.rs"]')).toBeVisible();
+  await page.waitForFunction(() => (window as unknown as {
+    surfaceFixture: { extensionHostReady: boolean };
+  }).surfaceFixture.extensionHostReady);
 }
 async function host(
   page: Page,
@@ -256,7 +258,7 @@ async function host(
     { event, payload },
   );
 }
-test("extension progress stays in the editor footer and concurrent reports finish independently", async ({
+test("extension progress shows one current report per owner and restores the remaining report", async ({
   page,
 }) => {
   await fixture(page);
@@ -272,9 +274,8 @@ test("extension progress stays in the editor footer and concurrent reports finis
     title: "Indexing",
   });
   const footer = page.locator(".statusbar");
-  await expect(
-    footer.getByRole("progressbar", { name: "cargo check", exact: true }),
-  ).toBeVisible();
+  await expect(footer.getByRole("progressbar", { name: "Indexing", exact: true })).toBeVisible();
+  await expect(footer.getByRole("progressbar", { name: "cargo check", exact: true })).toHaveCount(0);
   await host(page, "progressReport", {
     id: "check",
     message: "Checking crate",

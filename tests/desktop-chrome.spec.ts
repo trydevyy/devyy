@@ -50,7 +50,7 @@ for (const platform of ["Win32", "Linux x86_64"])
     expect((await close.boundingBox())!.x).toBeGreaterThan(1380);
     await nav.getByRole("button", { name: "File", exact: true }).click();
     await expect(
-      page.getByRole("menuitem", { name: /Save all files/ }),
+      page.getByRole("button", { name: /Save all files/ }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 860, height: 740 });
@@ -61,7 +61,7 @@ for (const platform of ["Win32", "Linux x86_64"])
     await expect(more).toBeVisible();
     await more.click();
     await expect(
-      page.getByRole("menuitem", { name: "Help", exact: true }),
+      page.locator(".header-popover-content").getByRole("button", { name: "Help", exact: true }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
     expect(

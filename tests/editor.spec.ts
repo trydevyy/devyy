@@ -131,7 +131,7 @@ test("create and rename files, add breakpoints, and expose desktop features hone
   ).toHaveCount(2); // marker + invisible sizing spacer
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Run command", exact: true }),
+    page.getByRole("button", { name: /^Run cargo run$/ }),
   ).toBeDisabled();
   await page.getByRole("tab", { name: "Debug", exact: true }).click();
   await expect(
@@ -351,7 +351,7 @@ test("project logos load, refresh, and fall back to the workspace initial", asyn
   await page.goto("/?playground=1");
   await page.locator(".project-title").click();
   await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
+    .getByRole("button", { name: "Open another folder…", exact: true })
     .click();
   const logo = page.getByRole("img", { name: "Project logo" });
   await expect(logo).toBeVisible();

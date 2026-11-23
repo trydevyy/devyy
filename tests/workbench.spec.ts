@@ -374,6 +374,7 @@ test("terminal sessions keep their processes through switching, splits, resizing
               name: "Project",
               files: [
                 { path: "README.md", name: "README.md", directory: false },
+                { path: "Cargo.toml", name: "Cargo.toml", directory: false },
               ],
               logo: null,
             };
@@ -431,10 +432,7 @@ test("terminal sessions keep their processes through switching, splits, resizing
     });
   });
   await page.goto("/?playground=1");
-  await page.locator(".project-title").click();
-  await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
-    .click();
+  await page.keyboard.press(`${mod}+o`);
   const state = () =>
     page.evaluate(
       () =>
@@ -538,13 +536,13 @@ test("terminal sessions keep their processes through switching, splits, resizing
     page.getByText("No active terminals", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Run & build", exact: true }).click();
-  await page.locator("#run-command").fill("echo session");
-  await page.getByRole("button", { name: "Run command", exact: true }).click();
+  await page.getByRole("button", { name: "Check cargo check", exact: true }).click();
+  await expect(page.locator("#run-command")).toHaveCount(0);
   await expect.poll(async () => (await state()).created.length).toBe(4);
   await expect
     .poll(async () =>
       (await state()).writes.some(
-        (w) => w.id === 4 && w.data === "echo session\r",
+        (w) => w.id === 4 && w.data === "cargo check\r",
       ),
     )
     .toBe(true);
@@ -735,4 +733,91 @@ test("output panel supports service filtering, extension channels, text filterin
     page.getByRole("button", { name: "Toggle auto-scroll" }),
   ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy output" })).toBeVisible();
+});
+
+test("remote action menus keep rows steady and the active SSH server disconnects", async ({ page }) => {
+  await page.addInitScript(() => {
+    const path = "/virtual/devyy-ssh";
+    const server = { id: "server", label: "Build server", host: "server.example.test", user: "dev", sshPort: 22, localPort: 3000, remotePort: 3000, remotePath: "/work" };
+    localStorage.setItem("devyy.ssh.servers", JSON.stringify([server]));
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+        transformCallback: () => 1,
+        unregisterCallback: () => {},
+        invoke: async (command: string, args: { path?: string }) => {
+          if (command === "account_request") return null;
+          if (command === "git_status") throw new Error("Remote Git unavailable");
+          if (command === "terminal_create") return 1;
+          if (command === "ssh_open_workspace") return path;
+          if (["open_workspace", "refresh_workspace"].includes(command))
+            return { root: path, name: server.label, remotePath: server.remotePath, files: [] };
+          if (command === "close_ssh_workspace") {
+            if (args.path !== path) throw new Error("Wrong workspace");
+            document.documentElement.dataset.fixtureDisconnected = "true";
+          }
+          if (command === "plugin:event|listen") return 1;
+          return [];
+        },
+      },
+    });
+  });
+  await page.goto("/?playground=1");
+  await page.getByRole("button", { name: "Remote Explorer", exact: true }).click();
+  const server = page.getByRole("button", { name: "Build server", exact: true });
+  const row = page.locator(".ssh-list li").first();
+  const original = await row.boundingBox();
+  const actions = page.getByRole("button", { name: "Actions for Build server" });
+  await actions.press("Enter");
+  const menu = page.getByRole("dialog", { name: "Actions for Build server" });
+  await expect(menu.getByRole("button", { name: "Open workspace" })).toBeVisible();
+  expect(await row.boundingBox()).toEqual(original);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(actions).toBeFocused();
+  await server.click();
+  await expect(server).toHaveAttribute("aria-pressed", "true");
+  await server.click();
+  await expect(server).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("html")).toHaveAttribute("data-fixture-disconnected", "true");
+});
+
+test("forwarded port status refreshes automatically and its menu does not resize the row", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    let connected = true;
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+        transformCallback: () => 1,
+        unregisterCallback: () => {},
+        invoke: async (command: string, args: { path?: string }) => {
+          if (command === "plugin:event|listen") return 1;
+          if (command === "account_request" && args.path === "/me")
+            return { name: "Tester", email: "tester@example.test" };
+          if (command === "account_request" && args.path === "/tunnels") {
+            const row = { id: "port", port: 3000, label: "Local app", url: "https://port.example.test", visibility: "private", protocol: "http", connected };
+            connected = false;
+            return [row];
+          }
+          return [];
+        },
+      },
+    });
+  });
+  await page.goto("/?playground=1");
+  await page.getByRole("tab", { name: "ports", exact: true }).click();
+  const row = page.locator(".ports-workbench-list li").first();
+  await expect(row.getByText("Connected", { exact: true })).toBeVisible();
+  const original = await row.boundingBox();
+  await row.getByRole("button", { name: "Actions for port 3000" }).click();
+  await expect(page.getByRole("button", { name: "Make public" })).toBeVisible();
+  expect(await row.boundingBox()).toEqual(original);
+  await page.keyboard.press("Escape");
+  await page.clock.fastForward(10_000);
+  await expect(row.getByText("Offline", { exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "Actions for port 3000" }).click();
+  await expect(page.getByRole("button", { name: "Reconnect" })).toBeVisible();
 });

@@ -71,13 +71,13 @@ test("workspace dropdown lists recent folders and find buttons use proper SVG ic
     .getByRole("button", { name: "Choose workspace", exact: true })
     .click();
   await expect(
-    page.getByRole("menuitemcheckbox", { name: "first", exact: true }),
+    page.getByRole("button", { name: /^first / }),
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitemcheckbox", { name: "second", exact: true }),
+    page.getByRole("button", { name: /^second / }),
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Open another folder…", exact: true }),
+    page.getByRole("button", { name: "Open another folder…", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await page.keyboard.press(`${mod}+f`);
@@ -324,7 +324,7 @@ test("GitHub sign-in displays its code and asks before changing Git identity", a
   page,
 }) => {
   await nativeFixture(page);
-  const preferences = await settings(page, "Git & GitHub");
+  const preferences = await settings(page, "Source control");
   await preferences
     .getByRole("button", { name: "Continue with GitHub", exact: true })
     .click();
@@ -333,7 +333,7 @@ test("GitHub sign-in displays its code and asks before changing Git identity", a
     (window as unknown as { finishGithub: () => void }).finishGithub(),
   );
   const confirmation = page.getByRole("alertdialog", {
-    name: "Use your GitHub identity for Git?",
+    name: "Use your GitHub identity for commits?",
   });
   await expect(confirmation).toContainText("Existing name");
   expect(await calls(page, "github_git_identity")).toHaveLength(0);
@@ -343,13 +343,13 @@ test("GitHub sign-in displays its code and asks before changing Git identity", a
   await expect(preferences).toContainText("devyy-user");
   expect(await calls(page, "github_git_identity")).toHaveLength(0);
   await preferences
-    .getByRole("textbox", { name: "Git name", exact: true })
+    .getByRole("textbox", { name: "Commit author name", exact: true })
     .fill("Chosen name");
   await preferences
-    .getByRole("textbox", { name: "Git email", exact: true })
+    .getByRole("textbox", { name: "Commit author email", exact: true })
     .fill("chosen@example.test");
   await preferences
-    .getByRole("button", { name: "Save Git name & email", exact: true })
+    .getByRole("button", { name: "Save commit author", exact: true })
     .click();
   await expect
     .poll(() => calls(page, "github_git_identity"))
@@ -364,7 +364,7 @@ test("missing Git offers downloads and prevents premature GitHub sign-in", async
   page,
 }) => {
   await nativeFixture(page, false);
-  const preferences = await settings(page, "Git & GitHub");
+  const preferences = await settings(page, "Source control");
   await expect(
     preferences.getByRole("button", {
       name: "Continue with GitHub",
@@ -406,11 +406,11 @@ test("GitHub onboarding applies commit identity only after accepting its confirm
     (window as unknown as { finishGithub: () => void }).finishGithub(),
   );
   const confirmation = page.getByRole("alertdialog", {
-    name: "Use your GitHub identity for Git?",
+    name: "Use your GitHub identity for commits?",
   });
   expect(await calls(page, "github_git_identity")).toHaveLength(0);
   await confirmation
-    .getByRole("button", { name: "Set Git identity", exact: true })
+    .getByRole("button", { name: "Set identity", exact: true })
     .click();
   await expect
     .poll(() => calls(page, "github_git_identity"))
@@ -430,7 +430,7 @@ test("custom providers can use a direct CLI without an API URL", async ({
     .getByRole("button", { name: "Add AI provider", exact: true })
     .click();
   await chooseOption(
-    preferences.getByRole("combobox", { name: "Protocol", exact: true }),
+    preferences.getByRole("combobox", { name: "Connection type", exact: true }),
     "cli",
   );
   await preferences
@@ -459,12 +459,7 @@ test("AI code completion is opt-in, chooses a small model and records usage", as
   page,
 }) => {
   await nativeFixture(page);
-  await page
-    .getByRole("button", { name: "Choose workspace", exact: true })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Open another folder…", exact: true })
-    .click();
+  await page.keyboard.press(`${mod}+o`);
   const code = page.locator(".editor-document.visible .cm-content");
   await expect(code).toBeVisible();
   await code.fill("fn main() { let answer = som");
@@ -475,7 +470,13 @@ test("AI code completion is opt-in, chooses a small model and records usage", as
   await preferences
     .getByRole("switch", { name: "AI code suggestions", exact: true })
     .click();
+  await chooseOption(preferences.getByRole("combobox", { name: "AI completion provider" }), "fixture");
+  const model = preferences.getByRole("combobox", { name: "AI completion model" });
+  await model.click();
+  await expect(page.getByRole("option", { name: "Mini", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
   await code.focus();
   await code.press("Control+Space");
   const suggestion = page.getByRole("option").filter({ hasText: "e_value();" });

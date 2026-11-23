@@ -97,6 +97,7 @@ test("settings pages reverse direction with progressive blur and modals animate 
     ).toBe(true);
     expect(
       frames.enter.some((y) => (category === "Editor" ? y > 0 : y < 0)),
+      `${category} transition frames: ${JSON.stringify(frames)}`,
     ).toBe(true);
   }
   await modal

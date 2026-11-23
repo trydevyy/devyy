@@ -32,8 +32,12 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await page.goto("/?playground=1");
   const setup = page.getByRole("dialog", { name: "Set up devyy", exact: true });
   await expect(setup).toBeVisible();
+  const progress = setup.getByRole("progressbar", { name: "Setup progress" });
+  await expect(progress).toHaveAttribute("aria-valuenow", "1");
+  await expect(setup.locator(".setup-step-number").first()).toHaveText("1");
   await expect(setup.getByRole("heading", { name: "Sign in to Devyy" })).toBeVisible();
   await setup.getByRole("button", { name: "Continue as guest" }).click();
+  await expect(progress).toHaveAttribute("aria-valuenow", "2");
   await setup.getByRole("button", { name: "Blue accent", exact: true }).click();
   await expect(page.locator("html")).toHaveCSS("--accent", "#a7bcff");
   await setup.getByRole("button", { name: "Light", exact: true }).click();
@@ -46,6 +50,10 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await expect(page.locator("html")).toHaveCSS("--accent", "#f2f2f2");
   await page.screenshot({ path: testInfo.outputPath("devyy-setup.png") });
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-valuenow", "3");
+  await expect(setup.getByRole("region", { name: "Editor preview" })).toBeVisible();
+  await expect(setup.locator(".editor-preview > header")).toHaveCount(0);
+  await expect(setup.getByRole("combobox", { name: "AI completion model" })).toBeVisible();
   await setup
     .getByRole("slider", { name: "Setup editor font size", exact: true })
     .fill("17");
