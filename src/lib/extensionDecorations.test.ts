@@ -71,7 +71,9 @@ describe("extensionDecorations", () => {
 
   it("matches document paths with URI schemes and relative paths", () => {
     expect(matchesDocPath("src/main.rs", "src/main.rs")).toBe(true);
-    expect(matchesDocPath("src/main.rs", "file:///work/src/main.rs")).toBe(true);
+    expect(matchesDocPath("src/main.rs", "file:///work/src/main.rs")).toBe(
+      true,
+    );
     expect(matchesDocPath("src/main.rs", "/work/src/main.rs")).toBe(true);
     expect(matchesDocPath("src/main.rs", "other/lib.rs")).toBe(false);
   });

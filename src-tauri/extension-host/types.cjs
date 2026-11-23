@@ -342,13 +342,35 @@ module.exports = function installTypes(api) {
     }
   }
   class FileSystemError extends Error {
-    constructor(message, code = "Unknown") { super(String(message ?? "Filesystem error")); this.name = "FileSystemError"; this.code = code; }
-    static FileNotFound(uri) { return new FileSystemError("File not found: " + uri, "FileNotFound"); }
-    static FileExists(uri) { return new FileSystemError("File exists: " + uri, "FileExists"); }
-    static NoPermissions(uri) { return new FileSystemError("No permissions: " + uri, "NoPermissions"); }
-    static Unavailable(uri) { return new FileSystemError("Unavailable: " + uri, "Unavailable"); }
-    static FileIsADirectory(uri) { return new FileSystemError("File is a directory: " + uri, "FileIsADirectory"); }
-    static FileNotADirectory(uri) { return new FileSystemError("File is not a directory: " + uri, "FileNotADirectory"); }
+    constructor(message, code = "Unknown") {
+      super(String(message ?? "Filesystem error"));
+      this.name = "FileSystemError";
+      this.code = code;
+    }
+    static FileNotFound(uri) {
+      return new FileSystemError("File not found: " + uri, "FileNotFound");
+    }
+    static FileExists(uri) {
+      return new FileSystemError("File exists: " + uri, "FileExists");
+    }
+    static NoPermissions(uri) {
+      return new FileSystemError("No permissions: " + uri, "NoPermissions");
+    }
+    static Unavailable(uri) {
+      return new FileSystemError("Unavailable: " + uri, "Unavailable");
+    }
+    static FileIsADirectory(uri) {
+      return new FileSystemError(
+        "File is a directory: " + uri,
+        "FileIsADirectory",
+      );
+    }
+    static FileNotADirectory(uri) {
+      return new FileSystemError(
+        "File is not a directory: " + uri,
+        "FileNotADirectory",
+      );
+    }
   }
   class CancellationError extends Error {
     constructor() {
@@ -626,7 +648,13 @@ module.exports = function installTypes(api) {
     }
   }
   class FunctionBreakpoint extends Breakpoint {
-    constructor(functionName, enabled = true, condition, hitCondition, logMessage) {
+    constructor(
+      functionName,
+      enabled = true,
+      condition,
+      hitCondition,
+      logMessage,
+    ) {
       super(enabled, condition, hitCondition, logMessage);
       this.functionName = functionName;
     }
@@ -912,13 +940,22 @@ module.exports = function installTypes(api) {
       return new NotebookCellOutputItem(Buffer.from(String(value)), mime);
     }
     static json(value, mime = "application/json") {
-      return new NotebookCellOutputItem(Buffer.from(JSON.stringify(value)), mime);
+      return new NotebookCellOutputItem(
+        Buffer.from(JSON.stringify(value)),
+        mime,
+      );
     }
     static stdout(value) {
-      return new NotebookCellOutputItem(Buffer.from(String(value)), "application/vnd.code.notebook.stdout");
+      return new NotebookCellOutputItem(
+        Buffer.from(String(value)),
+        "application/vnd.code.notebook.stdout",
+      );
     }
     static stderr(value) {
-      return new NotebookCellOutputItem(Buffer.from(String(value)), "application/vnd.code.notebook.stderr");
+      return new NotebookCellOutputItem(
+        Buffer.from(String(value)),
+        "application/vnd.code.notebook.stderr",
+      );
     }
     static error(err) {
       const errObj = {
@@ -926,7 +963,10 @@ module.exports = function installTypes(api) {
         message: err?.message || String(err),
         stack: err?.stack || "",
       };
-      return new NotebookCellOutputItem(Buffer.from(JSON.stringify(errObj)), "application/vnd.code.notebook.error");
+      return new NotebookCellOutputItem(
+        Buffer.from(JSON.stringify(errObj)),
+        "application/vnd.code.notebook.error",
+      );
     }
   }
   class TerminalProfile {
@@ -985,7 +1025,9 @@ module.exports = function installTypes(api) {
       this.value = value;
     }
     append(part) {
-      return new DocumentDropOrPasteEditKind(this.value ? this.value + "." + part : part);
+      return new DocumentDropOrPasteEditKind(
+        this.value ? this.value + "." + part : part,
+      );
     }
     intersects(other) {
       return (
@@ -1003,7 +1045,9 @@ module.exports = function installTypes(api) {
   }
   DocumentDropOrPasteEditKind.Empty = new DocumentDropOrPasteEditKind("");
   DocumentDropOrPasteEditKind.Text = new DocumentDropOrPasteEditKind("text");
-  DocumentDropOrPasteEditKind.TextPlain = new DocumentDropOrPasteEditKind("text.plain");
+  DocumentDropOrPasteEditKind.TextPlain = new DocumentDropOrPasteEditKind(
+    "text.plain",
+  );
 
   class LanguageModelChatMessage {
     constructor(role, content, name) {
@@ -1024,10 +1068,18 @@ module.exports = function installTypes(api) {
       this.name = "LanguageModelError";
       this.code = code;
     }
-    static Blocked(message) { return new LanguageModelError(message, "Blocked"); }
-    static NoPermissions(message) { return new LanguageModelError(message, "NoPermissions"); }
-    static NotFound(message) { return new LanguageModelError(message, "NotFound"); }
-    static QuotaExceeded(message) { return new LanguageModelError(message, "QuotaExceeded"); }
+    static Blocked(message) {
+      return new LanguageModelError(message, "Blocked");
+    }
+    static NoPermissions(message) {
+      return new LanguageModelError(message, "NoPermissions");
+    }
+    static NotFound(message) {
+      return new LanguageModelError(message, "NotFound");
+    }
+    static QuotaExceeded(message) {
+      return new LanguageModelError(message, "QuotaExceeded");
+    }
   }
   class LanguageModelChatResponse {
     constructor(stream) {
@@ -1142,7 +1194,14 @@ module.exports = function installTypes(api) {
     CommentThreadCollapsibleState: { Collapsed: 0, Expanded: 1 },
     CommentThreadState: { Unresolved: 0, Resolved: 1 },
     CommentThreadApplicability: { Current: 0, Historical: 1 },
-    TestRunState: { Queued: 1, Running: 2, Passed: 3, Failed: 4, Skipped: 5, Errored: 6 },
+    TestRunState: {
+      Queued: 1,
+      Running: 2,
+      Passed: 3,
+      Failed: 4,
+      Skipped: 5,
+      Errored: 6,
+    },
     LanguageStatusSeverity: { Information: 0, Warning: 1, Error: 2 },
     TextEditorRevealType: {
       Default: 0,
@@ -1172,7 +1231,11 @@ module.exports = function installTypes(api) {
     TerminalLocation: { Panel: 1, Editor: 2 },
     ExternalUriOpenerPriority: { None: 0, Option: 1, Default: 2, Preferred: 3 },
     CodeActionTriggerKind: { Invoke: 1, Automatic: 2 },
-    SignatureHelpTriggerKind: { Invoke: 1, TriggerCharacter: 2, ContentChange: 3 },
+    SignatureHelpTriggerKind: {
+      Invoke: 1,
+      TriggerCharacter: 2,
+      ContentChange: 3,
+    },
     SymbolTag: { Deprecated: 1 },
     CompletionItemTag: { Deprecated: 1 },
     NotebookCellKind: { Markup: 1, Code: 2 },
@@ -1195,8 +1258,19 @@ module.exports = function installTypes(api) {
     ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     ExtensionMode: { Production: 1, Development: 2, Test: 3 },
     UIKind: { Desktop: 1, Web: 2 },
-    ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
-    TerminalExitReason: { Unknown: 0, Shutdown: 1, Process: 2, User: 3, Extension: 4 },
+    ColorThemeKind: {
+      Light: 1,
+      Dark: 2,
+      HighContrast: 3,
+      HighContrastLight: 4,
+    },
+    TerminalExitReason: {
+      Unknown: 0,
+      Shutdown: 1,
+      Process: 2,
+      User: 3,
+      Extension: 4,
+    },
     TextDocumentChangeReason: { Undo: 1, Redo: 2 },
     SyntaxTokenType: { Other: 0, Comment: 1, String: 2, RegEx: 3 },
     NotebookEditorRevealType: {

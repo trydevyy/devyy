@@ -20,7 +20,9 @@ import { activateExtensionLanguage } from "./extensionHost";
 import type { Position, LspDiagnostic } from "./types";
 export const native = isTauri();
 export { invoke };
-export const listen: typeof listenNative = native ? listenNative : async () => () => {};
+export const listen: typeof listenNative = native
+  ? listenNative
+  : async () => () => {};
 interface ServerCapabilities {
   semanticTokensProvider?: {
     legend?: { tokenTypes: string[]; tokenModifiers: string[] };

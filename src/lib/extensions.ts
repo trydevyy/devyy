@@ -248,8 +248,7 @@ export async function extensionSnippets(language: string) {
               detail: item.description ?? name,
             });
         }
-      } catch {
-      }
+      } catch {}
     }
   return snippets;
 }

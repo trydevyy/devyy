@@ -156,7 +156,8 @@ export function buildMarkStyle(opts?: DecorationRenderOptions): string {
   if (opts.borderRadius) parts.push(`border-radius: ${opts.borderRadius}`);
   if (opts.fontStyle) parts.push(`font-style: ${opts.fontStyle}`);
   if (opts.fontWeight) parts.push(`font-weight: ${opts.fontWeight}`);
-  if (opts.textDecoration) parts.push(`text-decoration: ${opts.textDecoration}`);
+  if (opts.textDecoration)
+    parts.push(`text-decoration: ${opts.textDecoration}`);
   if (opts.cursor) parts.push(`cursor: ${opts.cursor}`);
   if (opts.opacity) parts.push(`opacity: ${opts.opacity}`);
   if (opts.letterSpacing) parts.push(`letter-spacing: ${opts.letterSpacing}`);
@@ -276,7 +277,11 @@ export function matchesDocPath(
       if (/^\/[a-z]:\//i.test(norm2)) norm2 = norm2.slice(1);
     } catch {}
   }
-  if (norm1 === norm2 || norm2.endsWith("/" + norm1) || norm1.endsWith("/" + norm2)) {
+  if (
+    norm1 === norm2 ||
+    norm2.endsWith("/" + norm1) ||
+    norm1.endsWith("/" + norm2)
+  ) {
     return true;
   }
   return false;
@@ -296,10 +301,16 @@ export function computeExtensionDecorations(
   decorations: RangeSet<Decoration>;
   gutterMarkers: RangeSet<GutterMarker>;
 } {
-  const markDecorations: Array<{ from: number; to: number; value: Decoration }> =
-    [];
-  const gutterMarkers: Array<{ from: number; to: number; value: GutterMarker }> =
-    [];
+  const markDecorations: Array<{
+    from: number;
+    to: number;
+    value: Decoration;
+  }> = [];
+  const gutterMarkers: Array<{
+    from: number;
+    to: number;
+    value: GutterMarker;
+  }> = [];
 
   for (const [targetUri, fileMap] of documentDecorations.entries()) {
     if (!matchesDocPath(docPath, targetUri, root)) continue;
@@ -315,7 +326,10 @@ export function computeExtensionDecorations(
             : null);
         if (!range) continue;
 
-        const startLine = Math.max(1, Math.min(range.start.line + 1, doc.lines));
+        const startLine = Math.max(
+          1,
+          Math.min(range.start.line + 1, doc.lines),
+        );
         const endLine = Math.max(1, Math.min(range.end.line + 1, doc.lines));
         const lineStart = doc.line(startLine);
         const lineEnd = doc.line(endLine);
@@ -425,7 +439,10 @@ export function getExtensionDecorationHover(
             : null);
         if (!range) continue;
 
-        const startLine = Math.max(1, Math.min(range.start.line + 1, doc.lines));
+        const startLine = Math.max(
+          1,
+          Math.min(range.start.line + 1, doc.lines),
+        );
         const endLine = Math.max(1, Math.min(range.end.line + 1, doc.lines));
         const lineStart = doc.line(startLine);
         const lineEnd = doc.line(endLine);

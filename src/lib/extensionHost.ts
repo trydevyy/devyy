@@ -174,26 +174,31 @@ async function subscribe() {
         }
         if (p.method === "experimental/serverStatus" && value) {
           const key = `lsp-status:${p.language}`;
-          const unhealthy = value.health === "error" || value.health === "warning";
+          const unhealthy =
+            value.health === "error" || value.health === "warning";
           if (unhealthy) {
-            extensionNotice(value.message || `${p.language} language server reported a ${value.health}.`, value.health!);
+            extensionNotice(
+              value.message ||
+                `${p.language} language server reported a ${value.health}.`,
+              value.health!,
+            );
             snapshot.statusItems = { ...snapshot.statusItems };
             delete snapshot.statusItems[key];
           } else {
-          snapshot.statusItems = {
-            ...snapshot.statusItems,
-            [key]: {
-              text: `${value.quiescent === false ? "$(sync~spin) " : ""}${p.language}`,
-              detail: value.message,
-              tooltip: value.message ?? p.language,
-              severity:
-                value.health === "error"
-                  ? 2
-                  : value.health === "warning"
-                    ? 1
-                    : 0,
-            },
-          };
+            snapshot.statusItems = {
+              ...snapshot.statusItems,
+              [key]: {
+                text: `${value.quiescent === false ? "$(sync~spin) " : ""}${p.language}`,
+                detail: value.message,
+                tooltip: value.message ?? p.language,
+                severity:
+                  value.health === "error"
+                    ? 2
+                    : value.health === "warning"
+                      ? 1
+                      : 0,
+              },
+            };
           }
           publish();
         }
@@ -262,13 +267,21 @@ async function subscribe() {
         if (typeof p.key !== "string" || !p.key) return;
         if (p.visible !== false && (p.severity === 1 || p.severity === 2)) {
           extensionNotice(
-            String(p.detail || (typeof p.tooltip === "string" ? p.tooltip : "") || p.text || "Extension needs attention"),
+            String(
+              p.detail ||
+                (typeof p.tooltip === "string" ? p.tooltip : "") ||
+                p.text ||
+                "Extension needs attention",
+            ),
             p.severity === 2 ? "error" : "warning",
           );
         }
         snapshot.statusItems = updateExtensionStatusItem(
           snapshot.statusItems,
-          p as unknown as ExtensionStatusItem & { key: string; visible?: boolean },
+          p as unknown as ExtensionStatusItem & {
+            key: string;
+            visible?: boolean;
+          },
         );
         publish();
       } else if (message.event === "statusMessage") {
