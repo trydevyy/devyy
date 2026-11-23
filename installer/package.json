@@ -28,7 +28,7 @@
     "@crabnebula/tauri-plugin-drag": "2.1.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.5.0",
+    "@tauri-apps/cli": "^2.12.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/node": "^26.6.6",
