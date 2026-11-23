@@ -48,8 +48,10 @@ export interface AICheckpoint {
 export const AGENT_MODE_PROMPTS: Record<AIAgentMode, string> = {
   ask: "You are Devyy in Ask Mode. Explore, understand, and explain the codebase or architectural questions clearly. Use search and read tools freely. Do not propose code modifications or execute destructive terminal operations.",
   plan: "You are Devyy in Plan Mode. Carefully evaluate options and produce a structured, step-by-step implementation plan. Define explicit milestones, dependencies, and testing verification checkpoints before any code is written.",
-  agent: "You are Devyy in Agent Mode. Autonomously execute the task: read implementation, write and modify code with focused proposals, run non-interactive terminal commands (cargo, npm, tests), verify all changes, and resolve errors before completion.",
-  review: "You are Devyy in Review Mode. Thoroughly inspect recent diffs and changes for potential regressions, bugs, type safety flaws, performance pitfalls, and missing test coverage. Deliver a clean, structured code review report.",
+  agent:
+    "You are Devyy in Agent Mode. Autonomously execute the task: read implementation, write and modify code with focused proposals, run non-interactive terminal commands (cargo, npm, tests), verify all changes, and resolve errors before completion.",
+  review:
+    "You are Devyy in Review Mode. Thoroughly inspect recent diffs and changes for potential regressions, bugs, type safety flaws, performance pitfalls, and missing test coverage. Deliver a clean, structured code review report.",
 };
 
 export interface AIProvider {
@@ -255,8 +257,7 @@ function savedConversations(): AIConversation[] {
     if (data.some((chat) => chat?.providerId === "codex")) {
       try {
         localStorage.setItem("devyy.ai.chats", JSON.stringify(chats));
-      } catch {
-      }
+      } catch {}
     }
     return chats;
   } catch {
@@ -348,8 +349,7 @@ function update(patch: Partial<AIState>) {
           ),
         ),
       );
-    } catch {
-    }
+    } catch {}
   listeners.forEach((fn) => fn());
 }
 export const aiSnapshot = () => state;
@@ -818,7 +818,10 @@ export async function sendAIMessage(
   assistant.mode = currentMode;
   const modeInstruction = AGENT_MODE_PROMPTS[currentMode];
   const lastUserMsg = chat.messages[chat.messages.length - 1];
-  const skillsContext = getActiveSkillsPrompt(lastUserMsg?.content ?? "", chatId);
+  const skillsContext = getActiveSkillsPrompt(
+    lastUserMsg?.content ?? "",
+    chatId,
+  );
 
   const requestId = crypto.randomUUID();
   const providerId = chat.providerId;
@@ -1058,8 +1061,7 @@ export async function aiAccount(
             "Could not open the sign-in browser. Check your default browser and try again.",
         });
       });
-    } catch {
-    }
+    } catch {}
   });
   try {
     const account = await invoke<Record<string, unknown>>("ai_account", {

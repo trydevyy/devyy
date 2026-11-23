@@ -198,9 +198,7 @@ export default function AIContextPicker({
                   <p className="ai-picker-status">No matching context</p>
                 )}
               </div>
-              {error && (
-                <ErrorToast message={error} />
-              )}
+              {error && <ErrorToast message={error} />}
               <footer>
                 <button
                   className="ai-text-action"

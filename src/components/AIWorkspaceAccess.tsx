@@ -24,7 +24,11 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ShieldCheck, X } from "lucide-react";
 import { invoke, native } from "../lib/native";
 const modes = { agent: "Agent", ask: "Ask", plan: "Plan", review: "Review" };
-const permissions = { attached: "Attachments only", read: "Read workspace", full: "Full workspace" };
+const permissions = {
+  attached: "Attachments only",
+  read: "Read workspace",
+  full: "Full workspace",
+};
 
 const optionPlacement = {
   side: "left",
@@ -33,7 +37,12 @@ const optionPlacement = {
   className: "agent-option-select-popup",
 } as const;
 
-export default function AIWorkspaceAccess({ root, agentMode, running, onAgentModeChange }: {
+export default function AIWorkspaceAccess({
+  root,
+  agentMode,
+  running,
+  onAgentModeChange,
+}: {
   root?: string;
   agentMode: AIAgentMode;
   running: boolean;
@@ -97,26 +106,57 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
   return (
     <>
       <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger ref={trigger} className="agent-options-trigger"
-          aria-label={`Agent options: ${modes[agentMode]}, ${permissions[mode as keyof typeof permissions] ?? permissions.attached}`}>
+        <Popover.Trigger
+          ref={trigger}
+          className="agent-options-trigger"
+          aria-label={`Agent options: ${modes[agentMode]}, ${permissions[mode as keyof typeof permissions] ?? permissions.attached}`}
+        >
           <span>{modes[agentMode]}</span>
-          <span className="agent-access-summary"><ShieldCheck size={13} />{permissions[mode as keyof typeof permissions] ?? permissions.attached}</span>
+          <span className="agent-access-summary">
+            <ShieldCheck size={13} />
+            {permissions[mode as keyof typeof permissions] ??
+              permissions.attached}
+          </span>
           <ChevronDown size={12} />
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content className="agent-options-popover" aria-label="Agent options"
-            side="top" align="end" sideOffset={6} collisionPadding={12} data-escape-scope="active"
-            onCloseAutoFocus={(event) => { if (pending) event.preventDefault(); }}>
+          <Popover.Content
+            className="agent-options-popover"
+            aria-label="Agent options"
+            side="top"
+            align="end"
+            sideOffset={6}
+            collisionPadding={12}
+            data-escape-scope="active"
+            onCloseAutoFocus={(event) => {
+              if (pending) event.preventDefault();
+            }}
+          >
             <label>
               Mode
-              <Select popup={optionPlacement} aria-label="Agent mode" value={agentMode} disabled={running}
-                onChange={(event) => onAgentModeChange(event.target.value as AIAgentMode)}>
-                {Object.entries(modes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <Select
+                popup={optionPlacement}
+                aria-label="Agent mode"
+                value={agentMode}
+                disabled={running}
+                onChange={(event) =>
+                  onAgentModeChange(event.target.value as AIAgentMode)
+                }
+              >
+                {Object.entries(modes).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </Select>
             </label>
             <label>
               Workspace permissions
-              <Select popup={optionPlacement} aria-label="Agent workspace access" value={mode} disabled={!root || !native || busy}
+              <Select
+                popup={optionPlacement}
+                aria-label="Agent workspace access"
+                value={mode}
+                disabled={!root || !native || busy}
                 onChange={(event) => {
                   const next = event.target.value;
                   if (next === "attached") void grant(next);
@@ -124,8 +164,13 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
                     setOpen(false);
                     setPending(next);
                   }
-                }}>
-                {Object.entries(permissions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                }}
+              >
+                {Object.entries(permissions).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </Select>
             </label>
           </Popover.Content>
@@ -201,9 +246,7 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
                   provider. Changes require diff review. Access lasts for this
                   Devyy session and can be revoked here.
                 </p>
-                {error && (
-                  <ErrorToast message={error} />
-                )}
+                {error && <ErrorToast message={error} />}
                 <footer>
                   <button
                     className="setting-action"
@@ -230,9 +273,7 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
         </AnimatePresence>,
         document.body,
       )}
-      {error && !pending && (
-        <ErrorToast message={error} />
-      )}
+      {error && !pending && <ErrorToast message={error} />}
     </>
   );
 }

@@ -129,8 +129,8 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
               </button>
             </div>
             <p className="muted">
-              Paste a <code>SKILL.md</code> file to review its instructions
-              and declared tools before installing it.
+              Paste a <code>SKILL.md</code> file to review its instructions and
+              declared tools before installing it.
             </p>
             {review ? (
               <div className="skill-review">

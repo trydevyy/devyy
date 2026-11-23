@@ -151,7 +151,9 @@ export default function AIProviders() {
           <header className="ai-providers-toolbar">
             <div className="ai-providers-title">
               <strong>AI providers</strong>
-              <small>Choose a provider to set up its connection and default model.</small>
+              <small>
+                Choose a provider to set up its connection and default model.
+              </small>
             </div>
             <span />
             {checked && (
@@ -246,7 +248,11 @@ export default function AIProviders() {
                   );
                 })}
               </div>
-              <button className="ai-add-provider" aria-label="Add AI provider" onClick={add}>
+              <button
+                className="ai-add-provider"
+                aria-label="Add AI provider"
+                onClick={add}
+              >
                 <Plus size={15} /> Add provider
               </button>
             </nav>

@@ -26,7 +26,11 @@ import {
   canonicalAIExtensionId,
 } from "../lib/aiExtensions";
 import { useExtensions } from "../lib/extensions";
-import { hostRequest, useExtensionHost, type HostEvent } from "../lib/extensionHost";
+import {
+  hostRequest,
+  useExtensionHost,
+  type HostEvent,
+} from "../lib/extensionHost";
 import ResizeHandle from "./ResizeHandle";
 import ExtensionWebviews from "./ExtensionWebviews";
 import AIChatPanel from "./AIChatPanel";
@@ -56,9 +60,9 @@ export default function AIWorkspace({
 }) {
   const installed = useExtensions(),
     host = useExtensionHost();
-  const [open, setOpen] = useState(() =>
-    new URLSearchParams(location.search).get("showcase") === "agent",
-  ),
+  const [open, setOpen] = useState(
+      () => new URLSearchParams(location.search).get("showcase") === "agent",
+    ),
     [selection, setSelection] = useState("chat"),
     [width, setWidth] = useState(() => {
       try {

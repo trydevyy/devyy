@@ -415,9 +415,7 @@ export default function AIModelPicker({
                       models
                     </div>
                   )}
-                  {error && (
-                    <ErrorToast message={error} />
-                  )}
+                  {error && <ErrorToast message={error} />}
                   {!busy && !error && !options.length && (
                     <p className="ai-picker-status">
                       {onlyFavorites ? "No favorite models" : "No models found"}

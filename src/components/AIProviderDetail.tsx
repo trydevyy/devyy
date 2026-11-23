@@ -765,24 +765,45 @@ export default function AIProviderDetail({
                 aria-label="Model"
                 value={form.model}
                 onOpenChange={(open) => {
-                  if (open && native && !busy && !onSaved && !runtimeMissing && !runtimeChecking &&
-                      (!accountProvider || connected) && !state.models[provider.id]) {
+                  if (
+                    open &&
+                    native &&
+                    !busy &&
+                    !onSaved &&
+                    !runtimeMissing &&
+                    !runtimeChecking &&
+                    (!accountProvider || connected) &&
+                    !state.models[provider.id]
+                  ) {
                     void action("catalog", () => discoverAIModels(provider.id));
                   }
                 }}
                 onChange={(event) => patch({ model: event.target.value })}
               >
-                <option value="">{providerDefault ? "Provider default" : "Choose a model"}</option>
-                {form.model && !state.models[provider.id]?.some((model) => model.id === form.model) && (
-                  <option value={form.model}>{form.model}</option>
+                <option value="">
+                  {providerDefault ? "Provider default" : "Choose a model"}
+                </option>
+                {form.model &&
+                  !state.models[provider.id]?.some(
+                    (model) => model.id === form.model,
+                  ) && <option value={form.model}>{form.model}</option>}
+                {busy === "catalog" && (
+                  <option value="__loading" disabled>
+                    Loading models...
+                  </option>
                 )}
-                {busy === "catalog" && <option value="__loading" disabled>Loading models...</option>}
                 {(state.models[provider.id] ?? []).map((model) => (
-                  <option key={model.id} value={model.id}>{model.name || model.id}</option>
+                  <option key={model.id} value={model.id}>
+                    {model.name || model.id}
+                  </option>
                 ))}
               </Select>
             )}
-            <button type="button" className="ai-text-action" onClick={() => setEnterModel(!enterModel)}>
+            <button
+              type="button"
+              className="ai-text-action"
+              onClick={() => setEnterModel(!enterModel)}
+            >
               {enterModel ? "Use model list" : "Enter model ID"}
             </button>
           </div>
