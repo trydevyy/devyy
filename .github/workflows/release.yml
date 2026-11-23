@@ -1,0 +1,133 @@
+name: Release Devyy
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devyy-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check tag and package versions
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          ref = os.environ["RELEASE_REF"]
+          match = re.fullmatch(
+              r"refs/tags/v((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)",
+              ref,
+          )
+          if not match:
+              raise SystemExit("Select an existing release tag such as v0.1.0 or v0.1.0-rc.1.")
+          version = match.group(1)
+          files = (
+              "package.json",
+              "src-tauri/tauri.conf.json",
+              "src-tauri/Cargo.toml",
+              "installer/package.json",
+              "installer/src-tauri/tauri.conf.json",
+              "installer/src-tauri/Cargo.toml",
+          )
+          for filename in files:
+              content = Path(filename).read_text(encoding="utf-8")
+              actual = (tomllib.loads(content)["package"] if filename.endswith(".toml")
+                        else json.loads(content))["version"]
+              if actual != version:
+                  raise SystemExit(f"{filename} declares {actual}, but the tag requires {version}.")
+          PY
+
+  build:
+    needs: version
+    uses: ./.github/workflows/desktop.yml
+    with:
+      release_build: true
+    secrets:
+      HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
+      DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
+      DEVYY_FEEDBACK_WEBHOOK_URL: ${{ secrets.DEVYY_FEEDBACK_WEBHOOK_URL }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: devyy-package-*
+          path: packages
+      - name: Assemble and verify release assets
+        shell: bash
+        run: |
+          shopt -s nullglob globstar
+          mkdir release
+          stage() {
+            local platform="$1" pattern="$2"
+            local matches=("packages/devyy-package-$platform"/**/$pattern)
+            if (( ${#matches[@]} != 1 )); then
+              echo "Expected one $pattern from $platform, found ${#matches[@]}."
+              exit 1
+            fi
+            local filename="${matches[0]##*/}"
+            test ! -e "release/$filename"
+            cp -- "${matches[0]}" "release/$filename"
+          }
+          version="${RELEASE_TAG#v}"
+          for platform in windows-x64 windows-x86 windows-arm64; do
+            stage "$platform" "Devyy-Setup-$version-$platform.exe"
+            stage "$platform" "Devyy-$version-$platform.exe"
+          done
+          for platform in macos-x64 macos-arm64; do
+            stage "$platform" "Devyy-Setup-$version-$platform.dmg"
+            stage "$platform" "Devyy-$version-$platform.app.zip"
+          done
+          for platform in linux-x64 linux-arm64; do
+            stage "$platform" "Devyy-Setup-$version-$platform.AppImage"
+            stage "$platform" "Devyy-$version-$platform.AppImage"
+            stage "$platform" "Devyy-$version-$platform.deb"
+            stage "$platform" "Devyy-$version-$platform"
+          done
+          (cd release && sha256sum -- * > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - name: Upload to a draft, then publish
+        shell: bash
+        run: |
+          if draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$draft" != true ]]; then
+              echo "Release $RELEASE_TAG is already published."
+              exit 1
+            fi
+          else
+            options=(--verify-tag --draft --generate-notes --title "Devyy $RELEASE_TAG")
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              options+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${options[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi
