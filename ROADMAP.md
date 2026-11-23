@@ -1,6 +1,15 @@
-# Devyy compatibility roadmap
+# Devyy roadmap
 
-Updated 2026-11-14. This is a work list, not a claim of complete VS Code compatibility.
+## Desktop priorities
+
+- Validate packaged editor and installer flows on every release platform. Linux development and AppImage launches have been exercised on CachyOS with NVIDIA Wayland. Broader distribution coverage and Windows and macOS release runs remain part of the release gate.
+- Add Windows signing and macOS signing and notarization before claiming verified publisher installs.
+- Exercise crash-report consent and recovery across native webviews. Expand diagnostic coverage for failures that currently exit before a report can be saved.
+- Publish and maintain a tested extension compatibility matrix with pinned extension versions and platform-specific results.
+
+## Extension compatibility
+
+Devyy supports a growing subset of the VS Code extension API. Use the inventory below to distinguish shipped behavior from planned integration.
 
 Recent reliability work:
 
