@@ -99,10 +99,6 @@ jobs:
             stage "$platform" "Devyy-Setup-$version-$platform.exe"
             stage "$platform" "Devyy-$version-$platform.exe"
           done
-          for platform in macos-x64 macos-arm64; do
-            stage "$platform" "Devyy-Setup-$version-$platform.dmg"
-            stage "$platform" "Devyy-$version-$platform.app.zip"
-          done
           for platform in linux-x64 linux-arm64; do
             stage "$platform" "Devyy-Setup-$version-$platform.AppImage"
             stage "$platform" "Devyy-$version-$platform.AppImage"

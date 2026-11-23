@@ -39,10 +39,6 @@ jobs:
             target: i686-pc-windows-msvc
           - os: windows-11-arm
             artifact: windows-arm64
-          - os: macos-15
-            artifact: macos-arm64
-          - os: macos-15-intel
-            artifact: macos-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
