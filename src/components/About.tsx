@@ -18,7 +18,6 @@ import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Asterisk, ArrowUpRight, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   getBuildInfo,
   checkUpdates,
@@ -26,7 +25,11 @@ import {
   type UpdateStatus,
 } from "../lib/buildInfo";
 import { native } from "../lib/native";
-export default function About() {
+export default function About({
+  onViewUpdate,
+}: {
+  onViewUpdate: (url: string) => Promise<void>;
+}) {
   const [info, setInfo] = useState<BuildInfo>();
   const [error, setError] = useState("");
   const [update, setUpdate] = useState<UpdateStatus>();
@@ -137,26 +140,21 @@ export default function About() {
         </button>
         {update?.status === "available" && update.url && (
           <button
-            className="setting-action primary"
+            className="setting-action about-release-button"
             aria-label="View release"
-            onClick={() =>
-              void openUrl(update.url!).catch(() =>
-                toast.error("Could not open release"),
-              )
-            }
+            onClick={() => update.url && void onViewUpdate(update.url)}
           >
-            Update to v{update.version}
+            Get v{update.version}
             <ArrowUpRight size={13} />
           </button>
-
         )}
         <button
           className="setting-action"
           disabled={!info}
           onClick={() =>
             void writeClipboardText(
-                `devyy ${info!.version}\nBuild ${info!.revision} (${info!.arch})\nBuilt ${date}\n${info!.os} ${info!.osBuild}`,
-              )
+              `devyy ${info!.version}\nBuild ${info!.revision} (${info!.arch})\nBuilt ${date}\n${info!.os} ${info!.osBuild}`,
+            )
               .then(() => toast.success("App details copied"))
               .catch(() => toast.error("Could not copy app details"))
           }
