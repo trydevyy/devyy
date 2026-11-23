@@ -5,7 +5,6 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   ArrowLeft,
@@ -18,6 +17,7 @@ import {
   Minus,
   Monitor,
   Pencil,
+  Pointer,
   Trash2,
   X,
 } from "lucide-react";
@@ -31,6 +31,8 @@ interface Info {
   directory: string;
   uninstall: boolean;
   hasPayload: boolean;
+  feedbackAvailable?: boolean;
+  explorerContextMenu?: boolean;
   installed: boolean;
   macSource?: string;
 }
@@ -52,6 +54,7 @@ function App() {
   const [directory, setDirectory] = useState("");
   const [desktop, setDesktop] = useState(true),
     [menu, setMenu] = useState(true),
+    [explorerContextMenu, setExplorerContextMenu] = useState(true),
     [editing, setEditing] = useState(false),
     [validating, setValidating] = useState(false);
   const pathInput = useRef<HTMLInputElement>(null);
@@ -66,6 +69,7 @@ function App() {
   const [reason, setReason] = useState(""),
     [feedback, setFeedback] = useState(""),
     [copied, setCopied] = useState(false),
+    [sendingFeedback, setSendingFeedback] = useState(false),
     [license, setLicense] = useState(false);
   const busy = step === "working",
     isMac = info?.platform === "macos" && !info.uninstall;
@@ -126,6 +130,7 @@ function App() {
         if (active) {
           setInfo(value);
           setDirectory(value.directory);
+          setExplorerContextMenu(value.explorerContextMenu ?? true);
           setStep(value.uninstall ? "remove" : "location");
         }
       })
@@ -170,7 +175,7 @@ function App() {
       else if (isMac) await invoke("installer_macos_install");
       else
         await invoke("installer_install", {
-          options: { directory, desktop, menu },
+          options: { directory, desktop, menu, ...(info?.platform === "windows" && { explorerContextMenu }) },
         });
       setProgress({
         phase: "done",
@@ -390,6 +395,20 @@ function App() {
                       onChange={(event) => setMenu(event.target.checked)}
                     />
                   </label>
+                  {info.platform === "windows" && (
+                    <label className={explorerContextMenu ? "enabled" : ""}>
+                      <span className="choice-icon"><Pointer size={24} /></span>
+                      <span>
+                        <strong>Open in Devyy</strong>
+                        <small>Show in the File Explorer context menu</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={explorerContextMenu}
+                        onChange={(event) => setExplorerContextMenu(event.target.checked)}
+                      />
+                    </label>
+                  )}
                 </div>
               </>
             ) : step === "licenses" ? (
@@ -492,7 +511,7 @@ function App() {
                     setFeedback(event.target.value);
                     setCopied(false);
                   }}
-                  maxLength={8000}
+                  maxLength={800}
                   placeholder="What would make Devyy better for you?"
                 />
                 <div className="feedback-actions">
@@ -507,7 +526,11 @@ function App() {
                     <Copy size={13} />
                     {copied ? "Copied" : "Copy feedback"}
                   </button>
-                  <span>Sharing opens a GitHub draft for you to review.</span>
+                  <span>
+                    {info.feedbackAvailable
+                      ? "Send your feedback to the Devyy team."
+                      : "You can copy your feedback from this build."}
+                  </span>
                 </div>
               </>
             ) : (
@@ -562,27 +585,38 @@ function App() {
               <button className="secondary" onClick={close}>
                 {info?.uninstall ? "Skip feedback" : "Done"}
               </button>
-              <button
-                className="primary"
-                disabled={info?.uninstall && !reason && !feedback.trim()}
-                onClick={() => {
-                  if (info?.uninstall)
-                    void openUrl(
-                      "https://github.com/trydevyy/devyy/issues/new?" +
-                        new URLSearchParams({
-                          title: "Devyy feedback",
-                          body: feedbackText,
-                        }),
-                    ).catch((error) => setError(String(error)));
-                  else
-                    void invoke("installer_launch")
-                      .then(close)
-                      .catch((error) => setError(String(error)));
-                }}
-              >
-                {info?.uninstall ? "Share feedback" : "Launch Devyy"}
-                <ArrowRight size={15} />
-              </button>
+              {(!info?.uninstall || info.feedbackAvailable) && (
+                <button
+                  className="primary"
+                  disabled={
+                    info?.uninstall &&
+                    (sendingFeedback || (!reason && !feedback.trim()))
+                  }
+                  onClick={() => {
+                    if (info?.uninstall) {
+                      setSendingFeedback(true);
+                      setError("");
+                      void invoke("installer_send_feedback", {
+                        reason,
+                        feedback,
+                      })
+                        .then(close)
+                        .catch((error) => setError(String(error)))
+                        .finally(() => setSendingFeedback(false));
+                    } else
+                      void invoke("installer_launch")
+                        .then(close)
+                        .catch((error) => setError(String(error)));
+                  }}
+                >
+                  {info?.uninstall
+                    ? sendingFeedback
+                      ? "Sending..."
+                      : "Send feedback"
+                    : "Launch Devyy"}
+                  <ArrowRight size={15} />
+                </button>
+              )}
             </>
           ) : step === "remove" ? (
             <>

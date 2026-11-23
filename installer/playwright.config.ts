@@ -4,12 +4,14 @@ export default defineConfig({
   fullyParallel: true,
   use: {
     baseURL: "http://127.0.0.1:1431",
-    channel: "chrome",
+    channel: process.env.PLAYWRIGHT_CHANNEL ?? (process.platform === "win32" ? "msedge" : "chrome"),
     headless: true,
     viewport: { width: 820, height: 620 },
   },
   webServer: {
-    command: "npm run dev",
+    command: process.platform === "win32"
+      ? "npm run build && npx vite preview --host 127.0.0.1 --port 1431 --strictPort"
+      : "npm run dev",
     url: "http://127.0.0.1:1431",
     reuseExistingServer: true,
   },

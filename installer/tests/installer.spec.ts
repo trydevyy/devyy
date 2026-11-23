@@ -49,6 +49,7 @@ async function fixture(page: Page, uninstall = false, platform = "windows") {
                 uninstall,
                 installed: uninstall,
                 hasPayload: true,
+                feedbackAvailable: uninstall,
               };
             if (
               command === "installer_validate_directory" &&
@@ -103,6 +104,9 @@ test("installer passes location and shortcut choices, shows real progress and la
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Shortcuts" })).toBeVisible();
   await page.getByRole("checkbox", { name: /Desktop shortcut/ }).uncheck();
+  const explorer = page.getByRole("checkbox", { name: /Open in Devyy/ });
+  await expect(explorer).toBeChecked();
+  await explorer.uncheck();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Install Devyy" }),
@@ -143,6 +147,7 @@ test("installer passes location and shortcut choices, shows real progress and la
     directory: "D:\\Apps\\Devyy",
     desktop: false,
     menu: true,
+    explorerContextMenu: false,
   });
   await page.evaluate(() => (window as any).installerFixture.finish());
   await expect(
@@ -157,7 +162,7 @@ test("installer passes location and shortcut choices, shows real progress and la
     ),
   ).toBe(true);
 });
-test("uninstall finishes before optional feedback and opens a user-reviewed draft", async ({
+test("uninstall sends optional feedback only after an explicit request", async ({
   page,
 }) => {
   await fixture(page, true);
@@ -170,7 +175,7 @@ test("uninstall finishes before optional feedback and opens a user-reviewed draf
     page.getByRole("heading", { name: /Thanks for giving/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Share feedback", exact: true }),
+    page.getByRole("button", { name: "Send feedback", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "Performance", exact: true }).click();
   await page
@@ -184,23 +189,23 @@ test("uninstall finishes before optional feedback and opens a user-reviewed draf
   expect(
     await page.evaluate(() =>
       (window as any).installerFixture.calls.some(
-        (c: any) => c.command === "plugin:opener|open_url",
+        (c: any) => c.command === "installer_send_feedback",
       ),
     ),
   ).toBe(false);
   await page
-    .getByRole("button", { name: "Share feedback", exact: true })
+    .getByRole("button", { name: "Send feedback", exact: true })
     .click();
   await expect
     .poll(() =>
       page.evaluate(
         () =>
           (window as any).installerFixture.calls.find(
-            (c: any) => c.command === "plugin:opener|open_url",
-          )?.args.url,
+            (c: any) => c.command === "installer_send_feedback",
+          )?.args,
       ),
     )
-    .toContain("Performance");
+    .toMatchObject({ reason: "Performance", feedback: "Faster indexing would help." });
 });
 test("license dialog restores focus and handles keyboard dismissal", async ({
   page,
