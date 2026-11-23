@@ -53,6 +53,8 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --manifest-path installer/src-tauri/Cargo.toml
       - name: Build custom installer
+        env:
+          DEVYY_FEEDBACK_WEBHOOK_URL: ${{ secrets.DEVYY_FEEDBACK_WEBHOOK_URL }}
         run: node installer/scripts/release.mjs --skip-editor-build
       - uses: actions/upload-artifact@v4
         with:
