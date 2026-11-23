@@ -39,6 +39,7 @@ export default function HelpModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="modal-heading">
+          <Asterisk size={34} className="devyy-modal-logo" />
           <button
             className="icon-button"
             aria-label="Close help"
@@ -46,7 +47,6 @@ export default function HelpModal({
           >
             <X size={20} />
           </button>
-          <Asterisk size={34} className="devyy-modal-logo" />
         </div>
         <h2>Keyboard shortcuts</h2>
         <p className="muted">devyy 0.1</p>

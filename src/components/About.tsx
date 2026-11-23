@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Asterisk, ArrowUpRight, Copy, RefreshCw } from "lucide-react";
@@ -153,8 +154,7 @@ export default function About() {
           className="setting-action"
           disabled={!info}
           onClick={() =>
-            void navigator.clipboard
-              .writeText(
+            void writeClipboardText(
                 `devyy ${info!.version}\nBuild ${info!.revision} (${info!.arch})\nBuilt ${date}\n${info!.os} ${info!.osBuild}`,
               )
               .then(() => toast.success("App details copied"))

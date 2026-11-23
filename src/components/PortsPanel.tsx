@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import { createPortal } from "react-dom";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   Copy,
   ExternalLink,
   Globe,
   Lock,
-  MoreHorizontal,
   Plus,
   Radio,
   RefreshCw,
@@ -32,6 +32,7 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, listen, native } from "../lib/native";
 import { toast } from "sonner";
+import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
 import Select from "./ui/Select";
 import { DialogToastHost, showError } from "./ui/ErrorToast";
 import { useConfirm } from "./ui/Confirm";
@@ -48,6 +49,8 @@ export interface ForwardedTunnel {
   connected: boolean;
 }
 
+const PORT_STATUS_INTERVAL_MS = 10_000;
+
 export default function PortsPanel({
   onOpenAccount,
 }: {
@@ -57,7 +60,8 @@ export default function PortsPanel({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const profile = useAccountProfile();
-  const signedIn = Boolean(profile);
+  const account = profile?.email;
+  const signedIn = Boolean(account);
   const confirm = useConfirm();
   const [showAdd, setShowAdd] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -71,37 +75,56 @@ export default function PortsPanel({
   );
   const [newLabel, setNewLabel] = useState("");
 
-  async function refresh() {
-    if (!native || !signedIn) {
-      setTunnels([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const list = await accountRequest<ForwardedTunnel[]>("/tunnels");
-      setTunnels(Array.isArray(list) ? list : []);
-    } catch (cause) {
-      showError(cause);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const refreshVersion = useRef(0);
+  const polling = useRef(false);
+  const refresh = useCallback(
+    async (quiet = false) => {
+      const version = ++refreshVersion.current;
+      if (!native || !account) {
+        setTunnels([]);
+        setLoading(false);
+        return;
+      }
+      if (!quiet) setLoading(true);
+      polling.current = true;
+      try {
+        const list = await accountRequest<ForwardedTunnel[]>("/tunnels");
+        if (version === refreshVersion.current)
+          setTunnels(Array.isArray(list) ? list : []);
+      } catch (cause) {
+        if (!quiet && version === refreshVersion.current) showError(cause);
+      } finally {
+        if (version === refreshVersion.current) {
+          polling.current = false;
+          setLoading(false);
+        }
+      }
+    },
+    [account],
+  );
 
   useEffect(() => {
     void refresh();
-    let stops: (() => void)[] = [];
+    if (!native || !signedIn) return;
+    let stop: (() => void) | undefined;
     let disposed = false;
-    void listen("devyy-remote-changed", () => void refresh())
-      .then((stop) => {
-        if (disposed) stop();
-        else stops.push(stop);
+    void listen("devyy-remote-changed", () => void refresh(true))
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
       })
       .catch(showError);
+    const interval = window.setInterval(() => {
+      if (!polling.current) void refresh(true);
+    }, PORT_STATUS_INTERVAL_MS);
     return () => {
       disposed = true;
-      stops.forEach((s) => s());
+      refreshVersion.current++;
+      polling.current = false;
+      window.clearInterval(interval);
+      stop?.();
     };
-  }, [signedIn]);
+  }, [refresh, signedIn]);
 
   async function work(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -225,8 +248,7 @@ export default function PortsPanel({
   }
 
   function copyAddress(id: string, url: string) {
-    void navigator.clipboard
-      .writeText(url)
+    void writeClipboardText(url)
       .then(() => {
         setCopiedId(id);
         setTimeout(() => setCopiedId(null), 1800);
@@ -319,9 +341,11 @@ export default function PortsPanel({
               <button
                 className="port-address"
                 disabled={!port.connected}
-                title={port.visibility === "private"
-                  ? "Open in a browser signed in to your Devyy account"
-                  : port.url}
+                title={
+                  port.visibility === "private"
+                    ? "Open in a browser signed in to your Devyy account"
+                    : port.url
+                }
                 onClick={() => void openUrl(port.url).catch(showError)}
               >
                 <span>{port.url}</span>
@@ -343,55 +367,45 @@ export default function PortsPanel({
                   <Copy size={14} />
                 )}
               </button>
-              <details className="agent-thread-menu ports-row-menu">
-                <summary
-                  className="icon-button"
-                  aria-label={`Actions for port ${port.port}`}
+              <ActionMenu label={`Actions for port ${port.port}`}>
+                {!port.connected && (
+                  <ActionMenuItem
+                    disabled={busy}
+                    onClick={() => void reconnect(port)}
+                  >
+                    <RefreshCw size={13} /> Reconnect
+                  </ActionMenuItem>
+                )}
+                <ActionMenuItem
+                  disabled={busy}
+                  onClick={() => void toggleVisibility(port)}
                 >
-                  <MoreHorizontal size={16} />
-                </summary>
-                <div
-                  onClick={(event) =>
-                    event.currentTarget
-                      .closest("details")
-                      ?.removeAttribute("open")
-                  }
-                >
-                  {!port.connected && (
-                    <button
-                      disabled={busy}
-                      onClick={() => void reconnect(port)}
-                    >
-                      Reconnect
-                    </button>
+                  {port.visibility === "private" ? (
+                    <Globe size={13} />
+                  ) : (
+                    <Lock size={13} />
                   )}
-                  <button
-                    disabled={busy}
-                    onClick={() => void toggleVisibility(port)}
-                  >
-                    {port.visibility === "private" ? (
-                      <Globe size={13} />
-                    ) : (
-                      <Lock size={13} />
-                    )}
-                    {port.visibility === "private"
-                      ? "Make public"
-                      : "Make private"}
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => void toggleProtocol(port)}
-                  >
-                    Switch to {port.protocol === "http" ? "HTTPS" : "HTTP"}
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => void removeTunnel(port)}
-                  >
-                    <Trash2 size={13} /> Stop sharing
-                  </button>
-                </div>
-              </details>
+                  {port.visibility === "private"
+                    ? "Make public"
+                    : "Make private"}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  disabled={busy}
+                  onClick={() => void toggleProtocol(port)}
+                >
+                  <Radio size={13} />{" "}
+                  {port.protocol === "http"
+                    ? "Switch to HTTPS"
+                    : "Switch to HTTP"}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  danger
+                  disabled={busy}
+                  onClick={() => void removeTunnel(port)}
+                >
+                  <Trash2 size={13} /> Stop sharing
+                </ActionMenuItem>
+              </ActionMenu>
             </li>
           ))}
         </ul>
@@ -486,7 +500,7 @@ export default function PortsPanel({
                   className="button primary"
                   disabled={busy || !newPort}
                 >
-                  {busy ? "Connecting?" : "Forward port"}
+                  {busy ? "Connecting..." : "Forward port"}
                 </button>
               </div>
             </form>

@@ -149,14 +149,10 @@ export default function AIProviders() {
           }}
         >
           <header className="ai-providers-toolbar">
-            <strong>Providers</strong>
-            <button
-              className="icon-button"
-              aria-label="Add AI provider"
-              onClick={add}
-            >
-              <Plus size={15} />
-            </button>
+            <div className="ai-providers-title">
+              <strong>AI providers</strong>
+              <small>Choose a provider to set up its connection and default model.</small>
+            </div>
             <span />
             {checked && (
               <small>
@@ -177,7 +173,7 @@ export default function AIProviders() {
               ) : (
                 <RefreshCw size={13} />
               )}{" "}
-              Refresh all
+              Refresh sign-ins
             </button>
           </header>
           {(error || state.error) && (
@@ -250,7 +246,7 @@ export default function AIProviders() {
                   );
                 })}
               </div>
-              <button className="ai-add-provider" onClick={add}>
+              <button className="ai-add-provider" aria-label="Add AI provider" onClick={add}>
                 <Plus size={15} /> Add provider
               </button>
             </nav>

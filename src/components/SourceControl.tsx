@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import RepositorySections from "./RepositorySections";
 import Select from "./ui/Select";
@@ -438,8 +439,7 @@ export default function SourceControl({
                   className="icon-button"
                   aria-label={`Copy commit ${item.short}`}
                   onClick={() =>
-                    void navigator.clipboard
-                      .writeText(item.hash)
+                    void writeClipboardText(item.hash)
                       .catch(() => toast.error("Could not copy commit hash"))
                   }
                 >

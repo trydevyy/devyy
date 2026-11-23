@@ -14,9 +14,17 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, expect, it } from "vitest";
-import { clearStatusMessage, useExtensionHost } from "./extensionHost";
+import { clearStatusMessage, updateExtensionStatusItem, useExtensionHost } from "./extensionHost";
 
 describe("extension status message and items", () => {
+  it("replaces an extension status and ignores disposal of an older item", () => {
+    const first = updateExtensionStatusItem({}, { key: "fixture:initial", text: "Starting" });
+    const second = updateExtensionStatusItem(first, { key: "fixture:current", text: "Ready" });
+    const current = updateExtensionStatusItem(second, { key: "fixture:initial", text: "", visible: false });
+    expect(Object.keys(current)).toEqual(["fixture"]);
+    expect(current.fixture.text).toBe("Ready");
+    expect(updateExtensionStatusItem(current, { key: "fixture:current", text: "", visible: false })).toEqual({});
+  });
   it("exports clearStatusMessage", () => {
     expect(typeof clearStatusMessage).toBe("function");
     expect(() => clearStatusMessage()).not.toThrow();

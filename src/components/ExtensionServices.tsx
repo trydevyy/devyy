@@ -15,10 +15,10 @@
 
 import { AnimatePresence, useIsPresent } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { LoaderCircle, X } from "lucide-react";
 import { toast } from "sonner";
@@ -117,9 +117,9 @@ export default function ExtensionServices({
             await invoke("lsp_stop_language", { language: p.language });
             return true;
           case "clipboardRead":
-            return readText();
+            return readClipboardText();
           case "clipboardWrite":
-            await writeText(String(p.text));
+            await writeClipboardText(String(p.text));
             return null;
           case "openExternal":
             await openUrl(String(p.uri));
@@ -231,7 +231,11 @@ interface ProgressTask {
   language?: string;
   token?: string | number;
 }
-export function ExtensionProgress() {
+export function ExtensionProgress({
+  children,
+}: {
+  children: (active: ReadonlySet<string>) => ReactNode;
+}) {
   const [tasks, setTasks] = useState<ProgressTask[]>([]);
   useEffect(() => {
     const listener = (event: Event) => {
@@ -244,31 +248,20 @@ export function ExtensionProgress() {
       if (kind === "progressEnd")
         setTasks((old) => old.filter((task) => task.id !== payload.id));
       if (kind === "progressReport")
-        setTasks((old) =>
-          old.map((task) =>
-            task.id === payload.id
-              ? {
-                  ...task,
-                  message:
-                    typeof payload.message === "string"
-                      ? payload.message
-                      : task.message,
-                  percent:
-                    typeof payload.percent === "number"
-                      ? Math.max(0, Math.min(100, payload.percent))
-                      : typeof payload.increment === "number"
-                        ? Math.min(
-                            100,
-                            Math.max(
-                              0,
-                              (task.percent ?? 0) + payload.increment,
-                            ),
-                          )
-                        : task.percent,
-                }
-              : task,
-          ),
-        );
+        setTasks((old) => {
+          const task = old.find((item) => item.id === payload.id);
+          if (!task) return old;
+          const percent = typeof payload.percent === "number"
+            ? payload.percent
+            : typeof payload.increment === "number"
+              ? (task.percent ?? 0) + payload.increment
+              : task.percent;
+          return [...old.filter((item) => item.id !== task.id), {
+            ...task,
+            message: typeof payload.message === "string" ? payload.message : task.message,
+            percent: percent === undefined ? undefined : Math.max(0, Math.min(100, percent)),
+          }];
+        });
     };
     const reset = () => setTasks([]);
     window.addEventListener("devyy-extension-event", listener);
@@ -278,13 +271,19 @@ export function ExtensionProgress() {
       window.removeEventListener("devyy-extension-host-reset", reset);
     };
   }, []);
-  if (!tasks.length) return null;
+  const latest = new Map<string, ProgressTask>();
+  for (const task of tasks) {
+    const owner = task.extension === "rust" || task.extension === "rust-analyzer"
+      ? "rust-lang.rust-analyzer" : task.extension;
+    latest.set(owner, task);
+  }
   return (
-    <span className="extension-status-progress" aria-label="Extension progress">
-      {tasks.map((task) => (
+    <>
+      {latest.size > 0 && <span className="extension-status-progress" aria-label="Extension progress">
+      {[...latest].map(([owner, task]) => (
         <span
           className="extension-status-task"
-          key={task.id}
+          key={owner}
           title={[task.extension, task.title, task.message]
             .filter(Boolean)
             .join(": ")}
@@ -341,7 +340,9 @@ export function ExtensionProgress() {
           )}
         </span>
       ))}
-    </span>
+      </span>}
+      {children(new Set(latest.keys()))}
+    </>
   );
 }
 

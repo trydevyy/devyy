@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readClipboardText, writeClipboardText } from "./lib/clipboard";
 import {
   DesktopMenuBar,
   NativeWindowControls,
@@ -306,6 +307,7 @@ export default function App() {
     name: playground ? "playground" : "Open a project",
     files: demoEntries(initialDemo),
   });
+  const [activeServerId, setActiveServerId] = useState<string>();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set(["src"]),
   );
@@ -464,7 +466,6 @@ export default function App() {
   const [cursor, setCursor] = useState({ line: 1, col: 1 }),
     [dialog, setDialog] = useState<Dialog | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null),
-    [runCommand, setRunCommand] = useState("cargo run"),
     [pendingRun, setPendingRun] = useState<string | null>(null);
   const [lspStatus, setLspStatus] = useState<Record<string, string>>({}),
     [recent, setRecent] = useState<string[]>(() =>
@@ -677,7 +678,7 @@ export default function App() {
   async function copyOutput() {
     if (!formattedOutputText) return;
     try {
-      await navigator.clipboard.writeText(formattedOutputText);
+      await writeClipboardText(formattedOutputText);
       showToast.success("Output copied to clipboard");
     } catch (e) {
       showToast.error("Failed to copy output: " + String(e));
@@ -961,13 +962,37 @@ export default function App() {
       showToast.error(`Could not open dropped file: ${String(err)}`);
     }
   }
-  async function openFolder(path?: string, remoteName?: string) {
+  async function openFolder(
+    path?: string,
+    remoteName?: string,
+    remoteServerId?: string,
+  ) {
+    return changeWorkspace({ path, remoteName, remoteServerId });
+  }
+
+  async function changeWorkspace({
+    path,
+    remoteName,
+    remoteServerId,
+    disconnect = false,
+  }: {
+    path?: string;
+    remoteName?: string;
+    remoteServerId?: string;
+    disconnect?: boolean;
+  }) {
+    if (busyRef.current || (disconnect && !wsRef.current.remotePath))
+      return false;
+    const previousRoot = wsRef.current.root;
     if (
       debugSession.running &&
-      !(await ask("Stop debugging and open another folder?", {
-        title: "Stop debugging?",
-        confirmLabel: "Open folder",
-      }))
+      !(await ask(
+        disconnect ? "Stop debugging and disconnect?" : "Stop debugging and open another folder?",
+        {
+          title: "Stop debugging?",
+          confirmLabel: disconnect ? "Disconnect" : "Open folder",
+        },
+      ))
     )
       return false;
     if (busyRef.current) return false;
@@ -981,33 +1006,48 @@ export default function App() {
     if (
       dirty.size &&
       !(await ask(
-        "You have unsaved changes. Discard them and open another folder?",
+        disconnect
+          ? "You have unsaved changes. Discard them and disconnect?"
+          : "You have unsaved changes. Discard them and open another folder?",
         {
-          title: "Open another project?",
+          title: disconnect ? "Disconnect from SSH?" : "Open another project?",
           confirmLabel: "Discard changes",
           danger: true,
         },
       ))
     )
       return false;
-    const chosen =
-      path ??
-      (await open({
-        directory: true,
-        multiple: false,
-        title: "Open a project in devyy",
-      }));
-    if (typeof chosen !== "string") return false;
+    const chosen = disconnect
+      ? previousRoot
+      : (path ??
+        (await open({
+          directory: true,
+          multiple: false,
+          title: "Open a project in devyy",
+        })));
+    if (
+      typeof chosen !== "string" ||
+      busyRef.current ||
+      wsRef.current.root !== previousRoot
+    )
+      return false;
     busyRef.current = true;
     setWorkspaceScan(true);
     try {
-      const next = await invoke<Workspace>("open_workspace", { path: chosen });
+      const next: Workspace = disconnect
+        ? await invoke("close_ssh_workspace", { path: chosen }).then(() => ({
+            root: "demo",
+            name: playground ? "playground" : "Open a project",
+            files: demoEntries(demo),
+          }))
+        : await invoke<Workspace>("open_workspace", { path: chosen });
       if (remoteName) next.name = remoteName;
       const stopped = Promise.allSettled([invoke("debug_stop")]);
       clearLanguageServers();
       setBreakpoints({});
       setDebugSession({ running: false, path: null, line: null });
       setWorkspace(next);
+      setActiveServerId(remoteServerId);
       setExpandedFolders(new Set(["src"]));
       setSidebar(true);
       setMarkdownModes({});
@@ -1032,19 +1072,16 @@ export default function App() {
       setMatches([]);
       setPendingRun(null);
       setTerminalId(null);
-      if (!remoteName) setRecent((old) => {
+      if (!disconnect && !remoteName) setRecent((old) => {
         const list = [chosen, ...old.filter((p) => p !== chosen)].slice(0, 5);
         localStorage.setItem("devyy.recent", JSON.stringify(list));
         return list;
       });
-      setRunCommand(
-        next.files.some((f) => f.path === "Cargo.toml")
-          ? "cargo run"
-          : next.files.some((f) => f.path === "package.json")
-            ? "npm run dev"
-            : "",
-      );
       void syncExtensionHost(stopped).catch((error) => log(String(error)));
+      if (disconnect) {
+        log("Disconnected from SSH");
+        return true;
+      }
       log(`Opened ${next.root}`);
       void refreshGit();
       const first =
@@ -2911,22 +2948,26 @@ export default function App() {
       notify(e);
     }
   }
-  async function run() {
-    if (!native || workspace.root === "demo") {
+  async function run(command?: string) {
+    const { files, root } = wsRef.current;
+    const task = command ?? (files.some((file) => file.path === "Cargo.toml")
+      ? "cargo run"
+      : files.some((file) => file.path === "package.json") ? "npm run dev" : "");
+    if (!native || root === "demo") {
       notify("Open a local project in the desktop app to run commands.", false);
       return;
     }
-    if (!runCommand.trim()) {
+    if (!task.trim()) {
       setSection("run");
       showSidebar(true);
-      notify("Add a command in Run & build first.", false);
+      notify("No default task found. Choose a project task or open the terminal.", false);
       return;
     }
-    if (!(await saveAll())) return;
+    if (!(await saveAll()) || wsRef.current.root !== root) return;
     showPanel(true);
     setPanelTab("terminal");
     terminalGroup.current?.ensure();
-    setPendingRun(runCommand);
+    setPendingRun(task);
   }
   useEffect(() => {
     if (terminalId === null || !pendingRun) return;
@@ -3752,23 +3793,20 @@ export default function App() {
     if (!view) return;
     view.focus();
     try {
-      const clipboard = native
-        ? await import("@tauri-apps/plugin-clipboard-manager")
-        : navigator.clipboard;
       if (action === "paste") {
-        const text = await clipboard.readText();
+        const text = await readClipboardText();
         if (
           views.current.get(activeRef.current) === view &&
           !view.state.readOnly
         )
-          view.dispatch(view.state.replaceSelection(text ?? ""), {
+          view.dispatch(view.state.replaceSelection(text), {
             userEvent: "input.paste",
           });
       } else {
         const text = view.state.selection.ranges
           .map((r) => view.state.sliceDoc(r.from, r.to))
           .join("\n");
-        await clipboard.writeText(text);
+        await writeClipboardText(text);
         if (
           action === "cut" &&
           views.current.get(activeRef.current) === view &&
@@ -3783,8 +3821,7 @@ export default function App() {
     }
   }
   function copyPath(path: string, absolute = false) {
-    void navigator.clipboard
-      .writeText(
+    void writeClipboardText(
         absolute && workspace.root !== "demo"
           ? `${(workspace.remotePath ?? workspace.root).replace(/[\\/]$/, "")}/${path}`
           : path,
@@ -3829,7 +3866,7 @@ export default function App() {
         {
           label: `Copy relative paths (${selectedPaths.length})`,
           action: () =>
-            void navigator.clipboard.writeText(selectedPaths.join("\n")),
+            void writeClipboardText(selectedPaths.join("\n")),
         },
         {
           label: `Copy absolute paths (${selectedPaths.length})`,
@@ -3839,7 +3876,7 @@ export default function App() {
                 ? `${workspace.root.replace(/\/$/, "")}/${p}`
                 : p,
             );
-            void navigator.clipboard.writeText(abs.join("\n"));
+            void writeClipboardText(abs.join("\n"));
           },
         },
         {
@@ -3983,15 +4020,13 @@ export default function App() {
           separator: true,
           disabled: !window.getSelection()?.toString(),
           action: () =>
-            void navigator.clipboard
-              .writeText(window.getSelection()?.toString() ?? "")
+            void writeClipboardText(window.getSelection()?.toString() ?? "")
               .catch(notify),
         },
         {
           label: "Copy Markdown",
           action: () =>
-            void navigator.clipboard
-              .writeText(tab?.content ?? "")
+            void writeClipboardText(tab?.content ?? "")
               .catch(notify),
         },
       ]);
@@ -4009,8 +4044,7 @@ export default function App() {
         disabled: selection.empty,
         action: () => {
           const text = view.state.sliceDoc(selection.from, selection.to);
-          void navigator.clipboard
-            .writeText(text)
+          void writeClipboardText(text)
             .then(() =>
               view.dispatch({
                 changes: { from: selection.from, to: selection.to, insert: "" },
@@ -4023,15 +4057,13 @@ export default function App() {
         label: "Copy",
         disabled: selection.empty,
         action: () =>
-          void navigator.clipboard
-            .writeText(view.state.sliceDoc(selection.from, selection.to))
+          void writeClipboardText(view.state.sliceDoc(selection.from, selection.to))
             .catch(notify),
       },
       {
         label: "Paste",
         action: () =>
-          void navigator.clipboard
-            .readText()
+          void readClipboardText()
             .then((text) => view.dispatch(view.state.replaceSelection(text)))
             .catch(notify),
       },
@@ -4970,8 +5002,9 @@ export default function App() {
           {section === "remote" && (
             <div className="sidebar-content">
               <RemoteExplorer
-                activeLabel={workspace.remotePath ? workspace.name : undefined}
+                activeServerId={workspace.remotePath ? activeServerId : undefined}
                 onOpenFolder={openFolder}
+                onDisconnect={() => changeWorkspace({ disconnect: true })}
               />
             </div>
           )}
@@ -5110,9 +5143,7 @@ export default function App() {
                 {runMode === "run" && (
                   <RunPanel
                     workspace={workspace}
-                    command={runCommand}
-                    onChange={setRunCommand}
-                    onRun={() => void run()}
+                    onRun={(command) => void run(command)}
                   />
                 )}
                 <div
@@ -5860,15 +5891,13 @@ export default function App() {
                             {
                               label: "Copy Problem Message",
                               action: () =>
-                                void navigator.clipboard
-                                  .writeText(p.message)
+                                void writeClipboardText(p.message)
                                   .catch(notify),
                             },
                             {
                               label: "Copy Path",
                               action: () =>
-                                void navigator.clipboard
-                                  .writeText(p.path)
+                                void writeClipboardText(p.path)
                                   .catch(notify),
                             },
                           ]);

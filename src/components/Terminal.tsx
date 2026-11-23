@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import {
   forwardRef,
   useEffect,
@@ -222,8 +223,7 @@ export default forwardRef<
           (event.shiftKey && event.key === "Insert");
         if (isPaste) {
           event.preventDefault();
-          void navigator.clipboard
-            .readText()
+          void readClipboardText()
             .then((text) => {
               if (text) {
                 term.paste(text);
@@ -242,8 +242,7 @@ export default forwardRef<
           const text = term.getSelection();
           if (text) {
             event.preventDefault();
-            void navigator.clipboard
-              .writeText(text)
+            void writeClipboardText(text)
               .catch(callback.current.onError);
             return false;
           }
@@ -262,8 +261,7 @@ export default forwardRef<
     const selection = term.onSelectionChange(() => {
       const text = term.getSelection();
       if (copySelection.current && text)
-        void navigator.clipboard
-          .writeText(text)
+        void writeClipboardText(text)
           .catch(callback.current.onError);
     });
     let frame = 0;
@@ -346,25 +344,25 @@ export function terminalTheme(theme: "paper" | "midnight" | "monochrome") {
   const light = theme === "paper";
   const oled = theme === "monochrome";
   return {
-    background: light ? "#f5f4f7" : oled ? "#000000" : "#1e1e21",
+    background: light ? "#f0eff3" : oled ? "#0a0a0a" : "#2a2b2e",
     foreground: light ? "#494453" : oled ? "#eaeaea" : "#d7d3de",
     cursor: light ? "#80659f" : oled ? "#ffffff" : "#b9a2d7",
     selectionBackground: light ? "#dcd3e8" : oled ? "#2a2a2a" : "#494053",
-    black: oled ? "#000000" : "#28262e",
-    red: oled ? "#d8d8d8" : "#d28c8d",
-    green: oled ? "#cccccc" : "#9eb394",
-    yellow: oled ? "#e0e0e0" : "#c5b189",
-    blue: oled ? "#d0d0d0" : "#8eaac6",
-    magenta: oled ? "#e8e8e8" : "#b499cd",
-    cyan: oled ? "#c0c0c0" : "#8eafb5",
-    white: oled ? "#ffffff" : "#ddd9e4",
-    brightBlack: oled ? "#444444" : "#797480",
-    brightRed: oled ? "#eeeeee" : "#e4a1a1",
-    brightGreen: oled ? "#e4e4e4" : "#b0c8a5",
-    brightYellow: oled ? "#f4f4f4" : "#ddc79a",
-    brightBlue: oled ? "#dedede" : "#a8c0dd",
-    brightMagenta: oled ? "#f8f8f8" : "#cab1df",
-    brightCyan: oled ? "#d4d4d4" : "#a3c5cb",
+    black: "#28262e",
+    red: "#d28c8d",
+    green: "#9eb394",
+    yellow: "#c5b189",
+    blue: "#8eaac6",
+    magenta: "#b499cd",
+    cyan: "#8eafb5",
+    white: "#ddd9e4",
+    brightBlack: "#797480",
+    brightRed: "#e4a1a1",
+    brightGreen: "#b0c8a5",
+    brightYellow: "#ddc79a",
+    brightBlue: "#a8c0dd",
+    brightMagenta: "#cab1df",
+    brightCyan: "#a3c5cb",
     brightWhite: "#ffffff",
   };
 }

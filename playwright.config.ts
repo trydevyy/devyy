@@ -4,7 +4,7 @@ export default defineConfig({
   fullyParallel: true,
   use: {
     baseURL: "http://127.0.0.1:1420",
-    channel: "chrome",
+    channel: process.env.PLAYWRIGHT_CHANNEL ?? (process.platform === "win32" ? "msedge" : "chrome"),
     headless: true,
     storageState: {
       cookies: [],

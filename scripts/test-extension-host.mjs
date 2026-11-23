@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 const hostPath = path.resolve("src-tauri/extension-host/host.cjs");
@@ -872,7 +873,9 @@ test(
     const view = f.events.find((e) => e.event === "webview").payload;
     assert.match(
       view.html,
-      /devyy-extension:\/\/localhost\/resource\/[\w-]+\/0\/assets\|/,
+      process.platform === "win32"
+        ? /http:\/\/devyy-extension\.localhost\/resource\/[\w-]+\/0\/assets\|/
+        : /devyy-extension:\/\/localhost\/resource\/[\w-]+\/0\/assets\|/,
     );
     assert.match(view.html, /\/assets\/entry.js/);
     assert.ok(
@@ -1754,7 +1757,7 @@ exports.activate = async () => {
     hasTabNb: tabNb.notebookType === "jupyter-notebook",
     hasTabNbDiff: tabNbDiff.notebookType === "jupyter-notebook",
     hasTabTerm: tabTerm instanceof v.TabInputTerminal,
-    hasTabMerge: tabMerge.base.fsPath === "/app/base",
+    hasTabMerge: tabMerge.base.fsPath === ${JSON.stringify(path.resolve("/app/base"))},
     hasDropEdit: dropEdit.insertText === "dropped text",
     hasPasteEdit: pasteEdit.title === "Paste Text",
     hasOpenedNb: openedNb.notebookType === "jupyter-notebook" && openedNb.cellCount === 1,
@@ -1777,7 +1780,7 @@ exports.activate = async () => {
     hasMdThemeIcons: md.supportThemeIcons === true,
     diagSource: diag.source === "rustc",
     hasProtoBp: protoBp?.verified === true && protoBp?.id === bp.id,
-    hasCoverage: fileCoverage?.uri?.fsPath === "/app/main.rs" && fileCoverage?.statementCoverage?.executed === 1,
+    hasCoverage: fileCoverage?.uri?.fsPath === ${JSON.stringify(path.resolve("/app/main.rs"))} && fileCoverage?.statementCoverage?.executed === 1,
     cellExecutionStates: cellEvents,
     cellExecutionOrder: cell.executionSummary?.executionOrder,
     hasNbStatusBarItem: nbStatusBarItem.alignment === v.NotebookCellStatusBarAlignment.Right,
@@ -1792,7 +1795,7 @@ exports.activate = async () => {
     diffMsgHasExpected: diffMsg.expectedOutput === "expected",
     editMetadataNeedsConf: editMetadata.needsConfirmation === true,
     scmDecorationsFaded: scmDecorations.faded === true,
-    hasOriginalUri: originalUri?.fsPath === "/app/original/main.rs",
+    hasOriginalUri: originalUri?.fsPath === ${JSON.stringify(path.resolve("/app/original/main.rs"))},
     hasUntitledDoc: untitledDoc?.languageId === "rust" && untitledDoc?.isUntitled === true,
     hasPanelRetainContext: testPanel.options?.retainContextWhenHidden === true,
     hasSbItemA11y: sbItem.accessibilityInformation?.label === "Status info",
@@ -1984,7 +1987,7 @@ exports.activate = async () => {
     );
     assert.equal(
       done.relPath,
-      "extra/sub/file.txt",
+      path.join("extra", "sub", "file.txt"),
       "asRelativePath multi-root resolution",
     );
     assert.equal(done.envLogLevel, 2, "env.logLevel updated to Debug");
@@ -2379,7 +2382,7 @@ test("language features resolve lazy lenses and retain each semantic provider's 
     extensions: [ext],
     storageRoot: path.join(f.root, "state"),
   });
-  const uri = "file:///fixture/main.rs";
+  const uri = pathToFileURL(path.join(f.root, "main.rs")).href;
   await f.request("editorState", {
     documents: [
       { uri, text: "fn main() {}", languageId: "rust", visible: true },

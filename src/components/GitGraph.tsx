@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
@@ -363,8 +364,7 @@ export default function GitGraph({
                 <button
                   className="git-hash"
                   onClick={() =>
-                    void navigator.clipboard
-                      .writeText(commit.hash)
+                    void writeClipboardText(commit.hash)
                       .catch(() => setError("Could not copy commit hash"))
                   }
                 >

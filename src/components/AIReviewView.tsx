@@ -26,18 +26,16 @@ import {
   ShieldCheck,
   RotateCcw,
 } from "lucide-react";
-import {
-  useAI,
-  setAIProposalStatus,
-  type AIProposal,
-  type AIQAResult,
-} from "../lib/ai";
-import { invoke } from "../lib/native";
+import { useAI, setAIProposalStatus, type AIProposal } from "../lib/ai";
+import { invoke, native } from "../lib/native";
+import type { GitState } from "../lib/types";
 
 export default function AIReviewView({
+  cwd,
   onReview,
   onApproveAll,
 }: {
+  cwd?: string;
   onReview: (
     path: string,
     original: string,
@@ -50,7 +48,7 @@ export default function AIReviewView({
   const ai = useAI();
   const chat = ai.conversations.find((c) => c.id === ai.selected);
   const [qaBusy, setQaBusy] = useState(false);
-  const [qaResults, setQaResults] = useState<AIQAResult[]>([]);
+  const [qaResult, setQaResult] = useState<GitState>();
   const [qaError, setQaError] = useState("");
 
   // Collect all proposals across all messages in this conversation
@@ -74,27 +72,22 @@ export default function AIReviewView({
     setQaBusy(true);
     setQaError("");
     try {
-      // Run QA verification via workspace command or vcs status
-      await invoke<{ checks: AIQAResult[] } | undefined>("vcs_status");
-      // Simulate QA verification run with compiler & linter
-      setQaResults([
-        {
-          tool: "VCS & Tree Integrity",
-          success: true,
-          output: "Working tree state verified clean. No conflicting merge hunks or detached HEAD issues.",
-        },
-        {
-          tool: "Typecheck & Linter",
-          success: true,
-          output: "Workspace TypeScript / Rust syntax passed without blocking diagnostics.",
-        },
-      ]);
+      setQaResult(undefined);
+      setQaResult(await invoke<GitState>("git_status"));
     } catch (e) {
       setQaError(String(e));
     } finally {
       setQaBusy(false);
     }
   }
+
+  const conflicts =
+    qaResult?.changes.filter(
+      ({ index, worktree }) =>
+        index === "U" ||
+        worktree === "U" ||
+        ["AA", "DD"].includes(index + worktree),
+    ).length ?? 0;
 
   function handleDiscardAll() {
     pending.forEach((p) => setAIProposalStatus(p.id, "dismissed"));
@@ -104,24 +97,25 @@ export default function AIReviewView({
     <div className="ai-review-view">
       <div className="ai-review-header">
         <div className="ai-review-summary">
-          <strong>Diff & Proposal Review</strong>
+          <h2>Review changes</h2>
           <small>
-            {pending.length} pending · {applied.length} applied · {dismissed.length} dismissed
+            {pending.length} pending · {applied.length} applied ·{" "}
+            {dismissed.length} dismissed
           </small>
         </div>
         <div className="ai-review-actions-bar">
           <button
             className="setting-action"
             onClick={() => void runQaCheck()}
-            disabled={qaBusy}
-            title="Run compiler, linter, and typecheck QA verification"
+            disabled={qaBusy || !native || !cwd}
+            title="Check Git status and merge conflicts"
           >
             {qaBusy ? (
               <LoaderCircle size={13} className="spinning" />
             ) : (
               <ShieldCheck size={13} />
             )}
-            Run QA Check
+            Check working tree
           </button>
           {pending.length > 0 && onApproveAll && (
             <button
@@ -146,33 +140,38 @@ export default function AIReviewView({
 
       {qaError && <ErrorToast message={qaError} />}
 
-      {qaResults.length > 0 && (
-        <div className="ai-qa-results-card">
-          <span className="ai-qa-title">
-            <ShieldCheck size={14} /> Quality Assurance Results
-          </span>
-          <div className="ai-qa-items">
-            {qaResults.map((r, i) => (
-              <div key={i} className={`ai-qa-item ${r.success ? "success" : "failed"}`}>
-                <div className="ai-qa-item-header">
-                  {r.success ? <Check size={13} /> : <AlertCircle size={13} />}
-                  <strong>{r.tool}</strong>
-                  <span className="ai-qa-badge">{r.success ? "Passed" : "Failed"}</span>
-                </div>
-                <pre className="ai-qa-output">{r.output}</pre>
-              </div>
-            ))}
+      {qaResult && (
+        <section
+          className="ai-qa-results-card"
+          aria-label="Working tree"
+          aria-live="polite"
+        >
+          {conflicts ? <AlertCircle size={15} /> : <Check size={15} />}
+          <div>
+            <strong>
+              {conflicts
+                ? `${conflicts} unresolved merge conflicts`
+                : "No unresolved merge conflicts"}
+            </strong>
+            <p>
+              {qaResult.branch === "detached"
+                ? "Detached HEAD"
+                : qaResult.branch}{" "}
+              / {qaResult.changes.length} changed files
+            </p>
           </div>
-        </div>
+        </section>
       )}
 
       {proposals.length === 0 ? (
         <div className="ai-empty-review">
-          <FileCode size={32} />
-          <p>No file proposals in this session yet.</p>
-          <small className="muted">
-            When Devyy proposes edits or new files in Agent mode, they will appear here for diff review and validation.
-          </small>
+          <FileCode size={18} />
+          <div>
+            <strong>No proposed changes</strong>
+            <p>
+              Edits proposed in this conversation will appear here for review.
+            </p>
+          </div>
         </div>
       ) : (
         <div className="ai-proposals-list">
@@ -195,17 +194,19 @@ export default function AIReviewView({
                     onReview(p.path, p.original, p.modified, p.create, p.id)
                   }
                 >
-                  Inspect Diff
+                  View diff
                 </button>
                 {p.status === "pending" && (
                   <>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => setAIProposalStatus(p.id, "applied")}
-                    >
-                      <Check size={12} /> Apply
-                    </button>
+                    {onApproveAll && (
+                      <button
+                        type="button"
+                        className="setting-action"
+                        onClick={() => onApproveAll([p])}
+                      >
+                        <Check size={12} /> Apply
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="icon-button danger"

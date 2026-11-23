@@ -24,6 +24,7 @@ function extensionNotice(message: string, kind: string) {
   return true;
 }
 export interface ExtensionStatusItem {
+  sourceKey?: string;
   id?: string;
   text: string;
   tooltip?: string | { value?: string };
@@ -34,6 +35,20 @@ export interface ExtensionStatusItem {
   busy?: boolean;
   severity?: number;
   detail?: string;
+}
+export function updateExtensionStatusItem(
+  items: Record<string, ExtensionStatusItem>,
+  event: ExtensionStatusItem & { key: string; visible?: boolean },
+) {
+  const owner = event.key.split(":")[0];
+  const previous = items[owner];
+  if (event.visible === false) {
+    if (previous?.sourceKey !== event.key) return items;
+    const next = { ...items };
+    delete next[owner];
+    return next;
+  }
+  return { ...items, [owner]: { ...event, sourceKey: event.key } };
 }
 export interface ExtensionStatus {
   id: string;
@@ -244,14 +259,17 @@ async function subscribe() {
         };
         publish();
       } else if (message.event === "statusBar") {
-        snapshot.statusItems = { ...snapshot.statusItems };
-        if (p.visible === false) delete snapshot.statusItems[String(p.key)];
-        else if (p.severity === 1 || p.severity === 2) {
-          extensionNotice(String(p.detail || (typeof p.tooltip === "string" ? p.tooltip : "") || p.text || "Extension needs attention"), p.severity === 2 ? "error" : "warning");
-          delete snapshot.statusItems[String(p.key)];
-        } else
-          snapshot.statusItems[String(p.key)] =
-            p as unknown as ExtensionStatusItem;
+        if (typeof p.key !== "string" || !p.key) return;
+        if (p.visible !== false && (p.severity === 1 || p.severity === 2)) {
+          extensionNotice(
+            String(p.detail || (typeof p.tooltip === "string" ? p.tooltip : "") || p.text || "Extension needs attention"),
+            p.severity === 2 ? "error" : "warning",
+          );
+        }
+        snapshot.statusItems = updateExtensionStatusItem(
+          snapshot.statusItems,
+          p as unknown as ExtensionStatusItem & { key: string; visible?: boolean },
+        );
         publish();
       } else if (message.event === "statusMessage") {
         snapshot = {

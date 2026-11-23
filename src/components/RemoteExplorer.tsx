@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   FolderOpen,
-  MoreHorizontal,
   Plus,
   Radio,
   RefreshCw,
@@ -13,6 +12,8 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, listen, native } from "../lib/native";
 import { useConfirm } from "./ui/Confirm";
+import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
+import DisclosureSummary from "./ui/DisclosureSummary";
 import { DialogToastHost, showError } from "./ui/ErrorToast";
 import { toast } from "sonner";
 
@@ -79,16 +80,21 @@ function loadServers(): SshServer[] {
 
 export default function RemoteExplorer({
   onOpenFolder,
-  activeLabel,
+  activeServerId,
+  onDisconnect,
 }: {
-  onOpenFolder: (path: string, label: string) => Promise<boolean>;
-  activeLabel?: string;
+  onOpenFolder: (
+    path: string,
+    label: string,
+    serverId: string,
+  ) => Promise<boolean>;
+  activeServerId?: string;
+  onDisconnect: () => Promise<boolean>;
 }) {
   const confirm = useConfirm();
   const [servers, setServers] = useState(loadServers);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [query, setQuery] = useState("");
-  const [menu, setMenu] = useState<string>();
   const [editor, setEditor] = useState<{
     server?: SshServer;
     action?: Action;
@@ -135,7 +141,6 @@ export default function RemoteExplorer({
   function startEdit(server?: SshServer, action?: Action) {
     setKeyPath(server?.identityFile ?? "");
     setEditor({ server, action });
-    setMenu(undefined);
   }
 
   function tunnelFor(server: SshServer) {
@@ -171,7 +176,7 @@ export default function RemoteExplorer({
           remotePath: server.remotePath,
           label: server.label,
         });
-        if (!(await onOpenFolder(path, server.label))) {
+        if (!(await onOpenFolder(path, server.label, server.id))) {
           await invoke("ssh_release_workspace", { path });
           return;
         }
@@ -216,6 +221,44 @@ export default function RemoteExplorer({
       } else {
         showError(cause);
       }
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  async function toggleWorkspace(server: SshServer) {
+    if (activeServerId !== server.id) {
+      await connect(server, "open");
+      return;
+    }
+    setBusy(server.id);
+    try {
+      if (await onDisconnect())
+        toast.success(`Disconnected from ${server.label}`);
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  async function removeServer(server: SshServer) {
+    if (
+      !(await confirm({
+        title: `Remove ${server.label}?`,
+        description: "Remove this server from the saved list.",
+        confirmLabel: "Remove",
+        danger: true,
+      }))
+    )
+      return;
+    setBusy(server.id);
+    try {
+      if (activeServerId === server.id && !(await onDisconnect())) return;
+      const tunnel = tunnelFor(server);
+      if (tunnel) await invoke("remote_stop", { id: tunnel.id });
+      sessionAuth.delete(server.id);
+      persist(servers.filter((item) => item.id !== server.id));
+    } catch (cause) {
+      showError(cause);
     } finally {
       setBusy(undefined);
     }
@@ -307,87 +350,64 @@ export default function RemoteExplorer({
         <p className="ssh-empty">No matching servers.</p>
       ) : (
         <ul className="ssh-list">
-          {filtered.map((server) => (
-            <li key={server.id}>
-              <button
-                className="ssh-server-link"
-                aria-current={activeLabel === server.label ? "true" : undefined}
-                disabled={!!busy}
-                onClick={() => void connect(server, "open")}
-                title={server.remotePath}
-              >
-                <Server size={15} />
-                <span>
-                  <strong>{server.label}</strong>
-                  <small>
-                    {server.user}@{server.host} · {server.remotePath}
-                  </small>
-                </span>
-                {busy === server.id ? (
-                  <RefreshCw size={13} className="spinning" />
-                ) : (
-                  <FolderOpen size={13} />
-                )}
-              </button>
-              <button
-                className="icon-button"
-                aria-label={`Actions for ${server.label}`}
-                aria-expanded={menu === server.id}
-                onClick={() =>
-                  setMenu(menu === server.id ? undefined : server.id)
-                }
-              >
-                <MoreHorizontal size={16} />
-              </button>
-              {menu === server.id && (
-                <div className="ssh-row-actions">
-                  <button
-                    className="setting-action"
+          {filtered.map((server) => {
+            const connected = activeServerId === server.id;
+            return (
+              <li key={server.id}>
+                <button
+                  className="ssh-server-link"
+                  aria-pressed={connected}
+                  disabled={!!busy}
+                  onClick={() => void toggleWorkspace(server)}
+                  title={`${connected ? "Disconnect from" : "Connect to"} ${server.user}@${server.host} (${server.remotePath})`}
+                >
+                  <Server size={15} />
+                  <span>
+                    <strong>{server.label}</strong>
+                  </span>
+                  {busy === server.id ? (
+                    <RefreshCw size={13} className="spinning" />
+                  ) : connected ? (
+                    <span
+                      className="ssh-connected-dot"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <FolderOpen size={13} />
+                  )}
+                </button>
+                <ActionMenu label={`Actions for ${server.label}`}>
+                  <ActionMenuItem
                     disabled={!!busy}
-                    onClick={() => {
-                      setMenu(undefined);
-                      void connect(server, "tunnel");
-                    }}
+                    onClick={() => void toggleWorkspace(server)}
+                  >
+                    {connected ? <X size={13} /> : <FolderOpen size={13} />}
+                    {connected ? "Disconnect" : "Open workspace"}
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    disabled={!!busy}
+                    onClick={() => void connect(server, "tunnel")}
                   >
                     <Radio size={13} />{" "}
                     {tunnelFor(server) ? "Stop tunnel" : "Start tunnel"}
-                  </button>
-                  <button
-                    className="setting-action"
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    disabled={!!busy}
                     onClick={() => startEdit(server)}
                   >
                     Edit
-                  </button>
-                  <button
-                    className="setting-action"
-                    onClick={() =>
-                      void (async () => {
-                        if (
-                          !(await confirm({
-                            title: `Remove ${server.label}?`,
-                            description:
-                              "Remove this server from the saved list.",
-                            confirmLabel: "Remove",
-                            danger: true,
-                          }))
-                        )
-                          return;
-                        const tunnel = tunnelFor(server);
-                        if (tunnel)
-                          await invoke("remote_stop", { id: tunnel.id });
-                        sessionAuth.delete(server.id);
-                        persist(
-                          servers.filter((item) => item.id !== server.id),
-                        );
-                      })().catch(showError)
-                    }
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    danger
+                    disabled={!!busy}
+                    onClick={() => void removeServer(server)}
                   >
                     Remove
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
+                  </ActionMenuItem>
+                </ActionMenu>
+              </li>
+            );
+          })}
         </ul>
       )}
       {editor &&
@@ -527,7 +547,7 @@ export default function RemoteExplorer({
               </div>
               {!editor.action && (
                 <details className="workbench-exclusions">
-                  <summary>Tunnel ports</summary>
+                  <DisclosureSummary>Tunnel ports</DisclosureSummary>
                   <div className="port-dialog-fields">
                     <label>
                       Local port

@@ -18,7 +18,6 @@ import { useEffect, useState } from "react";
 import { discoverAIModels, loadAI, useAI } from "../lib/ai";
 import type { Settings } from "../lib/types";
 import Select from "./ui/Select";
-import SuggestionInput from "./ui/SuggestionInput";
 import { useAICompletionStatus } from "../lib/aiCompletion";
 export default function CompletionSettings({
   settings,
@@ -35,6 +34,11 @@ export default function CompletionSettings({
   useEffect(() => {
     void loadAI();
   }, []);
+  const provider = state.providers.find(
+    (item) => item.id === settings.aiCompletionProvider,
+  );
+  const models = state.models[settings.aiCompletionProvider] ?? [];
+  const model = settings.aiCompletionModel;
   useEffect(() => {
     if (!settings.aiCompletionProvider) return;
     let current = true;
@@ -115,22 +119,35 @@ export default function CompletionSettings({
         <span>
           <strong>Completion model</strong>
           <small>
-            Automatic prefers a small model from the provider catalog.
+            {provider
+              ? "Automatic prefers a small model from this provider."
+              : "Choose a provider above to pick a specific model."}
           </small>
         </span>
-        <SuggestionInput
+        <Select
           aria-label="AI completion model"
-          value={settings.aiCompletionModel}
+          value={model}
           onChange={(event) =>
             onChange({ aiCompletionModel: event.target.value })
           }
-          suggestions={state.models[settings.aiCompletionProvider] ?? []}
-          placeholder="Automatic"
-        />
+        >
+          <option value="">Automatic</option>
+          {model && !models.some((item) => item.id === model) && (
+            <option value={model}>{model}</option>
+          )}
+          {provider?.model &&
+            provider.model !== model &&
+            !models.some((item) => item.id === provider.model) && (
+              <option value={provider.model}>{provider.model}</option>
+            )}
+          {models.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name || item.id}
+            </option>
+          ))}
+        </Select>
       </div>
-      {error && (
-        <ErrorToast message={error} />
-      )}
+      {error && <ErrorToast message={error} />}
     </section>
   );
 }

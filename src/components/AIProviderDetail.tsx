@@ -13,11 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
+import ErrorToast from "./ui/ErrorToast";
 import ProviderSignIn from "./ProviderSignIn";
 import Select from "./ui/Select";
-import SuggestionInput from "./ui/SuggestionInput";
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
@@ -97,9 +96,7 @@ function CLIFields({
             }
           }}
         />
-        {error && (
-          <ErrorToast message={error} />
-        )}
+        {error && <ErrorToast message={error} />}
       </div>
       <div className="ai-provider-field">
         <label htmlFor={`cli-format-${provider.id}`}>Input & output</label>
@@ -191,9 +188,11 @@ export default function AIProviderDetail({
     [notice, setNotice] = useState(""),
     [runtime, setRuntime] = useState<Record<string, string>>(),
     [runtimeOpen, setRuntimeOpen] = useState(false),
-    [runtimeMissing, setRuntimeMissing] = useState(false),
+    [runtimeError, setRuntimeError] = useState(""),
+    [runtimeChecking, setRuntimeChecking] = useState(false),
     [installPhase, setInstallPhase] = useState("");
   const [argsError, setArgsError] = useState("");
+  const [enterModel, setEnterModel] = useState(false);
   const installCancelled = useRef(false);
   const request = useRef<string | null>(null),
     saved = useRef(provider);
@@ -236,6 +235,10 @@ export default function AIProviderDetail({
       "openai",
       "anthropic",
     ].includes(provider.id);
+  const builtInCLI = ["claude", "antigravity", "opencode"].includes(form.kind);
+  const runtimeMissing = builtInCLI && Boolean(runtimeError);
+  const providerDefault = builtInCLI || form.kind === "cli";
+
   async function action(name: string, work: () => Promise<unknown>) {
     setBusy(name);
     setError("");
@@ -252,10 +255,11 @@ export default function AIProviderDetail({
     await saveAIProvider(form, key);
     setKey("");
     const models = await discoverAIModels(provider.id, true);
-    const builtInCLI = ["antigravity", "opencode"].includes(form.kind);
     if (
       models.length &&
-      (!form.model || (builtInCLI && !models.some((m) => m.id === form.model)))
+      (!form.model ||
+        (["antigravity", "opencode"].includes(form.kind) &&
+          !models.some((m) => m.id === form.model)))
     ) {
       const chosen = models.find((m) => m.isDefault) ?? models[0];
       const next = { ...form, model: chosen.id };
@@ -294,28 +298,53 @@ export default function AIProviderDetail({
   useEffect(() => {
     if (provider.kind === "chatgpt" && native)
       void action("status", () => accountAction("status"));
-    if (
-      ["claude", "antigravity", "opencode"].includes(provider.kind) &&
-      native
-    ) {
-      let current = true;
-      void invoke<Record<string, string>>("ai_runtime", {
-        providerId: provider.id,
-      })
-        .then((value) => {
-          if (current) {
-            setRuntime(value);
-            setRuntimeMissing(false);
-          }
-        })
-        .catch(() => {
-          if (current) setRuntimeMissing(true);
-        });
-      return () => {
-        current = false;
-      };
-    }
   }, [provider.id, provider.kind]);
+
+  useEffect(() => {
+    if (
+      !["claude", "antigravity", "opencode"].includes(provider.kind) ||
+      !native
+    )
+      return;
+    let current = true;
+    setRuntimeChecking(true);
+    setRuntimeError("");
+    setRuntime(undefined);
+    void invoke<Record<string, string>>("ai_runtime", {
+      providerId: provider.id,
+    })
+      .then((value) => {
+        if (current) setRuntime(value);
+      })
+      .catch((error) => {
+        if (current) setRuntimeError(String(error));
+      })
+      .finally(() => {
+        if (current) setRuntimeChecking(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [provider.id, provider.kind, provider.executable]);
+
+  async function checkRuntime() {
+    setRuntimeError("");
+    try {
+      const result = await invoke<Record<string, string>>("ai_runtime", {
+        providerId: provider.id,
+        executable: form.executable,
+      });
+      setRuntime(result);
+      setNotice(
+        `${form.name} can start${result.version ? ` (version ${result.version})` : ""}.`,
+      );
+    } catch (error) {
+      setRuntime(undefined);
+      setRuntimeError(String(error));
+      throw error;
+    }
+  }
+
   async function installRuntime() {
     const id = crypto.randomUUID();
     request.current = id;
@@ -356,7 +385,7 @@ export default function AIProviderDetail({
       await saveAIProvider(installed, "");
       setForm(installed);
       setRuntime(result);
-      setRuntimeMissing(false);
+      setRuntimeError("");
       setNotice(
         form.kind === "claude"
           ? "Claude Code installed"
@@ -382,129 +411,87 @@ export default function AIProviderDetail({
         </span>
       </header>
       <div className="ai-provider-detail-scroll">
-        <div className="ai-connection-card">
-          <AIProviderIcon kind={provider.kind} size={28} />
-          <div>
-            <strong>
-              {connected
-                ? String(identity?.email ?? "Connected account")
-                : accountProvider
-                  ? "Connect your account"
-                  : ["antigravity", "opencode"].includes(form.kind)
-                    ? runtime?.version
-                      ? `${form.name} v${runtime.version}`
-                      : runtimeMissing
-                        ? `${form.name} needs to be installed`
-                        : `${form.name} account`
-                    : "Add an API key"}
-            </strong>
-            <span>
-              {connected
-                ? String(identity?.planType ?? "Ready to use in Devyy")
-                : form.kind === "chatgpt"
-                  ? "Sign in securely in your browser"
-                  : form.kind === "claude"
-                    ? "Claude Code on this computer"
-                    : form.kind === "antigravity"
-                      ? "Google account"
-                      : form.kind === "opencode"
-                        ? "Open-source developer agent"
-                        : "Connect to your AI service"}
-            </span>
-          </div>
-          {connected && <Check size={16} />}
-        </div>
-        <ol className="ai-provider-steps" aria-label="Connection steps">
-          <li
-            className={
-              runtime || provider.hasKey || connected || form.kind === "chatgpt"
-                ? "complete"
-                : ""
-            }
-          >
-            <span>1</span>
-            {["claude", "antigravity", "opencode"].includes(form.kind)
-              ? "Install"
-              : "Connect"}
-          </li>
-          <li className={connected || provider.hasKey ? "complete" : ""}>
-            <span>2</span>
-            {["chatgpt", "claude", "antigravity", "opencode"].includes(
-              form.kind,
-            )
-              ? "Sign in"
-              : "Add key"}
-          </li>
-          <li className={form.model ? "complete" : ""}>
-            <span>3</span>Choose a model
-          </li>
-        </ol>
-        <details className="ai-provider-name-details">
-          <DisclosureSummary>Display name</DisclosureSummary>
-          <div className="ai-provider-field">
-            <label htmlFor={`ai-name-${provider.id}`}>Display name</label>
-            <input
-              id={`ai-name-${provider.id}`}
-              value={form.name}
-              onChange={(e) => patch({ name: e.target.value })}
-            />
-          </div>
-        </details>
         <section className="ai-provider-section">
           <h4>Connection</h4>
-          {["claude", "antigravity", "opencode"].includes(form.kind) &&
-            runtimeMissing && (
-              <div className="ai-runtime-install">
-                <div>
-                  <strong>Install {form.name} CLI</strong>
-                  <span>
-                    {form.kind === "antigravity"
-                      ? "Install once, then sign in with Google"
-                      : form.kind === "opencode"
-                        ? "Install once, then connect an account"
-                        : "Install once, then sign in with Claude"}
-                  </span>
-                </div>
-                <button
-                  className="setting-action"
-                  disabled={!!busy || !native}
-                  onClick={() => void action("install", installRuntime)}
-                >
-                  {busy === "install" ? (
-                    <LoaderCircle className="spinning" size={14} />
-                  ) : (
-                    <Download size={14} />
-                  )}
-                  {installPhase || "Install"}
-                </button>
-                {busy === "install" && (
-                  <button
-                    className="ai-text-action"
-                    onClick={() => {
-                      installCancelled.current = true;
-                      if (request.current)
-                        void invoke("ai_cancel", {
-                          requestId: request.current,
-                        });
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
+          {custom && (
+            <div className="ai-provider-field">
+              <label htmlFor={`ai-name-${provider.id}`}>Display name</label>
+              <input
+                id={`ai-name-${provider.id}`}
+                value={form.name}
+                onChange={(event) => patch({ name: event.target.value })}
+              />
+            </div>
+          )}
+          {runtimeChecking && (
+            <p className="ai-provider-notice" role="status">
+              Looking for {form.name} on this computer...
+            </p>
+          )}
+          {runtimeMissing && (
+            <div className="ai-runtime-install">
+              <div>
+                <strong>{form.name} could not start</strong>
+                <span>
+                  {form.kind === "antigravity"
+                    ? "Install once, then sign in with Google"
+                    : form.kind === "opencode"
+                      ? "Install once, then connect an account"
+                      : "Install once, then sign in with Claude"}
+                </span>
               </div>
-            )}
+              <button
+                className="setting-action"
+                disabled={!!busy || !native}
+                onClick={() => void action("install", installRuntime)}
+              >
+                {busy === "install" ? (
+                  <LoaderCircle className="spinning" size={14} />
+                ) : (
+                  <Download size={14} />
+                )}
+                {installPhase || "Install"}
+              </button>
+              {busy === "install" && (
+                <button
+                  className="ai-text-action"
+                  onClick={() => {
+                    installCancelled.current = true;
+                    if (request.current)
+                      void invoke("ai_cancel", {
+                        requestId: request.current,
+                      });
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+          {runtimeMissing && (
+            <div className="ai-provider-runtime-error">
+              <small>{runtimeError}</small>
+              <button
+                className="ai-text-action"
+                type="button"
+                onClick={() => setRuntimeOpen(true)}
+              >
+                Configure executable
+              </button>
+            </div>
+          )}
           {accountProvider ? (
             <>
               <div className="ai-provider-account-row">
                 <span>
                   <strong>
                     {form.kind === "chatgpt"
-                      ? "ChatGPT"
+                      ? "ChatGPT account"
                       : "Claude Code account"}
                   </strong>
                   <small>
                     {connected
-                      ? "Account connected"
+                      ? String(identity?.email ?? "Account connected")
                       : form.kind === "chatgpt"
                         ? "Authorize Devyy in your browser"
                         : "Uses Claude Code’s browser sign-in"}
@@ -515,7 +502,8 @@ export default function AIProviderDetail({
                   disabled={
                     !!busy ||
                     !native ||
-                    (form.kind === "claude" && runtimeMissing)
+                    (form.kind === "claude" &&
+                      (runtimeChecking || runtimeMissing))
                   }
                   onClick={() =>
                     void action("login", () => accountAction("login"))
@@ -649,7 +637,9 @@ export default function AIProviderDetail({
             <>
               {custom && (
                 <div className="ai-provider-field">
-                  <label htmlFor={`ai-protocol-${provider.id}`}>Protocol</label>
+                  <label htmlFor={`ai-protocol-${provider.id}`}>
+                    Connection type
+                  </label>
                   <Select
                     id={`ai-protocol-${provider.id}`}
                     value={
@@ -680,7 +670,9 @@ export default function AIProviderDetail({
                   <ProviderSignIn
                     provider={form}
                     executable={runtime?.executable}
-                    disabled={!!busy || !native || runtimeMissing}
+                    disabled={
+                      !!busy || !native || runtimeChecking || runtimeMissing
+                    }
                     onDone={() => void action("models", refreshModels)}
                   />
                   {form.kind === "antigravity" && (
@@ -720,8 +712,10 @@ export default function AIProviderDetail({
                         onChange={(e) => setKey(e.target.value)}
                         placeholder={
                           provider.hasKey
-                            ? "Saved in system credential store"
-                            : "API key"
+                            ? "Key saved"
+                            : form.kind === "custom"
+                              ? "Optional for some providers"
+                              : "Enter API key"
                         }
                         autoComplete="new-password"
                         spellCheck={false}
@@ -747,26 +741,60 @@ export default function AIProviderDetail({
           )}
         </section>
         <section className="ai-provider-section">
-          <h4>Models</h4>
+          <h4>Model</h4>
+          <p className="ai-provider-section-help">
+            {providerDefault
+              ? "Leave this blank to use the provider's default model."
+              : onSaved
+                ? "Enter a model ID now or load the available models after saving."
+                : "Load the models available from this provider, or enter a model ID."}
+          </p>
           <div className="ai-provider-field">
             <label htmlFor={`ai-model-${provider.id}`}>Default model</label>
-            <SuggestionInput
-              id={`ai-model-${provider.id}`}
-              aria-label="Model"
-              suggestions={state.models[provider.id] ?? []}
-              value={form.model}
-              onChange={(e) => patch({ model: e.target.value })}
-              placeholder={
-                accountProvider || form.kind === "cli"
-                  ? "Provider default"
-                  : "Choose or enter a model"
-              }
-              spellCheck={false}
-            />
+            {enterModel ? (
+              <input
+                id={`ai-model-${provider.id}`}
+                aria-label="Model ID"
+                value={form.model}
+                onChange={(event) => patch({ model: event.target.value })}
+                spellCheck={false}
+              />
+            ) : (
+              <Select
+                id={`ai-model-${provider.id}`}
+                aria-label="Model"
+                value={form.model}
+                onOpenChange={(open) => {
+                  if (open && native && !busy && !onSaved && !runtimeMissing && !runtimeChecking &&
+                      (!accountProvider || connected) && !state.models[provider.id]) {
+                    void action("catalog", () => discoverAIModels(provider.id));
+                  }
+                }}
+                onChange={(event) => patch({ model: event.target.value })}
+              >
+                <option value="">{providerDefault ? "Provider default" : "Choose a model"}</option>
+                {form.model && !state.models[provider.id]?.some((model) => model.id === form.model) && (
+                  <option value={form.model}>{form.model}</option>
+                )}
+                {busy === "catalog" && <option value="__loading" disabled>Loading models...</option>}
+                {(state.models[provider.id] ?? []).map((model) => (
+                  <option key={model.id} value={model.id}>{model.name || model.id}</option>
+                ))}
+              </Select>
+            )}
+            <button type="button" className="ai-text-action" onClick={() => setEnterModel(!enterModel)}>
+              {enterModel ? "Use model list" : "Enter model ID"}
+            </button>
           </div>
           <button
             className="setting-action"
-            disabled={!!busy || !native}
+            disabled={
+              !!busy ||
+              !native ||
+              !!onSaved ||
+              runtimeChecking ||
+              runtimeMissing
+            }
             onClick={() => void action("models", refreshModels)}
           >
             {busy === "models" ? (
@@ -774,73 +802,79 @@ export default function AIProviderDetail({
             ) : (
               <RefreshCw size={12} />
             )}{" "}
-            Refresh models
+            Load models
           </button>
         </section>
-        <section className="ai-provider-section ai-provider-runtime">
-          <button
-            className="ai-runtime-heading"
-            aria-expanded={runtimeOpen}
-            onClick={() => {
-              setRuntimeOpen(!runtimeOpen);
-              if (!runtimeOpen && !runtime && native)
-                void action("runtime", async () =>
-                  setRuntime(
-                    await invoke<Record<string, string>>("ai_runtime", {
-                      providerId: provider.id,
-                    }),
-                  ),
-                );
-            }}
-          >
-            <ChevronRight size={13} className={runtimeOpen ? "rotated" : ""} />
-            <h4>Advanced connection settings</h4>
-            {runtime?.version && <code>{runtime.version}</code>}
-          </button>
-          <AnimatePresence initial={false}>
-            {runtimeOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={transition}
-                style={{ overflow: "hidden" }}
-              >
-                {["claude", "antigravity", "opencode"].includes(form.kind) && (
-                  <div className="ai-provider-field">
-                    <label htmlFor={`ai-cli-${provider.id}`}>
-                      CLI executable
-                    </label>
-                    <input
-                      id={`ai-cli-${provider.id}`}
-                      value={form.executable}
-                      onChange={(e) => patch({ executable: e.target.value })}
-                      placeholder={
-                        form.kind === "antigravity"
-                          ? "agy (auto-detect)"
-                          : `${form.kind} (auto-detect)`
-                      }
-                      spellCheck={false}
-                    />
-                  </div>
-                )}
-                {runtime && (
-                  <dl>
-                    {Object.entries(runtime).map(([name, value]) => (
-                      <div key={name}>
-                        <dt>{name}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </section>
-        {error && (
-          <ErrorToast message={error} />
+        {builtInCLI && (
+          <section className="ai-provider-section ai-provider-runtime">
+            <button
+              className="ai-runtime-heading"
+              aria-expanded={runtimeOpen}
+              onClick={() => setRuntimeOpen(!runtimeOpen)}
+            >
+              <ChevronRight
+                size={13}
+                className={runtimeOpen ? "rotated" : ""}
+              />
+              <h4>Troubleshooting</h4>
+              {runtime?.version && <code>{runtime.version}</code>}
+            </button>
+            <AnimatePresence initial={false}>
+              {runtimeOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={transition}
+                  style={{ overflow: "hidden" }}
+                >
+                  {builtInCLI && (
+                    <div className="ai-provider-field">
+                      <label htmlFor={`ai-cli-${provider.id}`}>
+                        Executable path
+                      </label>
+                      <input
+                        id={`ai-cli-${provider.id}`}
+                        value={form.executable}
+                        onChange={(e) => patch({ executable: e.target.value })}
+                        placeholder={
+                          form.kind === "antigravity"
+                            ? "agy (auto-detect)"
+                            : `${form.kind} (auto-detect)`
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
+                  {builtInCLI && (
+                    <button
+                      className="setting-action"
+                      disabled={!!busy || runtimeChecking || !native}
+                      onClick={() => void action("runtime", checkRuntime)}
+                    >
+                      <RefreshCw
+                        size={12}
+                        className={busy === "runtime" ? "spinning" : ""}
+                      />{" "}
+                      Check executable
+                    </button>
+                  )}
+                  {runtime && (
+                    <dl>
+                      {Object.entries(runtime).map(([name, value]) => (
+                        <div key={name}>
+                          <dt>{name}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
         )}
+        {error && <ErrorToast message={error} />}
         {notice && (
           <p className="ai-provider-notice" role="status">
             {notice}
@@ -876,7 +910,7 @@ export default function AIProviderDetail({
             disabled={!!busy || !native}
             onClick={() => void action("status", () => accountAction("status"))}
           >
-            <RefreshCw size={12} /> Check account & usage
+            <RefreshCw size={12} /> Check sign-in
           </button>
         )}
         <button

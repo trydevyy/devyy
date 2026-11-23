@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useMemo, useRef, useState } from "react";
 import { Clipboard, ExternalLink } from "lucide-react";
@@ -37,6 +38,7 @@ export default function ProviderSignIn({
   const google = provider.kind === "antigravity";
   const options = useMemo(
     () => ({
+      local: true,
       shellPath: executable,
       shellArgs: google ? ["acp", "--login"] : ["auth", "login"],
       name: `${provider.name} sign-in`,
@@ -45,8 +47,7 @@ export default function ProviderSignIn({
   );
 
   const pasteClipboard = () => {
-    void navigator.clipboard
-      .readText()
+    void readClipboardText()
       .then((text) => {
         if (text) {
           terminalRef.current?.paste(text);
@@ -88,7 +89,7 @@ export default function ProviderSignIn({
           <div className="provider-sign-in-header">
             <p>
               {exited
-                ? "Sign-in session closed. Refresh models to check the connection."
+                ? "Sign-in session closed. Select Load models to check the connection."
                 : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
             </p>
             {!exited && (

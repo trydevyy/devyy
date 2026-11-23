@@ -13,18 +13,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Select from "./ui/Select";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Sparkles,
   Search,
   Plus,
   Trash2,
   Shield,
   Layers,
   ChevronDown,
-  ChevronUp,
   Check,
   FileCode,
   X,
@@ -93,16 +92,16 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skill library…"
+            placeholder="Filter skills…"
             aria-label="Search skills"
           />
         </div>
         <button
           className="setting-action"
           onClick={() => setImporting(!importing)}
-          title="Import or create a custom SKILL.md"
+          title="Import a SKILL.md file"
         >
-          <Plus size={13} /> Add Skill
+          <Plus size={13} /> Import skill
         </button>
       </div>
 
@@ -130,8 +129,8 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
               </button>
             </div>
             <p className="muted">
-              Paste the contents of an official <code>SKILL.md</code> file with
-              frontmatter metadata and instructions.
+              Paste a <code>SKILL.md</code> file to review its instructions
+              and declared tools before installing it.
             </p>
             {review ? (
               <div className="skill-review">
@@ -180,11 +179,14 @@ dependencies:
               </button>
             </div>
             <DialogToastHost id="aiskillsview" />
-        </dialog>,
+          </dialog>,
           document.body,
         )}
 
       <div className="ai-skills-list">
+        {!filtered.length && (
+          <p className="ai-skills-empty">No skills match your search.</p>
+        )}
         {filtered.map((skill) => {
           const currentToggle: SkillToggle = skillToggle(
             skill,
@@ -199,83 +201,55 @@ dependencies:
               className={`ai-skill-card ${!skill.installed ? "uninstalled" : ""}`}
             >
               <div className="ai-skill-card-top">
-                <div className="ai-skill-info">
-                  <div className="ai-skill-title-row">
-                    <Sparkles size={14} className="ai-skill-icon" />
-                    <strong>{skill.title}</strong>
-                    <span className="ai-skill-version">v{skill.version}</span>
-                    <span className={`ai-skill-source-badge ${skill.source}`}>
-                      {skill.source}
-                    </span>
-                  </div>
-                  <p className="ai-skill-desc">{skill.description}</p>
-                  <div className="ai-skill-tags">
-                    {skill.tags.map((t) => (
-                      <span key={t} className="ai-skill-tag">
-                        #{t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Skill Toggles: Auto / On / Off */}
-                <div className="ai-skill-toggles-container">
-                  <span className="ai-skill-toggle-label">Mode:</span>
-                  <div className="ai-skill-toggle-group">
-                    {(["auto", "on", "off"] as SkillToggle[]).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`ai-skill-toggle-btn ${currentToggle === mode ? "active " + mode : ""}`}
-                        onClick={() =>
-                          setSkillToggle(skill.id, mode, sessionId)
-                        }
-                        title={`Set ${skill.title} to ${mode.toUpperCase()}`}
-                      >
-                        {mode.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Collapsible Details */}
-              <div className="ai-skill-card-actions">
                 <button
                   type="button"
                   className="ai-skill-expand-btn"
+                  aria-expanded={isExpanded}
                   onClick={() => setExpandedSkill(isExpanded ? null : skill.id)}
                 >
-                  {isExpanded ? (
-                    <>
-                      <ChevronUp size={12} /> Hide details & permissions
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={12} /> View details & permissions
-                    </>
-                  )}
+                  <ChevronDown size={13} aria-hidden="true" />
+                  <strong>{skill.title}</strong>
                 </button>
-
-                {skill.source !== "builtin" && (
-                  <button
-                    type="button"
-                    className="icon-button danger"
-                    onClick={() => removeSkill(skill.id)}
-                    title="Remove skill"
-                    aria-label="Remove skill"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
+                <Select
+                  className="ai-skill-mode"
+                  aria-label={`Activation for ${skill.title}`}
+                  value={currentToggle}
+                  onChange={(event) =>
+                    setSkillToggle(
+                      skill.id,
+                      event.target.value as SkillToggle,
+                      sessionId,
+                    )
+                  }
+                >
+                  <option value="auto">Auto</option>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </Select>
               </div>
+              <p className="ai-skill-desc">{skill.description}</p>
 
               {isExpanded && (
                 <div className="ai-skill-details">
+                  <div className="ai-skill-meta">
+                    <span>
+                      {skill.source === "builtin" ? "Built in" : "Imported"} / v
+                      {skill.version}
+                    </span>
+                    {skill.source !== "builtin" && (
+                      <button
+                        type="button"
+                        className="ai-text-action ai-danger-action"
+                        onClick={() => removeSkill(skill.id)}
+                      >
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    )}
+                  </div>
                   {skill.permissions.length > 0 && (
                     <div className="ai-skill-detail-section">
                       <span className="ai-skill-detail-title">
-                        <Shield size={12} /> Required Permissions:
+                        <Shield size={12} /> Declared tools
                       </span>
                       <div className="ai-skill-perm-list">
                         {skill.permissions.map((p) => (
@@ -290,7 +264,7 @@ dependencies:
                   {skill.dependencies.length > 0 && (
                     <div className="ai-skill-detail-section">
                       <span className="ai-skill-detail-title">
-                        <Layers size={12} /> Dependencies:
+                        <Layers size={12} /> Dependencies
                       </span>
                       <div className="ai-skill-perm-list">
                         {skill.dependencies.map((d) => (
@@ -304,7 +278,7 @@ dependencies:
 
                   <div className="ai-skill-detail-section">
                     <span className="ai-skill-detail-title">
-                      <FileCode size={12} /> Skill Instructions:
+                      <FileCode size={12} /> Instructions
                     </span>
                     <pre className="ai-skill-content-pre">{skill.content}</pre>
                   </div>

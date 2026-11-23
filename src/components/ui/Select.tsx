@@ -20,12 +20,16 @@ import {
   isValidElement,
   useState,
   type ChangeEvent,
+  type ComponentProps,
   type SelectHTMLAttributes,
   type ReactNode,
 } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
-type Props = Omit<SelectHTMLAttributes<HTMLSelectElement>, "multiple" | "size">;
+type Props = Omit<SelectHTMLAttributes<HTMLSelectElement>, "multiple" | "size"> & {
+  onOpenChange?: (open: boolean) => void;
+  popup?: Pick<ComponentProps<typeof Primitive.Content>, "align" | "side" | "sideOffset" | "className">;
+};
 type Item = {
   value: string;
   label: ReactNode;
@@ -36,6 +40,8 @@ export default function Select({
   value,
   defaultValue,
   onChange,
+  onOpenChange,
+  popup,
   children,
   className,
   disabled,
@@ -80,6 +86,7 @@ export default function Select({
       value={current || empty}
       disabled={disabled}
       name={name}
+      onOpenChange={onOpenChange}
       onValueChange={(next) => {
         const selected = next === empty ? "" : next;
         setLocal(selected);
@@ -105,9 +112,11 @@ export default function Select({
       </Primitive.Trigger>
       <Primitive.Portal container={dialog}>
         <Primitive.Content
-          className="devyy-select-popup"
+          className={`devyy-select-popup ${popup?.className ?? ""}`}
           position="popper"
-          sideOffset={5}
+          align={popup?.align}
+          side={popup?.side}
+          sideOffset={popup?.sideOffset ?? 5}
           collisionPadding={10}
           data-escape-scope="active"
         >

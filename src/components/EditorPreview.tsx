@@ -23,12 +23,6 @@ const noop = () => {},
 export default function EditorPreview({ settings }: { settings: Settings }) {
   return (
     <section className="editor-preview" aria-label="Editor preview">
-      <header>
-        <span>
-          <i /> Editor preview
-        </span>
-        <small>preview.ts</small>
-      </header>
       <div className="editor-preview-body">
         <Editor
           path="preview.ts"

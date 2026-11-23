@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import {
   forwardRef,
   useEffect,
@@ -601,14 +602,13 @@ export default forwardRef<
                   action: () => {
                     const text = handles.current.get(s.key)?.selection();
                     if (text)
-                      void navigator.clipboard.writeText(text).catch(onError);
+                      void writeClipboardText(text).catch(onError);
                   },
                 },
                 {
                   label: "Paste",
                   action: () => {
-                    void navigator.clipboard
-                      .readText()
+                    void readClipboardText()
                       .then((text) => handles.current.get(s.key)?.paste(text))
                       .catch(onError);
                   },

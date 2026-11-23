@@ -31,7 +31,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeClipboardText } from "../lib/clipboard";
 import { invoke, listen, native } from "../lib/native";
 import { showError } from "./ui/ErrorToast";
 import { toast } from "sonner";
@@ -338,7 +338,7 @@ export default function GitHubSettings({
                 <button
                   className="icon-button"
                   aria-label="Copy GitHub code"
-                  onClick={() => void writeText(code).catch(showError)}
+                  onClick={() => void writeClipboardText(code).catch(showError)}
                 >
                   <Copy size={14} />
                 </button>

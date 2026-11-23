@@ -14,13 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useEffect, useState } from "react";
-import {
-  ArrowUpRight,
-  Check,
-  Hammer,
-  Play,
-  TerminalSquare,
-} from "lucide-react";
+import { Play } from "lucide-react";
 import { invoke, native } from "../lib/native";
 import type { Workspace } from "../lib/types";
 interface Action {
@@ -91,14 +85,10 @@ export function projectActions(
 }
 export default function RunPanel({
   workspace,
-  command,
-  onChange,
   onRun,
 }: {
   workspace: Workspace;
-  command: string;
-  onChange: (command: string) => void;
-  onRun: () => void;
+  onRun: (command: string) => void;
 }) {
   const [scripts, setScripts] = useState<Record<string, string>>();
   useEffect(() => {
@@ -124,32 +114,10 @@ export default function RunPanel({
     workspace.files.map((file) => file.path),
     scripts,
   );
-  useEffect(() => {
-    if (
-      command === "cargo run" &&
-      !workspace.files.some((file) => file.path === "Cargo.toml") &&
-      actions.length
-    )
-      onChange(actions[0].command);
-  }, [workspace.root, scripts]);
   const available = native && workspace.root !== "demo";
-  const selected = actions.find((action) => action.command === command);
   return (
     <section className="sidebar-content run-content" aria-label="Run commands">
-      <div className="run-section-heading">
-        <span className="run-heading-icon">
-          <TerminalSquare size={18} />
-        </span>
-        <span>
-          <strong>Project tasks</strong>
-          <small>
-            {workspace.root === "demo"
-              ? "Open a folder to run your project"
-              : workspace.name}
-          </small>
-        </span>
-      </div>
-      {!!actions.length && (
+      {actions.length ? (
         <div
           className="run-project-actions"
           role="group"
@@ -158,69 +126,25 @@ export default function RunPanel({
           {actions.map((action) => (
             <button
               key={action.command}
-              className={selected === action ? "selected" : ""}
-              onClick={() => onChange(action.command)}
+              disabled={!available}
+              onClick={() => onRun(action.command)}
               title={action.description}
-              aria-pressed={selected === action}
             >
-              <Hammer size={14} />
+              <Play size={14} />
               <span>
                 <strong>{action.label}</strong>
                 <code>{action.command}</code>
               </span>
-              {selected === action ? (
-                <Check size={13} />
-              ) : (
-                <ArrowUpRight size={12} />
-              )}
             </button>
           ))}
         </div>
-      )}
-      {!actions.length && (
+      ) : (
         <p className="run-empty">
-          No project tasks found. Enter a command below to run it in the
-          terminal.
+          {available
+            ? "No project tasks found. Run a command in the terminal."
+            : "Open a local folder to run project tasks."}
         </p>
       )}
-      <form
-        className="run-command-card"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (available && command.trim()) onRun();
-        }}
-      >
-        <label className="field-label" htmlFor="run-command">
-          {selected ? "Selected command" : "Custom command"}
-        </label>
-        <input
-          className="text-input mono"
-          id="run-command"
-          value={command}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder="npm run dev"
-        />
-        <button
-          className="primary full"
-          aria-label="Run command"
-          title={
-            available
-              ? "Run in the integrated terminal"
-              : "Open a local folder in the desktop app to run commands"
-          }
-          type="submit"
-          disabled={!available || !command.trim()}
-        >
-          <Play size={14} />
-          {selected
-            ? selected.label === "Run"
-              ? "Run project"
-              : `Run ${selected.label.toLowerCase()}`
-            : "Run command"}
-          <ArrowUpRight size={13} />
-        </button>
-        <small>Saves changes before running in the terminal.</small>
-      </form>
     </section>
   );
 }

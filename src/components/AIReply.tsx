@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import { createContext, useContext } from "react";
 import type { ComponentProps } from "react";
 import { streamText } from "../lib/aiStreamText";
@@ -66,8 +67,7 @@ function CodeBlock({
           <button
             aria-label="Copy code"
             onClick={() =>
-              void navigator.clipboard
-                .writeText(code)
+              void writeClipboardText(code)
                 .then(() => {
                   setCopied(true);
                   clearTimeout(timeout.current);

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import {
   forwardRef,
   useEffect,
@@ -105,7 +106,7 @@ export default forwardRef<
     const selected = term.onSelectionChange(() => {
       const text = term.getSelection();
       if (text && current.current.settings.terminalCopyOnSelect)
-        void navigator.clipboard.writeText(text).catch(current.current.onError);
+        void writeClipboardText(text).catch(current.current.onError);
     });
     let columns = term.cols,
       rows = term.rows;

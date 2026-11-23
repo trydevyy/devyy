@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
+import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence } from "motion/react";
 import AIThinking from "./AIThinking";
@@ -40,7 +42,6 @@ import {
   CheckCheck,
   Bot,
   Bookmark,
-  MoreHorizontal,
 } from "lucide-react";
 import {
   chooseAIModel,
@@ -406,10 +407,12 @@ export default function AIChatPanel({
           const start = el.selectionStart;
           const end = el.selectionEnd;
           const selected = draft.slice(start, end);
-          void navigator.clipboard.writeText(selected).then(() => {
-            setDraft(draft.slice(0, start) + draft.slice(end));
-            setTimeout(() => el.setSelectionRange(start, start), 0);
-          });
+          void writeClipboardText(selected)
+            .then(() => {
+              setDraft(draft.slice(0, start) + draft.slice(end));
+              setTimeout(() => el.setSelectionRange(start, start), 0);
+            })
+            .catch(() => setError("Could not cut the selected text."));
         },
       },
       {
@@ -418,24 +421,28 @@ export default function AIChatPanel({
         action: () => {
           if (!el) return;
           const selected = draft.slice(el.selectionStart, el.selectionEnd);
-          void navigator.clipboard.writeText(selected);
+          void writeClipboardText(selected).catch(() =>
+            setError("Could not copy the selected text."),
+          );
         },
       },
       {
         label: "Paste",
         action: () => {
           if (!el) return;
-          void navigator.clipboard.readText().then((text) => {
-            const start = el.selectionStart;
-            const end = el.selectionEnd;
-            const next = draft.slice(0, start) + text + draft.slice(end);
-            setDraft(next);
-            setTimeout(
-              () =>
-                el.setSelectionRange(start + text.length, start + text.length),
-              0,
-            );
-          });
+          void readClipboardText()
+            .then((text) => {
+              const start = el.selectionStart;
+              const end = el.selectionEnd;
+              const next = draft.slice(0, start) + text + draft.slice(end);
+              setDraft(next);
+              setTimeout(
+                () =>
+                  el.setSelectionRange(start + text.length, start + text.length),
+                0,
+              );
+            })
+            .catch(() => setError("Could not paste from the clipboard."));
         },
       },
       {
@@ -486,7 +493,7 @@ export default function AIChatPanel({
   async function copyConversation() {
     if (!chat) return;
     try {
-      await navigator.clipboard.writeText(
+      await writeClipboardText(
         chat.messages
           .map((m) => `${m.role === "user" ? "You" : "Devyy"}\n\n${m.content}`)
           .join("\n\n---\n\n"),
@@ -531,18 +538,26 @@ export default function AIChatPanel({
     >
           <div className="ai-chat-toolbar">
             <Popover.Root open={sessionsOpen} onOpenChange={setSessionsOpen}>
-              <Popover.Trigger className="ai-thread-title" title="Sessions">
+              <Popover.Trigger className="ai-thread-title" title="Conversation history" aria-label="AI conversation history">
                 <span>{chat?.title ?? "New conversation"}</span>
                 <ChevronDown size={12} />
               </Popover.Trigger>
               <Popover.Portal>
-                <Popover.Content className="agent-sessions-popover" aria-label="Sessions"
+                <Popover.Content className="header-popover-content agent-sessions-popover" aria-label="Conversation history"
                   align="start" sideOffset={6} collisionPadding={12} data-escape-scope="active">
-                  <AISessionsView onSelectChat={(id) => {
-                    selectAIChat(id);
-                    setScreen("chat");
-                    setSessionsOpen(false);
-                  }} />
+                  <AISessionsView
+                    canCheckpoint={Boolean(cwd)}
+                    onNewChat={() => {
+                      fresh();
+                      setScreen("chat");
+                      setSessionsOpen(false);
+                    }}
+                    onSelectChat={(id) => {
+                      selectAIChat(id);
+                      setScreen("chat");
+                      setSessionsOpen(false);
+                    }}
+                  />
                 </Popover.Content>
               </Popover.Portal>
             </Popover.Root>
@@ -568,19 +583,14 @@ export default function AIChatPanel({
               >
                 <Plus size={15} />
               </button>
-              <details className="agent-thread-menu">
-                <summary className="icon-button" aria-label="Conversation actions"><MoreHorizontal size={15} /></summary>
-                <div>
-                  <button onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    void handleCreateCheckpoint();
-                  }}><Bookmark size={14} /> Save checkpoint</button>
-                  <button aria-label="AI usage" onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    setUsage(true);
-                  }}><ChartNoAxesColumn size={14} /> Usage</button>
-                </div>
-              </details>
+              <ActionMenu label="Conversation actions">
+                <ActionMenuItem onClick={() => void handleCreateCheckpoint()}>
+                  <Bookmark size={14} /> Save checkpoint
+                </ActionMenuItem>
+                <ActionMenuItem label="AI usage" onClick={() => setUsage(true)}>
+                  <ChartNoAxesColumn size={14} /> Usage
+                </ActionMenuItem>
+              </ActionMenu>
               <button
                 className="icon-button"
                 aria-label="AI provider settings"
@@ -592,7 +602,14 @@ export default function AIChatPanel({
           </div>
 
       {screen === "skills" && <AISkillsView sessionId={chat?.id} />}
-      {screen === "review" && <AIReviewView onReview={onReview} onApproveAll={onApproveAll} />}
+      {screen === "review" && (
+        <AIReviewView
+          key={`${cwd ?? ""}:${chat?.id ?? ""}`}
+          cwd={cwd}
+          onReview={onReview}
+          onApproveAll={onApproveAll}
+        />
+      )}
       {screen === "chat" && (
         <>
       {history ? (
@@ -877,8 +894,7 @@ export default function AIChatPanel({
                         aria-label="Copy message"
                         title="Copy"
                         onClick={() =>
-                          void navigator.clipboard
-                            .writeText(message.content)
+                          void writeClipboardText(message.content)
                             .catch(() => setError("Could not copy message."))
                         }
                       >
@@ -1261,8 +1277,7 @@ export default function AIChatPanel({
               className="icon-button"
               aria-label="Copy attachment"
               onClick={() =>
-                void navigator.clipboard
-                  .writeText(preview.content)
+                void writeClipboardText(preview.content)
                   .catch(() => setError("Could not copy attachment."))
               }
             >

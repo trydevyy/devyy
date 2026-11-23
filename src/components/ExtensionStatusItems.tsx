@@ -114,62 +114,81 @@ export default function ExtensionStatusItems() {
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
-  const items = Object.entries(statusItems).sort(
-    ([, a], [, b]) => (b.priority ?? 0) - (a.priority ?? 0),
-  );
+  const hasRustExtension = Boolean(statusItems["rust-lang.rust-analyzer"]);
+  const items = Object.entries(statusItems)
+    .filter(
+      ([key]) =>
+        !hasRustExtension ||
+        !["lsp-status:rust", "lsp-status:rust-analyzer"].includes(key),
+    )
+    .sort(([, a], [, b]) => (b.priority ?? 0) - (a.priority ?? 0));
 
   return (
     <>
-      <ExtensionProgress />
-      {items.map(([key, item]) => {
-        const { parts, hasSpin } = parseStatusText(item.text);
-        const shouldShowBusySpin = Boolean(item.busy && !hasSpin);
-        const bgColorId =
-          typeof item.backgroundColor === "string"
-            ? item.backgroundColor
-            : item.backgroundColor?.id;
-        const isError =
-          item.severity === 2 || Boolean(bgColorId?.includes("error"));
-        const isWarning =
-          item.severity === 1 || Boolean(bgColorId?.includes("warning"));
+      <ExtensionProgress>
+        {(active) =>
+          items
+            .filter(([owner]) => {
+              const key =
+                owner === "lsp-status:rust" ||
+                owner === "lsp-status:rust-analyzer"
+                  ? "rust-lang.rust-analyzer"
+                  : owner.replace(/^lsp-status:/, "");
+              return !active.has(key);
+            })
+            .map(([owner, item]) => {
+              const { parts, hasSpin } = parseStatusText(item.text);
+              const shouldShowBusySpin = Boolean(item.busy && !hasSpin);
+              const bgColorId =
+                typeof item.backgroundColor === "string"
+                  ? item.backgroundColor
+                  : item.backgroundColor?.id;
+              const isError =
+                item.severity === 2 || Boolean(bgColorId?.includes("error"));
+              const isWarning =
+                item.severity === 1 || Boolean(bgColorId?.includes("warning"));
 
-        const tooltip =
-          (typeof item.tooltip === "string"
-            ? item.tooltip
-            : item.tooltip?.value) ||
-          item.detail ||
-          item.text.replace(/\$\(([^)]+)\)/g, "").trim();
+              const tooltip =
+                (typeof item.tooltip === "string"
+                  ? item.tooltip
+                  : item.tooltip?.value) ||
+                item.detail ||
+                item.text.replace(/\$\(([^)]+)\)/g, "").trim();
 
-        return (
-          <button
-            key={key}
-            className={`extension-status-item${isError ? " status-item-error" : ""}${isWarning ? " status-item-warning" : ""}`}
-            title={tooltip}
-            onClick={() => {
-              const command =
-                typeof item.command === "string"
-                  ? item.command
-                  : item.command?.command;
-              if (command) {
-                void extensionCommand(
-                  command,
-                  typeof item.command === "object"
-                    ? item.command.arguments
-                    : [],
-                ).catch((error) => toast.error(String(error)));
-              }
-            }}
-          >
-            {shouldShowBusySpin && (
-              <LoaderCircle size={12} className="spinning" />
-            )}
-            {parts}
-            {item.detail && (
-              <span className="extension-status-detail">{item.detail}</span>
-            )}
-          </button>
-        );
-      })}
+              return (
+                <button
+                  key={owner}
+                  className={`extension-status-item${isError ? " status-item-error" : ""}${isWarning ? " status-item-warning" : ""}`}
+                  title={tooltip}
+                  onClick={() => {
+                    const command =
+                      typeof item.command === "string"
+                        ? item.command
+                        : item.command?.command;
+                    if (command) {
+                      void extensionCommand(
+                        command,
+                        typeof item.command === "object"
+                          ? item.command.arguments
+                          : [],
+                      ).catch((error) => toast.error(String(error)));
+                    }
+                  }}
+                >
+                  {shouldShowBusySpin && (
+                    <LoaderCircle size={12} className="spinning" />
+                  )}
+                  {parts}
+                  {item.detail && (
+                    <span className="extension-status-detail">
+                      {item.detail}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+        }
+      </ExtensionProgress>
 
       {statusMessage && (
         <span

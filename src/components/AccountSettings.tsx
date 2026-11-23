@@ -14,6 +14,8 @@ import { invoke, native } from "../lib/native";
 import { useExtensions } from "../lib/extensions";
 import type { Settings } from "../lib/types";
 import keys from "../lib/accountSyncKeys.json";
+import { categories, controls } from "../lib/settingsCatalog";
+import DisclosureSummary from "./ui/DisclosureSummary";
 import AccountSignIn, { useAccountProfile } from "./AccountSignIn";
 import { showError } from "./ui/ErrorToast";
 
@@ -31,6 +33,20 @@ const choices = [
   ],
 ] as const;
 
+const localPreferences = keys.map((key) => {
+  const control = controls.find((item) => item.key === key);
+  const label = key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return {
+    key,
+    label:
+      control?.label ??
+      (key === "bindings"
+        ? "Keyboard shortcuts"
+        : label[0].toUpperCase() + label.slice(1)),
+    category: control?.category ?? (key === "bindings" ? "shortcuts" : "other"),
+  };
+});
+
 export default function AccountSettings({
   settings,
   onChange,
@@ -42,6 +58,16 @@ export default function AccountSettings({
   const options = useSyncOptions();
   const extensions = useExtensions();
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState("");
+  const visible = localPreferences.filter((item) =>
+    item.label.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+  const groups = [...categories, { id: "other", label: "Other preferences" }]
+    .map(({ id, label }) => ({
+      label,
+      items: visible.filter((item) => item.category === id),
+    }))
+    .filter(({ items }) => items.length > 0);
   const update = (patch: Partial<typeof options>) =>
     saveSyncOptions({ ...options, ...patch });
   async function perform(action: () => Promise<unknown>) {
@@ -130,25 +156,55 @@ export default function AccountSettings({
               </label>
             ))}
             <details className="workbench-exclusions">
-              <summary>Keep specific preferences on this device</summary>
+              <DisclosureSummary>
+                Keep specific preferences on this device
+                {!!options.excluded.length && (
+                  <small>{options.excluded.length} selected</small>
+                )}
+              </DisclosureSummary>
               <div className="sync-exclusions">
-                {keys.map((key) => (
-                  <label key={key} className="sync-check">
-                    <input
-                      type="checkbox"
-                      checked={options.excluded.includes(key)}
-                      disabled={busy || !options.settings}
-                      onChange={(event) =>
-                        update({
-                          enabled: false,
-                          excluded: event.target.checked
-                            ? [...options.excluded, key]
-                            : options.excluded.filter((item) => item !== key),
-                        })
-                      }
-                    />{" "}
-                    {key.replace(/([A-Z])/g, " $1")}
-                  </label>
+                <input
+                  className="text-input"
+                  type="search"
+                  aria-label="Find a preference"
+                  placeholder="Find a preference"
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                />
+                {!options.settings && (
+                  <p className="muted">
+                    Turn on Editor preferences to choose what stays on this
+                    device.
+                  </p>
+                )}
+                {!groups.length && (
+                  <p className="muted">No matching preferences.</p>
+                )}
+                {groups.map(({ label, items }) => (
+                  <fieldset key={label} disabled={busy || !options.settings}>
+                    <legend>{label}</legend>
+                    <div>
+                      {items.map(({ key, label }) => (
+                        <label key={key} className="sync-check">
+                          <input
+                            type="checkbox"
+                            checked={options.excluded.includes(key)}
+                            onChange={(event) =>
+                              update({
+                                enabled: false,
+                                excluded: event.target.checked
+                                  ? [...options.excluded, key]
+                                  : options.excluded.filter(
+                                      (item) => item !== key,
+                                    ),
+                              })
+                            }
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
                 ))}
               </div>
             </details>

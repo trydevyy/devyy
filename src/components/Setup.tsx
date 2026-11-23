@@ -20,18 +20,11 @@ import {
   ArrowRight,
   Asterisk,
   Check,
-  Code2,
-  Download,
   Moon,
   Monitor,
-  Palette,
-  Puzzle,
   Sun,
-  Github,
-  UserRound,
 } from "lucide-react";
 import AIProviders from "./AIProviders";
-import { Bot } from "lucide-react";
 import type { Settings } from "../lib/types";
 import AccentPicker from "./AccentPicker";
 import EditorPreview from "./EditorPreview";
@@ -41,13 +34,13 @@ import GitHubSettings from "./GitHubSettings";
 import CompletionSettings from "./CompletionSettings";
 import AccountSignIn, { useAccountProfile } from "./AccountSignIn";
 const steps = [
-  { name: "Devyy account", icon: UserRound },
-  { name: "Appearance", icon: Palette },
-  { name: "Editor", icon: Code2 },
-  { name: "Import", icon: Download },
-  { name: "Extensions", icon: Puzzle },
-  { name: "AI providers", icon: Bot },
-  { name: "Git & GitHub", icon: Github },
+  "Devyy account",
+  "Appearance",
+  "Editor",
+  "Import",
+  "Extensions",
+  "AI providers",
+  "Git & GitHub",
 ];
 export default function Setup({
   settings,
@@ -75,25 +68,21 @@ export default function Setup({
             <span>devyy</span>
           </div>
           <div className="setup-introduction">
-            <h1>
-              Set up Devyy
-            </h1>
+            <h1>A workspace of your own.</h1>
             <p>
-              Choose how Devyy works on this device.
+              A few choices to get comfortable. Everything can be changed later.
             </p>
           </div>
           <nav aria-label="Setup steps">
             {steps.map((item, i) => (
               <button
-                key={item.name}
+                key={item}
                 aria-current={step === i ? "step" : undefined}
                 onClick={() => setStep(i)}
               >
-                <span className="setup-step-number">
-                  <item.icon size={14} />
-                </span>
-                <span>{item.name}</span>
-
+                <span className="setup-step-number">{i + 1}</span>
+                <span>{item}</span>
+                {step === i && <ArrowRight size={13} aria-hidden="true" />}
               </button>
             ))}
           </nav>
@@ -103,14 +92,26 @@ export default function Setup({
         </aside>
         <div className="setup-main">
           <header>
-            <span>{steps[step].name}</span>
+            <span>{steps[step]}</span>
+            <div
+              className="setup-progress"
+              role="progressbar"
+              aria-label="Setup progress"
+              aria-valuemin={1}
+              aria-valuemax={steps.length}
+              aria-valuenow={step + 1}
+            >
+              {steps.map((item, i) => (
+                <i key={item} className={i <= step ? "complete" : ""} />
+              ))}
+            </div>
           </header>
           <div className="setup-scroll" key={step}>
             <h2>
               {
                 [
                   "Sign in to Devyy",
-                  "Choose your appearance",
+                  "Find your focus.",
                   "Make room for your code.",
                   "Pick up where you left off.",
                   "Add the tools you use.",
@@ -140,47 +141,50 @@ export default function Setup({
                   role="group"
                   aria-label="Setup theme"
                 >
-                  {(["midnight", "paper", "monochrome"] as const).map((theme) => (
-                    <button
-                      key={theme}
-                      aria-pressed={
-                        settings.theme === theme && !settings.followSystemTheme
-                      }
-                      onClick={() =>
-                        onChange({ theme, followSystemTheme: false })
-                      }
-                    >
-                      <span className={`setup-theme-window ${theme}`}>
-                        <span>
-                          <i />
-                          <i />
-                          <i />
+                  {(["midnight", "paper", "monochrome"] as const).map(
+                    (theme) => (
+                      <button
+                        key={theme}
+                        aria-pressed={
+                          settings.theme === theme &&
+                          !settings.followSystemTheme
+                        }
+                        onClick={() =>
+                          onChange({ theme, followSystemTheme: false })
+                        }
+                      >
+                        <span className={`setup-theme-window ${theme}`}>
+                          <span>
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                          <b />
+                          <div>
+                            <em />
+                            <em />
+                            <em />
+                          </div>
                         </span>
-                        <b />
-                        <div>
-                          <em />
-                          <em />
-                          <em />
-                        </div>
-                      </span>
-                      <span>
-                        {theme === "midnight" ? (
-                          <Moon size={14} />
-                        ) : theme === "paper" ? (
-                          <Sun size={14} />
-                        ) : (
-                          <Monitor size={14} />
-                        )}{" "}
-                        {theme === "midnight"
-                          ? "Dark"
-                          : theme === "paper"
-                            ? "Light"
-                            : "Monochrome"}
-                        {settings.theme === theme &&
-                          !settings.followSystemTheme && <Check size={13} />}
-                      </span>
-                    </button>
-                  ))}
+                        <span>
+                          {theme === "midnight" ? (
+                            <Moon size={14} />
+                          ) : theme === "paper" ? (
+                            <Sun size={14} />
+                          ) : (
+                            <Monitor size={14} />
+                          )}{" "}
+                          {theme === "midnight"
+                            ? "Dark"
+                            : theme === "paper"
+                              ? "Light"
+                              : "Monochrome"}
+                          {settings.theme === theme &&
+                            !settings.followSystemTheme && <Check size={13} />}
+                        </span>
+                      </button>
+                    ),
+                  )}
                 </div>
                 <label className="setup-check">
                   <input
@@ -321,7 +325,11 @@ export default function Setup({
                 step === steps.length - 1 ? onFinish() : setStep((s) => s + 1)
               }
             >
-              {step === steps.length - 1 ? "Start coding" : step === 0 && !profile ? "Continue as guest" : "Continue"}
+              {step === steps.length - 1
+                ? "Start coding"
+                : step === 0 && !profile
+                  ? "Continue as guest"
+                  : "Continue"}
               {step === steps.length - 1 ? (
                 <Check size={14} />
               ) : (

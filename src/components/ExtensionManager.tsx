@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -415,8 +416,7 @@ export default function ExtensionManager({
                   {extension.installPath && (
                     <button
                       onClick={() =>
-                        void navigator.clipboard
-                          .writeText(extension.installPath!)
+                        void writeClipboardText(extension.installPath!)
                           .then(() => toast.success("Extension path copied"))
                           .catch(() => toast.error("Could not copy path"))
                       }

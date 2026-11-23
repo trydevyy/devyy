@@ -15,203 +15,210 @@
 
 import { useState } from "react";
 import {
-  Search,
-  Plus,
-  GitFork,
-  Trash2,
-  Pencil,
-  Check,
   Bookmark,
-  Calendar,
+  Check,
+  ChevronRight,
+  GitFork,
   MessageSquare,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
 } from "lucide-react";
 import {
+  addAICheckpoint,
   deleteAIChat,
   forkAIChat,
-  newAIChat,
   renameAIChat,
-  selectAIChat,
   useAI,
-  addAICheckpoint,
 } from "../lib/ai";
-import { invoke } from "../lib/native";
+import { invoke, native } from "../lib/native";
+import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
 
 export default function AISessionsView({
   onSelectChat,
+  onNewChat,
+  canCheckpoint,
 }: {
   onSelectChat: (chatId: string) => void;
+  onNewChat: () => void;
+  canCheckpoint: boolean;
 }) {
   const ai = useAI();
   const [query, setQuery] = useState("");
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameTitle, setRenameTitle] = useState("");
+  const [rename, setRename] = useState<{ id: string; title: string }>();
   const [checkpointBusy, setCheckpointBusy] = useState(false);
-  const [checkpointNotice, setCheckpointNotice] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const filtered = ai.conversations.filter((c) =>
-    c.title.toLowerCase().includes(query.toLowerCase()),
-  );
+  const sessions = ai.conversations
+    .filter((conversation) =>
+      conversation.title.toLowerCase().includes(query.trim().toLowerCase()),
+    )
+    .sort((left, right) => right.updatedAt - left.updatedAt);
 
-  async function handleCreateCheckpoint(chatId: string) {
+  async function saveCheckpoint(id: string) {
     setCheckpointBusy(true);
-    setCheckpointNotice("");
+    setNotice("");
     try {
-      const nowStr = new Date().toLocaleTimeString();
-      const label = `Session checkpoint ${nowStr}`;
-      const res = await invoke<string>("vcs_checkpoint", { name: label });
-      addAICheckpoint(chatId, label);
-      setCheckpointNotice(res || `Checkpoint created: ${label}`);
-    } catch (err) {
-      setCheckpointNotice(`Checkpoint error: ${String(err)}`);
+      const label = `Session checkpoint ${new Date().toLocaleTimeString()}`;
+      await invoke("vcs_checkpoint", { name: label });
+      addAICheckpoint(id, label);
+      setNotice("Checkpoint saved");
+    } catch (error) {
+      setNotice(String(error));
     } finally {
       setCheckpointBusy(false);
     }
   }
 
   return (
-    <div className="ai-sessions-view">
-      <div className="ai-sessions-header">
-        <div className="ai-sessions-search">
+    <div className="session-history">
+      <div className="session-history-header">
+        <label className="session-history-search">
           <Search size={14} />
           <input
+            aria-label="Search conversations"
+            placeholder="Search conversations"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search session history…"
-            aria-label="Search sessions"
+            onChange={(event) => setQuery(event.target.value)}
           />
-        </div>
+        </label>
         <button
-          className="setting-action"
-          onClick={() => {
-            const providerId = ai.providers[0]?.id ?? "chatgpt";
-            const nextId = newAIChat(providerId);
-            if (nextId) onSelectChat(nextId);
-          }}
-          title="Start a new AI session"
+          className="icon-button"
+          aria-label="New conversation"
+          title="New conversation"
+          onClick={onNewChat}
         >
-          <Plus size={13} /> New Session
+          <Plus size={16} />
         </button>
       </div>
-
-      {checkpointNotice && (
-        <p className="ai-provider-notice" role="status">
-          {checkpointNotice}
+      {notice && (
+        <p className="session-history-notice" role="status">
+          {notice}
         </p>
       )}
-
-      <div className="ai-sessions-list">
-        {filtered.map((c) => {
-          const isSelected = c.id === ai.selected;
-          const isRenaming = renaming === c.id;
-          const msgCount = c.messages.length;
-          const mode = c.mode ?? "agent";
-
+      <ul className="session-history-list">
+        {!sessions.length && (
+          <li className="session-history-empty">
+            {query ? "No matching conversations" : "No conversations yet"}
+          </li>
+        )}
+        {sessions.map((conversation) => {
+          const selected = conversation.id === ai.selected;
+          const lastMessage = conversation.messages.at(-1);
+          const checkpoints = conversation.checkpoints?.length ?? 0;
           return (
-            <div
-              key={c.id}
-              className={`ai-session-card ${isSelected ? "selected" : ""}`}
+            <li
+              key={conversation.id}
+              className="session-history-row"
+              data-selected={selected}
             >
-              <div className="ai-session-card-header">
-                {isRenaming ? (
-                  <form
-                    className="ai-session-rename-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      renameAIChat(c.id, renameTitle);
-                      setRenaming(null);
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      value={renameTitle}
-                      onChange={(e) => setRenameTitle(e.target.value)}
-                      aria-label="Rename session"
-                    />
-                    <button type="submit" className="icon-button" aria-label="Save">
-                      <Check size={13} />
-                    </button>
-                  </form>
-                ) : (
-                  <div
-                    className="ai-session-title-clickable"
-                    onClick={() => {
-                      selectAIChat(c.id);
-                      onSelectChat(c.id);
-                    }}
-                  >
-                    <MessageSquare size={14} className="ai-session-icon" />
-                    <strong>{c.title}</strong>
-                    <span className={`ai-mode-pill ${mode}`}>{mode}</span>
-                  </div>
-                )}
-
-                <div className="ai-session-actions">
+              {rename?.id === conversation.id ? (
+                <form
+                  className="session-history-rename"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    renameAIChat(conversation.id, rename.title);
+                    setRename(undefined);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    className="text-input"
+                    value={rename.title}
+                    aria-label="Conversation title"
+                    onChange={(event) =>
+                      setRename({
+                        id: conversation.id,
+                        title: event.target.value,
+                      })
+                    }
+                  />
                   <button
-                    type="button"
+                    type="submit"
                     className="icon-button"
-                    title="Rename session"
-                    aria-label="Rename session"
-                    onClick={() => {
-                      setRenaming(c.id);
-                      setRenameTitle(c.title);
-                    }}
+                    aria-label="Save name"
                   >
-                    <Pencil size={12} />
+                    <Check size={14} />
                   </button>
                   <button
                     type="button"
                     className="icon-button"
-                    title="Fork session"
-                    aria-label="Fork session"
-                    onClick={() => {
-                      const lastMsg = c.messages.at(-1);
-                      if (lastMsg) {
-                        const forkedId = forkAIChat(c.id, lastMsg.id);
-                        if (forkedId) onSelectChat(forkedId);
+                    aria-label="Cancel rename"
+                    onClick={() => setRename(undefined)}
+                  >
+                    <X size={14} />
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="session-history-open"
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => onSelectChat(conversation.id)}
+                  >
+                    <MessageSquare size={14} aria-hidden="true" />
+                    <span>
+                      <strong>{conversation.title}</strong>
+                      <small>
+                        {new Date(conversation.updatedAt).toLocaleDateString(
+                          undefined,
+                          { month: "short", day: "numeric", year: "numeric" },
+                        )}
+                        {checkpoints > 0 &&
+                          ` / ${checkpoints} ${checkpoints === 1 ? "checkpoint" : "checkpoints"}`}
+                      </small>
+                    </span>
+                    {selected ? (
+                      <Check size={13} aria-hidden="true" />
+                    ) : (
+                      <ChevronRight size={13} aria-hidden="true" />
+                    )}
+                  </button>
+                  <ActionMenu label={`Actions for ${conversation.title}`}>
+                    <ActionMenuItem
+                      onClick={() =>
+                        setRename({
+                          id: conversation.id,
+                          title: conversation.title,
+                        })
                       }
-                    }}
-                  >
-                    <GitFork size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    title="Create Hit/Git Checkpoint"
-                    aria-label="Create Checkpoint"
-                    disabled={checkpointBusy}
-                    onClick={() => void handleCreateCheckpoint(c.id)}
-                  >
-                    <Bookmark size={12} />
-                  </button>
-                  {ai.conversations.length > 1 && (
-                    <button
-                      type="button"
-                      className="icon-button danger"
-                      title="Delete session"
-                      aria-label="Delete session"
-                      onClick={() => deleteAIChat(c.id)}
                     >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="ai-session-meta">
-                <span>
-                  <Calendar size={11} /> {new Date(c.updatedAt).toLocaleDateString()}
-                </span>
-                <span>{msgCount} messages</span>
-                {c.checkpoints && c.checkpoints.length > 0 && (
-                  <span className="ai-session-checkpoint-count">
-                    <Bookmark size={11} /> {c.checkpoints.length} checkpoints
-                  </span>
-                )}
-              </div>
-            </div>
+                      <Pencil size={13} /> Rename
+                    </ActionMenuItem>
+                    <ActionMenuItem
+                      disabled={!lastMessage}
+                      onClick={() => {
+                        if (!lastMessage) return;
+                        const id = forkAIChat(conversation.id, lastMessage.id);
+                        if (id) onSelectChat(id);
+                      }}
+                    >
+                      <GitFork size={13} /> Branch conversation
+                    </ActionMenuItem>
+                    <ActionMenuItem
+                      disabled={!native || !canCheckpoint || checkpointBusy}
+                      onClick={() => void saveCheckpoint(conversation.id)}
+                    >
+                      <Bookmark size={13} /> Save checkpoint
+                    </ActionMenuItem>
+                    {ai.conversations.length > 1 && (
+                      <ActionMenuItem
+                        danger
+                        onClick={() => deleteAIChat(conversation.id)}
+                      >
+                        <Trash2 size={13} /> Delete
+                      </ActionMenuItem>
+                    )}
+                  </ActionMenu>
+                </>
+              )}
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 }

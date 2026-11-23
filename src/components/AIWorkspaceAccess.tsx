@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Select from "./ui/Select";
 import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -24,6 +25,13 @@ import { ChevronDown, ShieldCheck, X } from "lucide-react";
 import { invoke, native } from "../lib/native";
 const modes = { agent: "Agent", ask: "Ask", plan: "Plan", review: "Review" };
 const permissions = { attached: "Attachments only", read: "Read workspace", full: "Full workspace" };
+
+const optionPlacement = {
+  side: "left",
+  align: "start",
+  sideOffset: 18,
+  className: "agent-option-select-popup",
+} as const;
 
 export default function AIWorkspaceAccess({ root, agentMode, running, onAgentModeChange }: {
   root?: string;
@@ -101,14 +109,14 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
             onCloseAutoFocus={(event) => { if (pending) event.preventDefault(); }}>
             <label>
               Mode
-              <select aria-label="Agent mode" value={agentMode} disabled={running}
+              <Select popup={optionPlacement} aria-label="Agent mode" value={agentMode} disabled={running}
                 onChange={(event) => onAgentModeChange(event.target.value as AIAgentMode)}>
                 {Object.entries(modes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              </Select>
             </label>
             <label>
               Workspace permissions
-              <select aria-label="Agent workspace access" value={mode} disabled={!root || !native || busy}
+              <Select popup={optionPlacement} aria-label="Agent workspace access" value={mode} disabled={!root || !native || busy}
                 onChange={(event) => {
                   const next = event.target.value;
                   if (next === "attached") void grant(next);
@@ -118,7 +126,7 @@ export default function AIWorkspaceAccess({ root, agentMode, running, onAgentMod
                   }
                 }}>
                 {Object.entries(permissions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              </Select>
             </label>
           </Popover.Content>
         </Popover.Portal>

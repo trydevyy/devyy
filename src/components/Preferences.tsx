@@ -430,25 +430,22 @@ export default function Preferences({
           <AnimatePresence mode="wait" initial={false} custom={direction}>
             <motion.div
               className="settings-inner"
-              custom={direction}
-              variants={{
-                enter: (d: number) => ({
-                  opacity: 0,
-                  y: instant ? 0 : d * 24,
-                  filter: instant ? "none" : "blur(5px)",
-                  scale: 1,
-                }),
-                visible: {
-                  opacity: 1,
-                  y: 0,
-                  filter: "blur(0px)",
-                  scale: 1,
-                  transition: {
-                    type: "tween",
-                    duration: instant ? 0 : 0.3,
-                    ease: [0.16, 1, 0.3, 1],
-                  },
+              initial={{
+                opacity: 0,
+                y: instant ? 0 : direction * 24,
+                filter: instant ? "none" : "blur(5px)",
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                filter: "blur(0px)",
+                transition: {
+                  type: "tween",
+                  duration: instant ? 0 : 0.3,
+                  ease: [0.16, 1, 0.3, 1],
                 },
+              }}
+              variants={{
                 leave: (d: number) => ({
                   opacity: 0,
                   y: instant ? 0 : -d * 20,
@@ -461,8 +458,6 @@ export default function Preferences({
                 }),
               }}
               key={searching ? "search" : category}
-              initial="enter"
-              animate="visible"
               exit="leave"
               transition={transition}
             >
