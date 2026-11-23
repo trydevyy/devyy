@@ -18,6 +18,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 const root = path.resolve(import.meta.dirname, "..");
+const includeRust = process.argv.includes("--include-rust");
 const read = (p) => fs.readFileSync(p, "utf8");
 const write = (p, v) => {
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -104,42 +105,40 @@ for (const [relative, entry] of Object.entries(lock.packages)) {
     files: licenseTexts(dir),
   });
 }
-const rustHost = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
-  /^host: (.*)$/m,
-)[1];
-const metadata = JSON.parse(
-  execFileSync(
-    "cargo",
-    [
-      "metadata",
-      "--manifest-path",
-      path.join(root, "src-tauri/Cargo.toml"),
-      "--format-version",
-      "1",
-      "--locked",
-      "--filter-platform",
-      rustHost,
-    ],
-    {
-      encoding: "utf8",
-      maxBuffer: 20 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  ),
-);
-for (const pkg of metadata.packages)
-  if (!metadata.workspace_members.includes(pkg.id))
-    packages.push({
-      name: pkg.name,
-      version: pkg.version,
-      ecosystem: "Rust",
-      license: pkg.license ?? "Not specified",
-      url:
-        pkg.homepage ??
-        pkg.repository ??
-        `https://crates.io/crates/${pkg.name}/${pkg.version}`,
-      files: licenseTexts(path.dirname(pkg.manifest_path)),
-    });
+if (includeRust) {
+  const rustHost = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
+    /^host: (.*)$/m,
+  )[1];
+  const metadata = JSON.parse(
+    execFileSync(
+      "cargo",
+      [
+        "metadata",
+        "--manifest-path",
+        path.join(root, "src-tauri/Cargo.toml"),
+        "--format-version",
+        "1",
+        "--locked",
+        "--filter-platform",
+        rustHost,
+      ],
+      { maxBuffer: 20 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] },
+    ),
+  );
+  for (const pkg of metadata.packages)
+    if (!metadata.workspace_members.includes(pkg.id))
+      packages.push({
+        name: pkg.name,
+        version: pkg.version,
+        ecosystem: "Rust",
+        license: pkg.license ?? "Not specified",
+        url:
+          pkg.homepage ??
+          pkg.repository ??
+          `https://crates.io/crates/${pkg.name}/${pkg.version}`,
+        files: licenseTexts(path.dirname(pkg.manifest_path)),
+      });
+}
 const material = JSON.parse(read(path.join(themeRoot, "package.json")));
 packages.push({
   name: material.name,

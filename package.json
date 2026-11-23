@@ -16,6 +16,9 @@
     "desktop:build": "tauri build",
     "test:extension-host": "node --test scripts/test-extension-host.mjs",
     "assets:generate": "node scripts/generate-assets.mjs",
+    "assets:generate:native": "node scripts/generate-assets.mjs --include-rust",
+    "build:native": "npm run assets:generate:native && tsc -b && vite build",
+    "dev:native": "npm run assets:generate:native && vite --host 127.0.0.1",
     "prebuild": "npm run assets:generate",
     "predev": "npm run assets:generate",
     "release:installer": "node installer/scripts/release.mjs"

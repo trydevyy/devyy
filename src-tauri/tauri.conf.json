@@ -5,9 +5,9 @@
   "identifier": "xyz.devyy.editor",
   "build": {
     "runner": "cargo",
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:native",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:native",
     "frontendDist": "../dist"
   },
   "app": {
