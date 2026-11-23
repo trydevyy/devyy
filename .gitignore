@@ -6,6 +6,7 @@ src-tauri/target/
 test-results/
 playwright-report/
 *.tsbuildinfo
+/artifacts/
 
 # Recreated from locked dependencies by assets:generate.
 public/file-icons/
