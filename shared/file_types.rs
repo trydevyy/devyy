@@ -16,6 +16,7 @@ struct Bundle {
 #[serde(rename_all = "camelCase")]
 pub struct FileType {
     pub ext: Vec<String>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub name: String,
     pub mime_type: String,
 }
