@@ -399,8 +399,8 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
     let parent = tempfile::tempdir().unwrap();
     let directory = parent.path().join("Devyy terminal test");
     std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join("devyy-cwd.txt"), "terminal fixture").unwrap();
     call(&view, "open_workspace", json!({"path": directory}));
-    let expected_directory = format!("{}>", directory.display()).to_lowercase();
     let profiles = call(&view, "terminal_profiles", json!({}));
     let cmd = profiles
         .as_array()
@@ -415,22 +415,24 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
     let a = call(
         &view,
         "terminal_create",
-        json!({"cols":80,"rows":24,"profile":cmd["id"]}),
+        json!({"cols":120,"rows":24,"profile":cmd["id"]}),
     );
     let b = call(
         &view,
         "terminal_create",
-        json!({"cols":80,"rows":24,"profile":cmd["id"]}),
+        json!({"cols":120,"rows":24,"profile":cmd["id"]}),
     );
     assert_ne!(a, b);
+    // The relative file verifies each shell's cwd without interpreting CMD's
+    // prompt, which can vary with Windows path aliases and ConPTY rendering.
     let commands = [
         (
             &a,
-            "set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_A\r",
+            "set DEVYY_MARKER=DEVYY_\rif exist devyy-cwd.txt echo %DEVYY_MARKER%WINDOWS_A\r",
         ),
         (
             &b,
-            "set DEVYY_MARKER=DEVYY_\recho %DEVYY_MARKER%WINDOWS_B\r",
+            "set DEVYY_MARKER=DEVYY_\rif exist devyy-cwd.txt echo %DEVYY_MARKER%WINDOWS_B\r",
         ),
     ];
     let mut started = std::collections::HashSet::new();
@@ -443,11 +445,12 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
             .get(&b.as_u64().unwrap())
             .is_some_and(|s| s.contains("DEVYY_WINDOWS_B"))
     {
-        let payload: Value = serde_json::from_str(
-            &rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .unwrap(),
-        )
-        .unwrap();
+        let event = rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap_or_else(|error| {
+                panic!("Waiting for ConPTY session output: {error}; {outputs:?}")
+            });
+        let payload: Value = serde_json::from_str(&event).unwrap();
         let bytes: Vec<u8> = serde_json::from_value(payload["data"].clone()).unwrap();
         let output = outputs.entry(payload["id"].as_u64().unwrap()).or_default();
         output.push_str(&String::from_utf8_lossy(&bytes));
@@ -463,12 +466,6 @@ fn windows_conpty_sessions_run_independently_and_close_cleanly() {
                 json!({"id":id,"data": format!("\x1b[1;1R{command}")}),
             );
         }
-    }
-    for output in outputs.values() {
-        assert!(
-            output.to_lowercase().contains(&expected_directory),
-            "{output:?}"
-        );
     }
     assert!(!outputs[&a.as_u64().unwrap()].contains("DEVYY_WINDOWS_B"));
     assert!(!outputs[&b.as_u64().unwrap()].contains("DEVYY_WINDOWS_A"));

@@ -251,16 +251,18 @@ mod integration_tests {
     use tauri::webview::InvokeRequest;
     #[test]
     fn frontend_commands_open_read_search_save_stage_and_commit_real_files() {
-        let base = std::env::temp_dir().join(format!("devyy-ipc-test-{}", std::process::id()));
-        std::fs::create_dir_all(&base).unwrap();
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fixture.path();
         std::fs::write(base.join("main.rs"), "fn main() { println!(\"hello\"); }\n").unwrap();
         for args in [
             vec!["init"],
+            // Keep byte-for-byte assertions independent of Git for Windows defaults.
+            vec!["config", "--local", "core.autocrlf", "false"],
             vec!["config", "user.email", "test@devyy.local"],
             vec!["config", "user.name", "devyy Test"],
         ] {
             assert!(std::process::Command::new("git")
-                .current_dir(&base)
+                .current_dir(base)
                 .args(args)
                 .output()
                 .unwrap()
@@ -425,7 +427,7 @@ mod integration_tests {
             .status
             .success());
         assert!(crate::process::command("git")
-            .current_dir(&base)
+            .current_dir(base)
             .args([
                 "-c",
                 "protocol.file.allow=always",
@@ -475,7 +477,6 @@ mod integration_tests {
         call("open_workspace", json!({"path":base.join("nested")}));
         let nested = call("git_status", json!({}));
         assert_eq!(nested["changes"][0]["path"], "child.rs");
-        std::fs::remove_dir_all(base).unwrap();
     }
 }
 
