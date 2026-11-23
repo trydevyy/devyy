@@ -143,7 +143,7 @@ jobs:
           DEVYY_PLATFORM: ${{ matrix.artifact }}
           DEVYY_RUST_TARGET: ${{ matrix.target }}
         run: bash scripts/stage-release-assets.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
@@ -170,7 +170,7 @@ jobs:
       - run: npm run assets:generate
       - run: npx playwright test --workers=2
       - run: npm run test:e2e --prefix installer -- --workers=2
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: devyy-interface-failures
