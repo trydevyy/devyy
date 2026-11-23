@@ -601,8 +601,7 @@ export default forwardRef<
                   label: "Copy selection",
                   action: () => {
                     const text = handles.current.get(s.key)?.selection();
-                    if (text)
-                      void writeClipboardText(text).catch(onError);
+                    if (text) void writeClipboardText(text).catch(onError);
                   },
                 },
                 {

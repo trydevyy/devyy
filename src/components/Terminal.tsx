@@ -219,7 +219,8 @@ export default forwardRef<
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type === "keydown") {
         const isPaste =
-          ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") ||
+          ((event.ctrlKey || event.metaKey) &&
+            event.key.toLowerCase() === "v") ||
           (event.shiftKey && event.key === "Insert");
         if (isPaste) {
           event.preventDefault();
@@ -234,7 +235,9 @@ export default forwardRef<
         }
 
         const isCopy =
-          (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") ||
+          (event.ctrlKey &&
+            event.shiftKey &&
+            event.key.toLowerCase() === "c") ||
           ((event.ctrlKey || event.metaKey) &&
             event.key.toLowerCase() === "c" &&
             term.hasSelection());
@@ -242,8 +245,7 @@ export default forwardRef<
           const text = term.getSelection();
           if (text) {
             event.preventDefault();
-            void writeClipboardText(text)
-              .catch(callback.current.onError);
+            void writeClipboardText(text).catch(callback.current.onError);
             return false;
           }
         }
@@ -261,8 +263,7 @@ export default forwardRef<
     const selection = term.onSelectionChange(() => {
       const text = term.getSelection();
       if (copySelection.current && text)
-        void writeClipboardText(text)
-          .catch(callback.current.onError);
+        void writeClipboardText(text).catch(callback.current.onError);
     });
     let frame = 0;
     const scheduleFit = () => {

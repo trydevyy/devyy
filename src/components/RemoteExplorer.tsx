@@ -368,10 +368,7 @@ export default function RemoteExplorer({
                   {busy === server.id ? (
                     <RefreshCw size={13} className="spinning" />
                   ) : connected ? (
-                    <span
-                      className="ssh-connected-dot"
-                      aria-hidden="true"
-                    />
+                    <span className="ssh-connected-dot" aria-hidden="true" />
                   ) : (
                     <FolderOpen size={13} />
                   )}
