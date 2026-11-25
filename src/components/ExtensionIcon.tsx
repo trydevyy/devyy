@@ -22,11 +22,13 @@ export default function ExtensionIcon({
   path,
   fallback,
   size = 20,
+  monochrome = false,
 }: {
   id: string;
   path?: string;
   fallback?: string;
   size?: number;
+  monochrome?: boolean;
 }) {
   const [source, setSource] = useState<string>();
   const [failed, setFailed] = useState(false);
@@ -56,7 +58,10 @@ export default function ExtensionIcon({
     };
   }, [id, path, fallback]);
   const src = source ?? fallback;
-  return src && !failed ? (
+  if (!src || failed) {
+    return <Blocks size={size} strokeWidth={1.65} aria-hidden="true" />;
+  }
+  const icon = (
     <img
       className="extension-activity-icon"
       src={src}
@@ -67,7 +72,16 @@ export default function ExtensionIcon({
       draggable={false}
       onError={() => setFailed(true)}
     />
+  );
+  return monochrome ? (
+    <span
+      aria-hidden="true"
+      className="extension-activity-mask"
+      style={{ maskImage: `url(${JSON.stringify(src)})` }}
+    >
+      {icon}
+    </span>
   ) : (
-    <Blocks size={size} strokeWidth={1.65} aria-hidden="true" />
+    icon
   );
 }

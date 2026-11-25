@@ -9526,6 +9526,15 @@ body {
   object-fit: contain;
 }
 
+.extension-activity-mask {
+  display: inline-flex;
+  flex-shrink: 0;
+  background-color: currentColor;
+  mask: center / contain no-repeat;
+}
+.extension-activity-mask > img {
+  opacity: 0;
+}
 .extension-activity-icon {
   object-fit: contain;
   flex-shrink: 0;

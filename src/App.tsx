@@ -4925,6 +4925,7 @@ export default function App() {
                   id={container.extension!}
                   path={container.icon}
                   fallback={container.fallback}
+                  monochrome
                 />
               </button>
             ))}

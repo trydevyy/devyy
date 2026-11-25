@@ -201,9 +201,17 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
     ),
   ).toBe(1);
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("button", { name: "Fixture tools", exact: true })
-    .click();
+  const activityButton = page.getByRole("button", {
+    name: "Fixture tools",
+    exact: true,
+  });
+  await activityButton.click();
+  const icon = activityButton.locator(".extension-activity-mask");
+  await expect(icon).toHaveCSS("mask-image", /^url\("data:image\/svg/);
+  const railColor = await activityButton.evaluate(
+    (button) => getComputedStyle(button).color,
+  );
+  await expect(icon).toHaveCSS("background-color", railColor);
   await page.getByRole("treeitem", { name: "Tree root" }).click();
   await page.getByRole("treeitem", { name: "Tree child" }).click();
   const panel = page.getByRole("region", {
