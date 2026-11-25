@@ -39,8 +39,10 @@ case "$platform" in
       copy_one "$setup.dmg" "$root"/bundle/dmg/Devyy-*.dmg
     fi
     codesign --verify --deep --strict "$root/bundle/macos/Devyy.app"
-    xcrun stapler validate "$root/bundle/macos/Devyy.app"
-    xcrun stapler validate "$setup.dmg"
+    if [[ "${DEVYY_AD_HOC_SIGNING:-false}" != true ]]; then
+      xcrun stapler validate "$root/bundle/macos/Devyy.app"
+      xcrun stapler validate "$setup.dmg"
+    fi
     ditto -c -k --sequesterRsrc --keepParent "$root/bundle/macos/Devyy.app" "$editor.app.zip"
     ;;
   *)

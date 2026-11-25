@@ -4,13 +4,20 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 local_only=false
+ad_hoc=false
 if [[ "${1:-}" == --local-only ]]; then
   local_only=true
+  ad_hoc=true
+  shift
+fi
+
+if [[ "${1:-}" == --ad-hoc ]]; then
+  ad_hoc=true
   shift
 fi
 
 if [[ "${1:-}" == --help ]]; then
-  printf 'Usage: bash scripts/build-local-release.sh [--local-only]\nBuilds and stages release assets for the current OS and architecture.\n'
+  printf 'Usage: bash scripts/build-local-release.sh [--local-only | --ad-hoc]\nBuilds and stages release assets for the current OS and architecture.\n--ad-hoc stages macOS release assets without Developer ID signing or notarization.\n'
   exit 0
 fi
 if [[ $# != 0 ]]; then
@@ -30,9 +37,9 @@ case "$platform" in
   *) echo "Unsupported build platform: $platform" >&2; exit 1 ;;
 esac
 
-if $local_only; then
+if $ad_hoc; then
   if [[ "$platform" != macos-* ]]; then
-    echo "--local-only is available for macOS builds." >&2
+    echo "Ad hoc signing is available for macOS builds." >&2
     exit 1
   fi
   unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
@@ -102,13 +109,15 @@ if [[ "$platform" == macos-* ]]; then
     printf 'Local DMG: %s/Devyy.dmg\n' "$output"
     exit 0
   fi
-  bun run release:installer --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH"
+  installer_args=()
+  if $ad_hoc; then installer_args+=(--local-only); fi
+  bun run release:installer --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH" "${installer_args[@]}"
 else
   bun install --cwd installer --frozen-lockfile
   bun run release:installer
 fi
 
-bash scripts/stage-release-assets.sh
+DEVYY_AD_HOC_SIGNING="$ad_hoc" bash scripts/stage-release-assets.sh
 (
   cd "$DEVYY_RELEASE_ASSET_DIR"
   files=(Devyy*)

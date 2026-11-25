@@ -16,19 +16,6 @@ on:
       DEVYY_FEEDBACK_WEBHOOK_URL:
         required: false
 
-      APPLE_CERTIFICATE:
-        required: false
-      APPLE_CERTIFICATE_PASSWORD:
-        required: false
-      APPLE_SIGNING_IDENTITY:
-        required: false
-      APPLE_ID:
-        required: false
-      APPLE_PASSWORD:
-        required: false
-      APPLE_TEAM_ID:
-        required: false
-
 permissions:
   contents: read
 
@@ -183,10 +170,6 @@ jobs:
     timeout-minutes: 75
     env:
       DEVYY_PLATFORM: ${{ matrix.artifact }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -203,35 +186,11 @@ jobs:
         with:
           token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
-      - name: Import Developer ID certificate
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          : "${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY}"
-          : "${APPLE_ID:?Set APPLE_ID}"
-          : "${APPLE_PASSWORD:?Set APPLE_PASSWORD}"
-          : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
-          : "${APPLE_CERTIFICATE:?Set APPLE_CERTIFICATE}"
-          : "${APPLE_CERTIFICATE_PASSWORD:?Set APPLE_CERTIFICATE_PASSWORD}"
-          keychain="$RUNNER_TEMP/devyy-signing.keychain-db"
-          password="$(openssl rand -hex 32)"
-          certificate="$RUNNER_TEMP/devyy-signing.p12"
-          trap 'rm -f "$certificate"' EXIT
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 4500 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          security list-keychains -d user -s "$keychain"
-          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
-      - name: Build, notarize, and stage macOS release
+      - name: Build and stage ad hoc signed macOS release
         shell: bash
         env:
           DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
-        run: bash scripts/build-local-release.sh
+        run: bash scripts/build-local-release.sh --ad-hoc
       - uses: actions/upload-artifact@v7
         with:
           name: devyy-package-${{ matrix.artifact }}

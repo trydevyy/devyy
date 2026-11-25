@@ -63,12 +63,6 @@ jobs:
       HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
       DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
       DEVYY_FEEDBACK_WEBHOOK_URL: ${{ secrets.DEVYY_FEEDBACK_WEBHOOK_URL }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   publish:
     needs: build
