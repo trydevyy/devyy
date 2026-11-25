@@ -57,6 +57,72 @@ fn is_executable(path: &Path) -> bool {
     info.is_file()
 }
 
+// GUI launches may inherit a minimal PATH. Discover installed runtimes without
+// running shell startup scripts or installing a runtime on the user's behalf.
+fn add_node_versions(root: &Path, bin: &str, directories: &mut Vec<PathBuf>) {
+    let Ok(entries) = root.read_dir() else {
+        return;
+    };
+    let mut versions: Vec<_> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let version = semver::Version::parse(name.to_str()?.trim_start_matches('v')).ok()?;
+            Some((version, entry.path().join(bin)))
+        })
+        .collect();
+    versions.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    directories.extend(versions.into_iter().map(|(_, path)| path));
+}
+
+fn add_node_directories(directories: &mut Vec<PathBuf>) {
+    for variable in ["NVM_BIN", "NVM_SYMLINK", "FNM_MULTISHELL_PATH"] {
+        directories.extend(std::env::var_os(variable).map(PathBuf::from));
+    }
+    let home =
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    if let Some(home) = home {
+        for (variable, default, bin) in [
+            ("VOLTA_HOME", ".volta", "bin"),
+            ("ASDF_DATA_DIR", ".asdf", "shims"),
+            ("NODENV_ROOT", ".nodenv", "shims"),
+            ("MISE_DATA_DIR", ".local/share/mise", "shims"),
+        ] {
+            let root = std::env::var_os(variable).map_or_else(|| home.join(default), PathBuf::from);
+            directories.push(root.join(bin));
+        }
+        directories.push(home.join(".jolter/shims"));
+        if cfg!(unix) {
+            let nvm = std::env::var_os("NVM_DIR").map_or_else(|| home.join(".nvm"), PathBuf::from);
+            add_node_versions(&nvm.join("versions/node"), "bin", directories);
+            let fnm = std::env::var_os("FNM_DIR").map(PathBuf::from);
+            let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
+            let default_fnm = xdg.map_or_else(|| home.join(".local/share/fnm"), |p| p.join("fnm"));
+            for root in [
+                fnm.unwrap_or(default_fnm),
+                home.join("Library/Application Support/fnm"),
+            ] {
+                add_node_versions(&root.join("node-versions"), "installation/bin", directories);
+            }
+        }
+    }
+    if cfg!(windows) {
+        for variable in ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"] {
+            directories.extend(std::env::var_os(variable).map(|p| PathBuf::from(p).join("nodejs")));
+        }
+        if let Some(root) = std::env::var_os("NVM_HOME") {
+            add_node_versions(Path::new(&root), "", directories);
+        }
+        if let Some(app_data) = std::env::var_os("APPDATA") {
+            add_node_versions(
+                &PathBuf::from(app_data).join("fnm/node-versions"),
+                "installation",
+                directories,
+            );
+        }
+    }
+}
+
 fn tool_directories() -> Vec<PathBuf> {
     let mut directories: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|paths| std::env::split_paths(&paths).collect())
@@ -113,6 +179,7 @@ fn tool_directories() -> Vec<PathBuf> {
             ]);
         }
     }
+    add_node_directories(&mut directories);
     directories
 }
 
@@ -197,6 +264,20 @@ pub(crate) fn read_process_logs(input: impl Read, mut line: impl FnMut(&str)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installed_node_versions_are_ordered_numerically() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["v9.0.0", "v20.15.0", "v22.2.0", "not-a-version"] {
+            std::fs::create_dir(root.path().join(name)).unwrap();
+        }
+        let mut directories = Vec::new();
+        add_node_versions(root.path(), "bin", &mut directories);
+        assert_eq!(
+            directories,
+            ["v22.2.0", "v20.15.0", "v9.0.0"].map(|version| root.path().join(version).join("bin"))
+        );
+    }
 
     #[test]
     fn process_diagnostics_keep_the_recent_tail_and_valid_utf8() {

@@ -216,6 +216,7 @@ async fn install_recipe(app: &AppHandle, recipe: Recipe, replacing: bool) -> Res
             fs::write(directory.join("package.json"), r#"{"private":true}"#)
                 .map_err(|e| e.to_string())?;
             let mut command = process::command(npm.to_str().ok_or("Invalid npm path")?);
+            process::with_tool_path(&mut command);
             command
                 .current_dir(directory)
                 .args([
