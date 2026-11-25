@@ -114,17 +114,29 @@ pub async fn lsp_start<R: tauri::Runtime>(
     state: State<'_, LanguageServers>,
     workspace: State<'_, Workspace>,
 ) -> Result<Value, String> {
+    let generation = state.1.load(Ordering::SeqCst);
     let _starting = state.2.lock().await;
+    if generation != state.1.load(Ordering::SeqCst) {
+        return Err("Workspace changed while starting the language server".into());
+    }
     let workspace_root = root(&workspace).ok();
     let base = workspace_root
         .clone()
         .unwrap_or(app.path().app_data_dir().map_err(|e| e.to_string())?);
-    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    let generation = state.1.load(Ordering::SeqCst);
-    let config = crate::language_config::configs(&app)?
-        .into_iter()
-        .find(|s| s.language == language && s.enabled)
-        .ok_or("No language server configured for this language")?;
+    let config = {
+        let app = app.clone();
+        let base = base.clone();
+        let language = language.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+            crate::language_config::configs(&app)?
+                .into_iter()
+                .find(|s| s.language == language && s.enabled)
+                .ok_or_else(|| "No language server configured for this language".to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())??
+    };
     let shared = config
         .client_id
         .as_ref()
@@ -134,6 +146,9 @@ pub async fn lsp_start<R: tauri::Runtime>(
     let server_key = format!("{shared}:{fingerprint:?}");
     {
         let mut clients = state.0.lock().map_err(|e| e.to_string())?;
+        if generation != state.1.load(Ordering::SeqCst) {
+            return Err("Workspace changed while starting the language server".into());
+        }
         if let Some(existing) = clients
             .values()
             .find(|c| c.server_key == server_key && c.connected.load(Ordering::Acquire))
@@ -285,16 +300,17 @@ pub async fn lsp_start<R: tauri::Runtime>(
             }
         }
     }).await.map_err(|e| e.to_string())??;
-    if generation != state.1.load(Ordering::SeqCst) {
-        return Err("Workspace changed while starting the language server".into());
+    {
+        let mut clients = state.0.lock().map_err(|e| e.to_string())?;
+        if generation == state.1.load(Ordering::SeqCst) {
+            let result = client.initialize_result.clone();
+            clients.insert(language, client);
+            return Ok(result);
+        }
     }
-    let result = client.initialize_result.clone();
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(language, client);
-    Ok(result)
+    client.stopping.store(true, Ordering::Release);
+    tauri::async_runtime::spawn_blocking(move || drop(client));
+    Err("Workspace changed while starting the language server".into())
 }
 #[tauri::command]
 pub fn file_uri(path: String, workspace: State<Workspace>) -> Result<String, String> {
@@ -371,17 +387,24 @@ pub async fn lsp_respond(
     } else {
         response["result"] = result.unwrap_or(Value::Null);
     }
-    send(&writer, response)
+    tauri::async_runtime::spawn_blocking(move || send(&writer, response))
+        .await
+        .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 pub async fn lsp_stop(state: State<'_, LanguageServers>) -> Result<(), String> {
-    state.1.fetch_add(1, Ordering::SeqCst);
-    state.3.lock().map_err(|e| e.to_string())?.clear();
-    let mut clients = state.0.lock().map_err(|e| e.to_string())?;
-    for (_, client) in clients.drain() {
+    let clients = {
+        let mut clients = state.0.lock().map_err(|e| e.to_string())?;
+        state.1.fetch_add(1, Ordering::SeqCst);
+        state.3.lock().map_err(|e| e.to_string())?.clear();
+        std::mem::take(&mut *clients)
+    };
+    for client in clients.values() {
         client.stopping.store(true, Ordering::Release);
     }
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || drop(clients))
+        .await
+        .map_err(|error| error.to_string())
 }
 impl Drop for Client {
     fn drop(&mut self) {
