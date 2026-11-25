@@ -711,11 +711,13 @@ a {
   position: relative;
 }
 
-.tree-row:hover {
+.tree-row:hover,
+.tree-row:has(> .tree-file[aria-expanded="true"]) {
   background: var(--hover);
 }
 
-.tree-row.selected {
+.tree-row.selected:not([data-folder]),
+.tree-row.selected[data-multi-selected] {
   background: var(--accent-soft);
   color: var(--ink);
 }
@@ -15223,8 +15225,7 @@ button[aria-busy="true"]::after {
 .setting-action:hover:enabled {
   background: var(--raised);
 }
-.desktop-theme-preview-details > .icon-button:focus-visible {
-  outline: 2px solid transparent;
+.desktop-theme-preview-details > .icon-button:hover {
   background: var(--accent);
   color: var(--switch-on-ink, #171717);
 }
@@ -15244,8 +15245,12 @@ button[aria-busy="true"]::after {
 .editor-skeleton-lines {
   max-width: 21rem;
 }
-.editor-skeleton-lines > span:nth-child(2) { width: 76%; }
-.editor-skeleton-lines > span:nth-child(3) { width: 59%; }
+.editor-skeleton-lines > span:nth-child(2) {
+  width: 76%;
+}
+.editor-skeleton-lines > span:nth-child(3) {
+  width: 59%;
+}
 .editor-skeleton-inline {
   display: inline-grid;
   width: 5rem;
@@ -15255,7 +15260,10 @@ button[aria-busy="true"]::after {
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
 }
-.editor-skeleton-cards > span { height: 110px; border-radius: 9px; }
+.editor-skeleton-cards > span {
+  height: 110px;
+  border-radius: 9px;
+}
 .editor-skeleton-workbench {
   height: 100%;
   min-height: 80px;
@@ -15263,13 +15271,25 @@ button[aria-busy="true"]::after {
   grid-template-columns: minmax(34px, 20%) 1fr;
   grid-template-rows: 18px 1fr;
 }
-.editor-skeleton-workbench > span { height: auto; }
-.editor-skeleton-workbench > span:first-child { grid-column: 1 / -1; }
-.editor-skeleton-workbench > span:last-child { background: var(--surface); }
+.editor-skeleton-workbench > span {
+  height: auto;
+}
+.editor-skeleton-workbench > span:first-child {
+  grid-column: 1 / -1;
+}
+.editor-skeleton-workbench > span:last-child {
+  background: var(--surface);
+}
 @keyframes editor-skeleton-pulse {
-  from { opacity: 0.55; }
-  to { opacity: 1; }
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .editor-skeleton > span { animation: none; }
+  .editor-skeleton > span {
+    animation: none;
+  }
 }

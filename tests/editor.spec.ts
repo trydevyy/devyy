@@ -370,6 +370,33 @@ test("project logos load, refresh, and fall back to the workspace initial", asyn
   await expect(page.locator(".project-monogram")).toHaveText("P");
 });
 
+test("folder rows stay highlighted while hovered or open", async ({ page }) => {
+  await page.goto("/?playground=1");
+  const button = page.locator(".tree-row[data-folder] .tree-file").first();
+  const row = page.locator(".tree-row[data-folder]").first();
+  if ((await button.getAttribute("aria-expanded")) === "true") {
+    await button.click();
+    await page.mouse.move(0, 0);
+  }
+  const background = () =>
+    row.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const transparent = "rgba(0, 0, 0, 0)";
+
+  await expect.poll(background).toBe(transparent);
+  await button.hover();
+  await expect.poll(background).not.toBe(transparent);
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  await page.mouse.move(0, 0);
+  await expect.poll(background).not.toBe(transparent);
+
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(background).not.toBe(transparent);
+  await page.mouse.move(0, 0);
+  await expect.poll(background).toBe(transparent);
+});
+
 test("file list supports Cmd+A select all and shift multi-selection", async ({
   page,
 }) => {
