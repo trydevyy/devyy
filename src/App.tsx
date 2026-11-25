@@ -238,6 +238,29 @@ const initialTab: Tab = {
   saved: initialDemo["src/main.rs"] ?? seed["src/main.rs"],
   modified: "",
 };
+const outputTime = new Intl.DateTimeFormat([], {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+function afterWorkspacePaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const fallback = setTimeout(resolve, 150);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        clearTimeout(fallback);
+        resolve();
+      });
+    });
+  });
+}
+
+function whenWorkspaceIdle(work: () => void) {
+  if (typeof requestIdleCallback === "function")
+    requestIdleCallback(work, { timeout: 800 });
+  else setTimeout(work, 120);
+}
+
 export default function App() {
   const confirmAction = useConfirm();
   const installedExtensions = useExtensions();
@@ -597,6 +620,10 @@ export default function App() {
   const busyRef = useRef(false);
   const workspaceWaiters = useRef<(() => void)[]>([]);
   const workspaceOpenRequest = useRef(0);
+  const fileOpenRequest = useRef(0);
+  const workspaceRefreshRequest = useRef(0);
+  const backgroundRefresh = useRef<number | null>(null);
+  const workspaceServices = useRef<Promise<void>>(Promise.resolve());
   const terminalGroup = useRef<TerminalsHandle>(null);
   const [terminalToolbar, setTerminalToolbar] = useState<HTMLDivElement | null>(
     null,
@@ -737,33 +764,50 @@ export default function App() {
     if (isError) showToast.error(message);
     else showToast.success(message);
   }
+  const pendingOutput = useRef<OutputEntry[]>([]);
+  const outputTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const outputId = useRef(0);
+  useEffect(
+    () => () => {
+      clearTimeout(outputTimer.current);
+      outputTimer.current = undefined;
+    },
+    [],
+  );
+
   function appendOutput(
     text: string,
     source = "Devyy",
     level: "info" | "warn" | "error" | "debug" | "trace" = "info",
   ) {
-    const rawLines = String(text).split(/\r?\n/).slice(-500);
-    const now = new Date();
-    const timestamp = now.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    const newEntries: OutputEntry[] = rawLines.map((line, i) => ({
-      id: `out-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp,
-      source,
-      text: line,
-      level,
-    }));
-    startTransition(() =>
-      setOutputEntries((prev) => {
-        const retained = 500 - newEntries.length;
-        return retained
-          ? [...prev.slice(-retained), ...newEntries]
-          : newEntries;
-      }),
-    );
+    const timestamp = outputTime.format();
+    const queued = pendingOutput.current;
+    for (const line of String(text).split(/\r?\n/).slice(-500))
+      queued.push({
+        id: `out-${++outputId.current}`,
+        timestamp,
+        source,
+        text: line,
+        level,
+      });
+    if (queued.length > 500) queued.splice(0, queued.length - 500);
+    if (outputTimer.current !== undefined) return;
+    outputTimer.current = setTimeout(() => {
+      outputTimer.current = undefined;
+      const entries = pendingOutput.current;
+      pendingOutput.current = [];
+      if (!entries.length) return;
+      startTransition(() =>
+        setOutputEntries((previous) => {
+          const retained = 500 - entries.length;
+          return retained
+            ? [...previous.slice(-retained), ...entries]
+            : entries;
+        }),
+      );
+    }, 40);
   }
 
   function log(
@@ -776,8 +820,12 @@ export default function App() {
 
   function clearOutput() {
     if (outputSource === "all") {
+      pendingOutput.current = [];
       setOutputEntries([]);
     } else {
+      pendingOutput.current = pendingOutput.current.filter(
+        (entry) => entry.source !== outputSource,
+      );
       setOutputEntries((prev) => prev.filter((e) => e.source !== outputSource));
     }
     setPanelTab("output");
@@ -933,7 +981,25 @@ export default function App() {
         repository === gitRepositoryRef.current &&
         request === gitStatusRequest.current
       ) {
-        setGit(next);
+        setGit((previous) =>
+          previous &&
+          previous.branch === next.branch &&
+          previous.upstream === next.upstream &&
+          previous.ahead === next.ahead &&
+          previous.behind === next.behind &&
+          previous.changes.length === next.changes.length &&
+          previous.changes.every((change, index) => {
+            const current = next.changes[index];
+            return (
+              change.path === current.path &&
+              change.index === current.index &&
+              change.worktree === current.worktree &&
+              change.oldPath === current.oldPath
+            );
+          })
+            ? previous
+            : next,
+        );
         setGitError("");
       }
     } catch (e) {
@@ -948,11 +1014,23 @@ export default function App() {
     }
   }
   async function refresh(silent = false) {
-    if (workspace.root === "demo") return;
+    const root = wsRef.current.root;
+    const workspaceRequest = workspaceOpenRequest.current;
+    if (
+      root === "demo" ||
+      busyRef.current ||
+      (silent && backgroundRefresh.current === workspaceRequest)
+    )
+      return;
+    const request = ++workspaceRefreshRequest.current;
+    if (silent) backgroundRefresh.current = workspaceRequest;
+    const isCurrent = () =>
+      workspaceRequest === workspaceOpenRequest.current &&
+      root === wsRef.current.root &&
+      request === workspaceRefreshRequest.current;
     try {
-      const root = wsRef.current.root;
       const next = await invoke<Workspace>("refresh_workspace");
-      if (root !== wsRef.current.root || next.root !== root) return;
+      if (!isCurrent() || next.root !== root) return;
 
       const nextTraversedDirs = new Set<string>([""]);
       const nextDirs = new Set<string>();
@@ -982,74 +1060,82 @@ export default function App() {
         }),
       );
 
-      if (root !== wsRef.current.root) return;
+      if (!isCurrent()) return;
 
-      setWorkspace((prev) => {
-        if (root !== wsRef.current.root) return prev;
+      const updateWorkspace = () =>
+        setWorkspace((prev) => {
+          if (!isCurrent() || prev.root !== root) return prev;
 
-        const dynamicByDir = new Map<string, FileEntry[]>();
-        for (const item of dynamicFetches) {
-          if (item.children) {
-            dynamicByDir.set(item.dir, item.children);
+          const dynamicByDir = new Map<string, FileEntry[]>();
+          for (const item of dynamicFetches) {
+            if (item.children) {
+              dynamicByDir.set(item.dir, item.children);
+            }
           }
-        }
 
-        const preservedChildren: FileEntry[] = [];
-        const seenPaths = new Set(next.files.map((f) => f.path));
+          const preservedChildren: FileEntry[] = [];
+          const seenPaths = new Set(next.files.map((f) => f.path));
 
-        for (const f of prev.files) {
-          if (seenPaths.has(f.path)) continue;
-          const parent = f.path.includes("/")
-            ? f.path.slice(0, f.path.lastIndexOf("/"))
-            : "";
-          if (!nextTraversedDirs.has(parent)) {
-            if (!dynamicByDir.has(parent)) {
-              const topDir = f.path.split("/")[0];
-              if (nextDirs.has(topDir)) {
-                preservedChildren.push(f);
-                seenPaths.add(f.path);
+          for (const f of prev.files) {
+            if (seenPaths.has(f.path)) continue;
+            const parent = f.path.includes("/")
+              ? f.path.slice(0, f.path.lastIndexOf("/"))
+              : "";
+            if (!nextTraversedDirs.has(parent)) {
+              if (!dynamicByDir.has(parent)) {
+                const topDir = f.path.split("/")[0];
+                if (nextDirs.has(topDir)) {
+                  preservedChildren.push(f);
+                  seenPaths.add(f.path);
+                }
               }
             }
           }
-        }
 
-        for (const children of dynamicByDir.values()) {
-          for (const child of children) {
-            if (!seenPaths.has(child.path)) {
-              preservedChildren.push(child);
-              seenPaths.add(child.path);
+          for (const children of dynamicByDir.values()) {
+            for (const child of children) {
+              if (!seenPaths.has(child.path)) {
+                preservedChildren.push(child);
+                seenPaths.add(child.path);
+              }
             }
           }
-        }
 
-        const mergedFiles = [...next.files, ...preservedChildren];
-        mergedFiles.sort(
-          (a, b) =>
-            (!a.directory ? 1 : 0) - (!b.directory ? 1 : 0) ||
-            a.path.localeCompare(b.path),
-        );
+          const mergedFiles = preservedChildren.length
+            ? [...next.files, ...preservedChildren].sort(
+                (a, b) =>
+                  (!a.directory ? 1 : 0) - (!b.directory ? 1 : 0) ||
+                  a.path.localeCompare(b.path),
+              )
+            : next.files;
 
-        if (
-          prev.root === next.root &&
-          prev.logo === next.logo &&
-          prev.name === next.name &&
-          prev.files.length === mergedFiles.length &&
-          prev.files.every(
-            (f, i) =>
-              f.path === mergedFiles[i]?.path &&
-              f.directory === mergedFiles[i]?.directory,
-          )
-        ) {
-          return prev;
-        }
-        return {
-          ...next,
-          files: mergedFiles,
-        };
-      });
+          const name = prev.remotePath ? prev.name : next.name;
+          if (
+            prev.logo === next.logo &&
+            prev.name === name &&
+            prev.files.length === mergedFiles.length &&
+            prev.files.every(
+              (f, i) =>
+                f.path === mergedFiles[i]?.path &&
+                f.directory === mergedFiles[i]?.directory,
+            )
+          ) {
+            return prev;
+          }
+          return {
+            ...next,
+            name,
+            files: mergedFiles,
+          };
+        });
+      if (silent) startTransition(updateWorkspace);
+      else updateWorkspace();
       await refreshGit();
     } catch (e) {
-      if (!silent) notify(e);
+      if (!silent && isCurrent()) notify(e);
+    } finally {
+      if (silent && backgroundRefresh.current === workspaceRequest)
+        backgroundRefresh.current = null;
     }
   }
 
@@ -1060,7 +1146,7 @@ export default function App() {
       if (document.visibilityState === "visible") {
         void refresh(true);
       }
-    }, 1000);
+    }, 3000);
 
     const onFocus = () => void refresh(true);
     const onVisibilityChange = () => {
@@ -1220,6 +1306,8 @@ export default function App() {
       setTabs([]);
       tabsRef.current = [];
       setActive("");
+      activeRef.current = "";
+      ++fileOpenRequest.current;
       setGit(null);
       setGitRepository("");
       gitRepositoryRef.current = "";
@@ -1238,39 +1326,32 @@ export default function App() {
           localStorage.setItem("devyy.recent", JSON.stringify(list));
           return list;
         });
-      void syncExtensionHost(stopped).catch((error) => log(String(error)));
+      const painted = afterWorkspacePaint();
+      workspaceServices.current = syncExtensionHost(
+        Promise.all([stopped, painted]),
+      ).catch((error) => log(String(error)));
       if (disconnect) {
         log("Disconnected from SSH");
         return true;
       }
       log(`Opened ${next.root}`);
-      void refreshGit();
       const first =
         next.files.find((f) =>
           ["src/main.rs", "src/App.tsx", "src/main.ts", "README.md"].includes(
             f.path,
           ),
         ) ?? next.files.find((f) => !f.directory);
-      if (first) await openFile(first.path);
-      void invoke<Workspace>("refresh_workspace")
-        .then((indexed) => {
-          if (
-            openRequest !== workspaceOpenRequest.current ||
-            wsRef.current.root !== next.root ||
-            indexed.root !== next.root
-          )
-            return;
-          if (remoteName) indexed.name = remoteName;
-          startTransition(() =>
-            setWorkspace((current) =>
-              openRequest === workspaceOpenRequest.current &&
-              current.root === next.root
-                ? indexed
-                : current,
-            ),
-          );
-        })
-        .catch((error) => log(String(error)));
+      // An automatic tab should never delay or take focus from user navigation.
+      if (first) void openFile(first.path, undefined, true);
+      const currentWorkspace = () =>
+        openRequest === workspaceOpenRequest.current &&
+        wsRef.current.root === next.root;
+      void painted.then(() => {
+        whenWorkspaceIdle(() => {
+          if (!currentWorkspace()) return;
+          void refresh(true);
+        });
+      });
       return true;
     } catch (e) {
       notify(e);
@@ -1281,8 +1362,39 @@ export default function App() {
       setWorkspaceScan(false);
     }
   }
-  async function openFile(path: string, line?: number) {
+  function connectWorkspaceDocument(path: string) {
+    if (!native || wsRef.current.root === "demo" || wsRef.current.remotePath)
+      return;
+    const request = workspaceOpenRequest.current;
+    const lang = language(path);
+    void workspaceServices.current
+      .then(() => {
+        if (request !== workspaceOpenRequest.current) return false;
+        const tab = tabsRef.current.find((t) => t.path === path);
+        return tab &&
+          !tab.extensionUri &&
+          !tab.previewKind &&
+          !tab.webviewId &&
+          path !== "devyy:settings"
+          ? connectDocument(path, lang, tab.content)
+          : false;
+      })
+      .then((connected) => {
+        if (connected && request === workspaceOpenRequest.current)
+          setLspStatus((s) =>
+            s[lang] === "Connected" ? s : { ...s, [lang]: "Connected" },
+          );
+      })
+      .catch((error) => {
+        if (request !== workspaceOpenRequest.current) return;
+        setLspStatus((s) => ({ ...s, [lang]: String(error) }));
+        log(String(error));
+      });
+  }
+  async function openFile(path: string, line?: number, initial = false) {
     const root = wsRef.current.root;
+    const workspaceRequest = workspaceOpenRequest.current;
+    const request = ++fileOpenRequest.current;
     try {
       let existing = tabsRef.current.find((t) => t.path === path);
       if (!existing) {
@@ -1298,7 +1410,12 @@ export default function App() {
                     path,
                   },
                 );
-        if (root !== wsRef.current.root) return;
+        if (
+          root !== wsRef.current.root ||
+          workspaceRequest !== workspaceOpenRequest.current ||
+          (initial && request !== fileOpenRequest.current)
+        )
+          return;
         existing = tabsRef.current.find((tab) => tab.path === path);
         if (!existing) {
           existing = {
@@ -1315,27 +1432,25 @@ export default function App() {
           tabsRef.current = [...tabsRef.current, existing];
         }
       }
-      setActive(path);
-      activeRef.current = path;
-      if (
-        root !== "demo" &&
-        !wsRef.current.remotePath &&
-        !existing.extensionUri &&
-        !existing.previewKind &&
-        !existing.webviewId
-      )
-        void connectDocument(path, language(path), existing.content)
-          .then((connected) => {
-            if (connected)
-              setLspStatus((s) => ({ ...s, [language(path)]: "Connected" }));
-          })
-          .catch((e) => {
-            setLspStatus((s) => ({ ...s, [language(path)]: String(e) }));
-            log(String(e));
-          });
-      if (line) setTimeout(() => jumpTo(path, line), 40);
+      if (request === fileOpenRequest.current) {
+        setActive(path);
+        activeRef.current = path;
+      }
+      connectWorkspaceDocument(path);
+      if (line)
+        setTimeout(() => {
+          if (
+            request === fileOpenRequest.current &&
+            workspaceRequest === workspaceOpenRequest.current
+          )
+            jumpTo(path, line);
+        }, 40);
     } catch (e) {
-      notify(e);
+      if (
+        workspaceRequest === workspaceOpenRequest.current &&
+        (!initial || request === fileOpenRequest.current)
+      )
+        notify(e);
     }
   }
   useEffect(() => {
@@ -1393,28 +1508,7 @@ export default function App() {
   useEffect(() => {
     const reconnect = () => {
       setLspStatus({});
-      for (const tab of tabsRef.current)
-        if (
-          native &&
-          wsRef.current.root !== "demo" &&
-          !wsRef.current.remotePath &&
-          !tab.extensionUri &&
-          !tab.previewKind &&
-          !tab.webviewId &&
-          tab.path !== "devyy:settings"
-        ) {
-          void connectDocument(tab.path, language(tab.path), tab.content)
-            .then((connected) => {
-              if (connected)
-                setLspStatus((s) => ({
-                  ...s,
-                  [language(tab.path)]: "Connected",
-                }));
-            })
-            .catch((e) =>
-              setLspStatus((s) => ({ ...s, [language(tab.path)]: String(e) })),
-            );
-        }
+      for (const tab of tabsRef.current) connectWorkspaceDocument(tab.path);
     };
     window.addEventListener("devyy-language-servers-changed", reconnect);
     window.addEventListener("devyy-extensions-changed", reconnect);
@@ -2341,9 +2435,7 @@ export default function App() {
             root === wsRef.current.root &&
             !busyRef.current
           )
-            void connectDocument(path, language(path), target.content).catch(
-              (error) => log(String(error)),
-            );
+            connectWorkspaceDocument(path);
           await savedDocument(path, target.content).catch((e) =>
             log(String(e)),
           );

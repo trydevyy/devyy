@@ -208,10 +208,17 @@ test("extension icons, native views, trees, commands and sandboxed webviews use 
   await activityButton.click();
   const icon = activityButton.locator(".extension-activity-mask");
   await expect(icon).toHaveCSS("mask-image", /^url\("data:image\/svg/);
-  const railColor = await activityButton.evaluate(
-    (button) => getComputedStyle(button).color,
-  );
-  await expect(icon).toHaveCSS("background-color", railColor);
+  await expect
+    .poll(() =>
+      icon.evaluate((mask) => {
+        const button = mask.closest("button")!;
+        return (
+          getComputedStyle(mask).backgroundColor ===
+          getComputedStyle(button).color
+        );
+      }),
+    )
+    .toBe(true);
   await page.getByRole("treeitem", { name: "Tree root" }).click();
   await page.getByRole("treeitem", { name: "Tree child" }).click();
   const panel = page.getByRole("region", {

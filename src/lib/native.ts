@@ -89,6 +89,7 @@ async function openDocument(
         }),
     );
   await ready.get(language);
+  if (epoch !== generation || tickets.get(path) !== ticket) return false;
   const uri = await invoke<string>("file_uri", { path });
   if (epoch !== generation || tickets.get(path) !== ticket) return false;
   if (documents.has(path)) return true;
@@ -117,6 +118,7 @@ async function openDocument(
 export function connectDocument(path: string, language: string, text: string) {
   const existing = connections.get(path);
   if (existing) return existing;
+  if (documents.get(path)?.language === language) return Promise.resolve(true);
   const ticket = ++connectionSerial;
   tickets.set(path, ticket);
   const pending = openDocument(

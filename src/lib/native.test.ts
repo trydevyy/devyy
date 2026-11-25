@@ -50,6 +50,12 @@ describe("language synchronization", () => {
       connectDocument("main.py", "python", "before"),
       connectDocument("main.py", "python", "before"),
     ]);
+    await expect(connectDocument("main.py", "python", "before")).resolves.toBe(
+      true,
+    );
+    expect(
+      bridge.invoke.mock.calls.filter(([command]) => command === "file_uri"),
+    ).toHaveLength(1);
     queueDocumentChange("main.py", "first");
     queueDocumentChange("main.py", "latest");
     await languageRequest("main.py", "textDocument/completion", {

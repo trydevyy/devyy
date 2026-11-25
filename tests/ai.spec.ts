@@ -1747,6 +1747,120 @@ test("workspace shell and first document appear while indexing and services rema
   await expect(page.getByRole("tab", { name: /lib.rs/ }).first()).toBeVisible();
 });
 
+test("navigation and save work before the automatic file read and rust-analyzer startup finish", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      releaseInitialFile?: () => void;
+      startingRustAnalyzer?: boolean;
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "read_file" && args?.path === "src/main.rs")
+        return new Promise((resolve) => {
+          w.releaseInitialFile = () => resolve(invoke(command, args));
+        });
+      if (command === "list_language_servers")
+        return Promise.resolve([{ language: "rust", enabled: true }]);
+      if (command === "lsp_start" && args?.language === "rust") {
+        w.startingRustAnalyzer = true;
+        return new Promise(() => {});
+      }
+      return invoke(command, args);
+    };
+  });
+  await page.keyboard.press(`${mod}+o`);
+  await page.waitForFunction(() => Reflect.get(window, "releaseInitialFile"));
+  await expect(page.locator(".devyy")).toHaveAttribute("aria-busy", "false");
+  await page
+    .getByRole("button", { name: "lib.rs", exact: true })
+    .first()
+    .click();
+  const tab = page.getByRole("tab", { name: /lib.rs/ }).first();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => Reflect.get(window, "startingRustAnalyzer"));
+
+  const content = page.locator(".code-editor .cm-content");
+  await content.click();
+  await page.keyboard.press(`${mod}+End`);
+  await page.keyboard.insertText("// saved during startup");
+  await page.keyboard.press(`${mod}+s`);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Reflect.get(window, "aiFixture").calls.some(
+          (call: { command: string; args: Record<string, unknown> }) =>
+            call.command === "write_file" &&
+            call.args.path === "src/lib.rs" &&
+            String(call.args.content).includes("saved during startup"),
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await page.evaluate(() => Reflect.get(window, "releaseInitialFile")());
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /main.rs/ })).toHaveCount(0);
+});
+
+test("the Explorer mounts a small window of a large file list and reaches the last file", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      const result = await invoke(command, args);
+      if (command !== "open_workspace" && command !== "refresh_workspace")
+        return result;
+      const workspace = result as { files: unknown[] };
+      return {
+        ...workspace,
+        files: [
+          ...workspace.files,
+          ...Array.from({ length: 2000 }, (_, index) => {
+            const name = `sample-${String(index).padStart(4, "0")}.rs`;
+            return { path: name, name, directory: false };
+          }),
+        ],
+      };
+    };
+  });
+  await page.keyboard.press(`${mod}+o`);
+  const tree = page.getByRole("navigation", { name: "Project files" });
+  await expect(
+    tree.getByRole("button", { name: "sample-0000.rs", exact: true }),
+  ).toBeVisible();
+  expect(await tree.locator(".tree-file").count()).toBeLessThan(80);
+  await tree.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await tree
+    .getByRole("button", { name: "sample-1998.rs", exact: true })
+    .focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("tab", { name: /sample-1999.rs/ }).first(),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
 test("default-app settings use native associations and imported editors show their marks", async ({
   page,
 }) => {
