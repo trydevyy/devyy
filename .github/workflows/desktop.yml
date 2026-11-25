@@ -32,11 +32,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: devyy-desktop-${{ github.ref }}-${{ inputs.release_build == true }}
+  cancel-in-progress: ${{ !inputs.release_build }}
+
 jobs:
   desktop:
     if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -59,11 +65,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Fetch pinned documentation
+        if: inputs.release_build
         run: git submodule update --init --checkout -- docs
       - uses: actions/setup-node@v7
+        if: inputs.release_build
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            installer/package-lock.json
       - name: Fetch pinned HIT source
         shell: bash
         env:
@@ -80,8 +91,6 @@ jobs:
             -c "http.https://github.com/hit-scm/hit.git.extraHeader=Authorization: Basic $auth" \
             submodule update --init --checkout -- third_party/hit
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
       - name: Cache Cargo dependencies
@@ -102,16 +111,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libxdo-dev xvfb xdotool
           echo 'APPIMAGE_EXTRACT_AND_RUN=1' >> "$GITHUB_ENV"
+      - name: Test editor and installer (Linux)
+        if: runner.os == 'Linux'
+        run: make test-rust
+      - name: Test editor and installer (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          DEVYY_RUST_TARGET: ${{ matrix.target }}
+        run: |
+          args=()
+          if [[ -n "$DEVYY_RUST_TARGET" ]]; then args+=(--target "$DEVYY_RUST_TARGET"); fi
+          cargo test --locked --manifest-path src-tauri/Cargo.toml "${args[@]}"
+          cargo test --locked --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
       - run: npm ci
-      - run: make format-check
-        if: runner.os == 'Linux'
-      - name: Rust tests (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Rust tests
-        if: runner.os != 'Linux'
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        if: inputs.release_build
       - name: Build editor
+        if: inputs.release_build
         shell: bash
         run: |
           case "$RUNNER_OS" in
@@ -126,19 +142,15 @@ jobs:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
           DEVYY_CRASH_WEBHOOK_URL: ${{ inputs.release_build && secrets.DEVYY_CRASH_WEBHOOK_URL || '' }}
       - run: npm ci --prefix installer
-      - name: Installer engine tests
-        if: runner.os != 'Linux'
-        run: cargo test --locked --manifest-path installer/src-tauri/Cargo.toml
-      - name: Installer engine tests (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --locked --manifest-path installer/src-tauri/Cargo.toml
+        if: inputs.release_build
       - name: Build custom installer
+        if: inputs.release_build
         env:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
           DEVYY_FEEDBACK_WEBHOOK_URL: ${{ inputs.release_build && secrets.DEVYY_FEEDBACK_WEBHOOK_URL || '' }}
         run: node installer/scripts/release.mjs --skip-editor-build
       - name: Launch packaged editor and installer on Linux
-        if: runner.os == 'Linux'
+        if: inputs.release_build && runner.os == 'Linux'
         run: |
           xvfb-run -a bash -eu -o pipefail <<'BASH'
           export XDG_CONFIG_HOME="$(mktemp -d)"
@@ -156,12 +168,14 @@ jobs:
           smoke src-tauri/target/release/bundle/installer/Devyy-Setup.AppImage 'Devyy Installer'
           BASH
       - name: Stage versioned installer and editor assets
+        if: inputs.release_build
         shell: bash
         env:
           DEVYY_PLATFORM: ${{ matrix.artifact }}
           DEVYY_RUST_TARGET: ${{ matrix.target }}
         run: bash scripts/stage-release-assets.sh
       - uses: actions/upload-artifact@v7
+        if: inputs.release_build
         with:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
@@ -259,13 +273,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            installer/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - run: npm ci
       - run: npm ci --prefix installer
-      - run: make format-check-js test-js
+      - run: make format-check test-js
       - name: Build browser workspace without private HIT
         run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps --only-shell chromium
       - run: npx playwright test --workers=2
       - run: npm run test:e2e --prefix installer -- --workers=2
       - uses: actions/upload-artifact@v7
