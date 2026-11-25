@@ -4,17 +4,17 @@ Issues and pull requests are welcome. For user-visible bugs, include the Devyy v
 
 ## Development setup
 
-For browser development, install Node.js 22 or later and Git, then run `npm ci` and `npm run dev`. Fetch the public documentation with `git submodule update --init docs`.
+For browser development, install Bun, Node.js 22 or later, and Git, then run `bun install --frozen-lockfile` and `bun run dev`. Fetch the public documentation with `git submodule update --init docs`.
 
 For native editor development, you also need SSH read access to the private HIT repository, stable Rust with rustfmt and Clippy, GNU Make, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). On Windows, use GNU Make from a shell with standard Unix tools and install the Desktop development with C++ workload and WebView2. On macOS, install Xcode Command Line Tools. On Debian or Ubuntu, the Linux CI setup includes `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `libxdo-dev`, and `patchelf`. Linux native CI also uses Xvfb and xdotool.
 
 ```sh
 git submodule update --init docs third_party/hit
 make setup
-npm run desktop
+bun run desktop
 ```
 
-Use `npm run dev` for the browser UI and `npm run desktop --prefix installer` for the installer preview. The editor is in `src/`, native services and the Node extension host are under `src-tauri/`, and packaging lives in `installer/`.
+Use `bun run dev` for the browser UI and `bun run --cwd installer desktop` for the installer preview. The editor is in `src/`, native services and the Node extension host are under `src-tauri/`, and packaging lives in `installer/`.
 
 ## Checks
 

@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { productionDependencies } from "./production-dependencies.mjs";
 const root = path.resolve(import.meta.dirname, "..");
 const includeRust = process.argv.includes("--include-rust");
 const read = (p) => fs.readFileSync(p, "utf8");
@@ -79,13 +80,7 @@ function licenseTexts(dir) {
   }
   return result;
 }
-const lock = JSON.parse(read(path.join(root, "package-lock.json")));
-for (const [relative, entry] of Object.entries(lock.packages)) {
-  if (!relative || entry.dev) continue;
-  const dir = path.join(root, relative);
-  if (!fs.existsSync(path.join(dir, "package.json")))
-    throw Error("Install dependencies before generating credits: " + relative);
-  const pkg = JSON.parse(read(path.join(dir, "package.json")));
+for (const { directory: dir, pkg } of productionDependencies(root)) {
   packages.push({
     name: pkg.name,
     version: pkg.version,
@@ -93,7 +88,7 @@ for (const [relative, entry] of Object.entries(lock.packages)) {
     license:
       typeof pkg.license === "string"
         ? pkg.license
-        : (pkg.license?.type ?? entry.license ?? "Not specified"),
+        : (pkg.license?.type ?? "Not specified"),
     url:
       pkg.homepage ??
       (typeof pkg.repository === "string"

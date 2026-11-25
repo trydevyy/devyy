@@ -13,8 +13,8 @@ export default defineConfig({
   webServer: {
     command:
       process.platform === "win32"
-        ? "npm run build && npx vite preview --host 127.0.0.1 --port 1431 --strictPort"
-        : "npm run dev",
+        ? "bun run build && bun x vite preview --host 127.0.0.1 --port 1431 --strictPort"
+        : "bun run dev",
     url: "http://127.0.0.1:1431",
     reuseExistingServer: true,
   },

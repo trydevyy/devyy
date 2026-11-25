@@ -3,8 +3,14 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+local_only=false
+if [[ "${1:-}" == --local-only ]]; then
+  local_only=true
+  shift
+fi
+
 if [[ "${1:-}" == --help ]]; then
-  printf 'Usage: bash scripts/build-local-release.sh\nBuilds and stages release assets for the current OS and architecture.\n'
+  printf 'Usage: bash scripts/build-local-release.sh [--local-only]\nBuilds and stages release assets for the current OS and architecture.\n'
   exit 0
 fi
 if [[ $# != 0 ]]; then
@@ -24,6 +30,27 @@ case "$platform" in
   *) echo "Unsupported build platform: $platform" >&2; exit 1 ;;
 esac
 
+if $local_only; then
+  if [[ "$platform" != macos-* ]]; then
+    echo "--local-only is available for macOS builds." >&2
+    exit 1
+  fi
+  unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+  export APPLE_SIGNING_IDENTITY=-
+elif [[ "$platform" == macos-* ]]; then
+  if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+    identities="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)".*/\1/p')"
+    if [[ -z "$identities" || "$identities" == *$'\n'* ]]; then
+      echo "Set APPLE_SIGNING_IDENTITY to an installed Developer ID Application identity, or pass --local-only for an ad hoc signed DMG." >&2
+      exit 1
+    fi
+    export APPLE_SIGNING_IDENTITY="$identities"
+  fi
+  : "${APPLE_ID:?Set the Apple account for notarization}"
+  : "${APPLE_PASSWORD:?Set the Apple app-specific password for notarization}"
+  : "${APPLE_TEAM_ID:?Set the Apple Developer Team ID}"
+fi
+
 # Match the architecture reported by Node against the actual Rust toolchain.
 host="$(rustc -vV | sed -n 's/^host: //p')"
 case "$platform:$host" in
@@ -41,6 +68,7 @@ fi
 
 version="$(node -p 'require("./package.json").version')"
 output="release-assets/v$version/$platform"
+if $local_only; then output="$output-local"; fi
 if [[ -e "$output" ]]; then
   echo "Output already exists: $output. Move it before building again." >&2
   exit 1
@@ -56,14 +84,10 @@ export DEVYY_PLATFORM="$platform"
 export DEVYY_RELEASE_ASSET_DIR="$staging/assets"
 unset DEVYY_RUST_TARGET DEVYY_DMG_PATH
 
-npm ci
+bun install --frozen-lockfile
 if [[ "$platform" == macos-* ]]; then
-  : "${APPLE_SIGNING_IDENTITY:?Set the Developer ID Application signing identity}"
-  : "${APPLE_ID:?Set the Apple account for notarization}"
-  : "${APPLE_PASSWORD:?Set the Apple app-specific password for notarization}"
-  : "${APPLE_TEAM_ID:?Set the Apple Developer Team ID}"
   macos_config="$(node -p 'JSON.stringify({bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}})')"
-  npm run desktop:build -- --config "$macos_config"
+  bun run desktop:build --config "$macos_config"
   app=src-tauri/target/release/bundle/macos/Devyy.app
   arch="$(lipo -archs "$app/Contents/MacOS/Devyy")"
   if [[ "$platform:$arch" != macos-arm64:arm64 && "$platform:$arch" != macos-x64:x86_64 ]]; then
@@ -71,10 +95,17 @@ if [[ "$platform" == macos-* ]]; then
     exit 1
   fi
   export DEVYY_DMG_PATH="$staging/Devyy.dmg"
-  npm run release:installer -- --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH"
+  if $local_only; then
+    bun run release:installer --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH" --local-only
+    mkdir "$output"
+    mv "$DEVYY_DMG_PATH" "$output/Devyy.dmg"
+    printf 'Local DMG: %s/Devyy.dmg\n' "$output"
+    exit 0
+  fi
+  bun run release:installer --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH"
 else
-  npm ci --prefix installer
-  npm run release:installer
+  bun install --cwd installer --frozen-lockfile
+  bun run release:installer
 fi
 
 bash scripts/stage-release-assets.sh

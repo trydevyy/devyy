@@ -34,7 +34,7 @@ fn main() {
                     .is_some_and(|p| p.join("Contents/Info.plist").is_file()))
         {
             panic!(
-                "A release installer requires a payload. Run npm run payload in installer first."
+                "A release installer requires a payload. Run bun run payload in installer first."
             );
         }
         fs::write(out.join("devyy.zip"), []).unwrap();

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { productionDependencies } from "../../scripts/production-dependencies.mjs";
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
@@ -56,15 +57,9 @@ for (const pkg of metadata.packages) {
   });
 }
 // Include frontend packages unique to the installer as well as the Rust crates.
-const lock = JSON.parse(
-  fs.readFileSync(path.join(root, "installer/package-lock.json"), "utf8"),
-);
-for (const [relative, entry] of Object.entries(lock.packages)) {
-  if (!relative || entry.dev) continue;
-  const directory = path.join(root, "installer", relative);
-  const pkg = JSON.parse(
-    fs.readFileSync(path.join(directory, "package.json"), "utf8"),
-  );
+for (const { directory, pkg } of productionDependencies(
+  path.join(root, "installer"),
+)) {
   if (
     notices.packages.some(
       (p) =>
@@ -97,7 +92,7 @@ for (const [relative, entry] of Object.entries(lock.packages)) {
     name: pkg.name,
     version: pkg.version,
     ecosystem: "JavaScript",
-    license: pkg.license ?? entry.license ?? drag?.license ?? "See source",
+    license: pkg.license ?? drag?.license ?? "See source",
     files: files.length ? files : (drag?.files ?? []),
   });
 }

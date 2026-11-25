@@ -1,6 +1,7 @@
 {
   "name": "devyy",
   "private": true,
+  "packageManager": "bun@1.4.3",
   "version": "0.2.0",
   "type": "module",
   "scripts": {
@@ -10,17 +11,17 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "check": "tsc -b && cargo check --manifest-path src-tauri/Cargo.toml",
-    "test": "vitest run && npm run test:extension-host && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "vitest run && bun run test:extension-host && cargo test --manifest-path src-tauri/Cargo.toml",
     "test:e2e": "playwright test",
     "format": "prettier --write src tests *.ts *.json && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "desktop:build": "tauri build",
     "test:extension-host": "node --test scripts/test-extension-host.mjs",
     "assets:generate": "node scripts/generate-assets.mjs",
     "assets:generate:native": "node scripts/generate-assets.mjs --include-rust",
-    "build:native": "npm run assets:generate:native && tsc -b && vite build",
-    "dev:native": "npm run assets:generate:native && vite --host 127.0.0.1",
-    "prebuild": "npm run assets:generate",
-    "predev": "npm run assets:generate",
+    "build:native": "bun run assets:generate:native && tsc -b && vite build",
+    "dev:native": "bun run assets:generate:native && vite --host 127.0.0.1",
+    "prebuild": "bun run assets:generate",
+    "predev": "bun run assets:generate",
     "release:installer": "node installer/scripts/release.mjs"
   },
   "dependencies": {

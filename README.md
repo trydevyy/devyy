@@ -63,15 +63,15 @@ Builds configured for reporting let you preview and approve a diagnostic text fi
 git clone https://github.com/trydevyy/devyy.git
 cd devyy
 git submodule update --init docs
-npm ci
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 The browser workspace requires Node.js 22 or later. Native development also requires access to the private HIT submodule. The [contributor guide](CONTRIBUTING.md) covers native setup, testing, packaging, and the release workflow. For installer development and removal, see the [installer guide](installer/README.md).
 
 For end-to-end Store development, start the local API and web Store, then run a
 debug desktop build with `DEVYY_LOCAL_STORE=1`. On macOS, build the `.app`
-with `npm run tauri -- build --debug --bundles app` so Launch Services can register
+with `bun run tauri build --debug --bundles app` so Launch Services can register
 `devyy://` URLs. Quit other Devyy instances, then launch the bundle with
 `open --env DEVYY_LOCAL_STORE=1 src-tauri/target/debug/bundle/macos/Devyy.app`.
 Add `--env DEVYY_LOCAL_ACCOUNT=1` to sign in to the local demo account and

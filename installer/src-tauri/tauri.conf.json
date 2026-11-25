@@ -5,9 +5,9 @@
   "identifier": "xyz.devyy.installer",
   "build": {
     "runner": "igl",
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1431",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
   "app": {

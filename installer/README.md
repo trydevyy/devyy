@@ -10,21 +10,21 @@ From the repository root, install the editor's dependencies and generate its
 license notices first:
 
 ```sh
-npm ci
-npm run assets:generate
-npm ci --prefix installer
-npm run desktop --prefix installer
+bun install --frozen-lockfile
+bun run assets:generate
+bun install --cwd installer --frozen-lockfile
+bun run --cwd installer desktop
 ```
 
 Development builds contain no app payload and disable installation. To preview
-the interface in a browser, use `npm run dev --prefix installer`. A release
+the interface in a browser, use `bun run --cwd installer dev`. A release
 installer refuses to build without a payload. The installer has no release-server
 URL or unsigned remote package download: the app archive is embedded at build time.
 
 ## Build a release
 
 ```sh
-npm run release:installer
+bun run release:installer
 ```
 
 This first builds Devyy, then packages the installer for the host OS:
@@ -54,9 +54,12 @@ base64-encoded PKCS#12 as `APPLE_CERTIFICATE` and its password as
 inside the mounted DMG and validates notarization tickets before publishing
 either artifact.
 
-For a DMG used only on the build machine, build Devyy and run
-`npm run release:installer -- --skip-editor-build --local-only`. That path
-checks the app's ad hoc signature for packaging tests.
+For a DMG used only on the build machine, run
+`bash scripts/build-local-release.sh --local-only` from the repository root.
+This builds an ad hoc signed app and stages the DMG under
+`release-assets/v<version>/macos-<arch>-local/`. The distribution build
+can select a Developer ID Application identity automatically when exactly
+one is available in the keychain.
 
 ## Setup interface
 
@@ -127,8 +130,8 @@ Linux exposes **Uninstall Devyy** in the application menu, or:
 
 ```sh
 cargo test --manifest-path installer/src-tauri/Cargo.toml
-npm run test:e2e --prefix installer
-npm run build --prefix installer
+bun run --cwd installer test:e2e
+bun run --cwd installer build
 ```
 
 Engine tests use temporary home/install folders and synthetic app payloads.

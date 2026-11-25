@@ -9,7 +9,7 @@ const root = path.resolve(
 const installer = path.join(root, "installer");
 const windows = process.platform === "win32";
 const linux = process.platform === "linux";
-const npm = windows ? "npm.cmd" : "npm";
+const bun = "bun";
 const rustTarget = process.env.DEVYY_RUST_TARGET;
 const releaseRoot = path.join(
   root,
@@ -28,7 +28,7 @@ function run(command, args, options = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 if (!process.argv.includes("--skip-editor-build"))
-  run(npm, ["run", "desktop:build", ...(windows ? ["--", "--no-bundle"] : [])]);
+  run(bun, ["run", "desktop:build", ...(windows ? ["--no-bundle"] : [])]);
 if (process.platform === "darwin") {
   const appArgument = process.argv.indexOf("--app");
   const app =
@@ -62,10 +62,10 @@ if (process.platform === "darwin") {
       : []),
   ]);
   const installerArgs = ["run", "desktop:build"];
-  if (windows) installerArgs.push("--", "--runner", "cargo", "--no-bundle");
+  if (windows) installerArgs.push("--runner", "cargo", "--no-bundle");
   if (windows && rustTarget) installerArgs.push("--target", rustTarget);
   if (linux) installerArgs.push("--", "--no-bundle");
-  run(npm, installerArgs, {
+  run(bun, installerArgs, {
     cwd: installer,
     env: {
       ...process.env,

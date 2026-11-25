@@ -71,10 +71,10 @@ jobs:
         if: inputs.release_build
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        if: inputs.release_build
+        with:
+          bun-version: 1.4.3
       - uses: ./.github/actions/fetch-hit
         with:
           token: ${{ secrets.HIT_READ_PAT }}
@@ -112,7 +112,7 @@ jobs:
           if [[ -n "$DEVYY_RUST_TARGET" ]]; then args+=(--target "$DEVYY_RUST_TARGET"); fi
           cargo test --locked --manifest-path src-tauri/Cargo.toml "${args[@]}"
           cargo test --locked --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
-      - run: npm ci
+      - run: bun install --frozen-lockfile
         if: inputs.release_build
       - name: Build editor
         if: inputs.release_build
@@ -122,14 +122,14 @@ jobs:
             Windows)
               args=(--no-bundle)
               if [[ -n "$DEVYY_RUST_TARGET" ]]; then args+=(--target "$DEVYY_RUST_TARGET"); fi
-              npm run desktop:build -- "${args[@]}"
+              bun run desktop:build "${args[@]}"
               ;;
-            *) npm run desktop:build ;;
+            *) bun run desktop:build ;;
           esac
         env:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
           DEVYY_CRASH_WEBHOOK_URL: ${{ inputs.release_build && secrets.DEVYY_CRASH_WEBHOOK_URL || '' }}
-      - run: npm ci --prefix installer
+      - run: bun install --cwd installer --frozen-lockfile
         if: inputs.release_build
       - name: Build custom installer
         if: inputs.release_build
@@ -196,7 +196,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
       - uses: ./.github/actions/fetch-hit
         with:
           token: ${{ secrets.HIT_READ_PAT }}
@@ -250,10 +252,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
       - uses: ./.github/actions/fetch-hit
         if: env.CAN_FETCH_HIT == 'true'
         with:
@@ -262,16 +263,16 @@ jobs:
         if: env.CAN_FETCH_HIT == 'true'
         with:
           components: rustfmt
-      - run: npm ci
-      - run: npm ci --prefix installer
+      - run: bun install --frozen-lockfile
+      - run: bun install --cwd installer --frozen-lockfile
       - run: make format-check-rust
         if: env.CAN_FETCH_HIT == 'true'
       - run: make format-check-js test-js
       - name: Build browser workspace
-        run: npm run build
-      - run: npx playwright install --with-deps --only-shell chromium
-      - run: npx playwright test --workers=2
-      - run: npm run test:e2e --prefix installer -- --workers=2
+        run: bun run build
+      - run: bun x playwright install --with-deps --only-shell chromium
+      - run: bun x playwright test --workers=2
+      - run: bun run --cwd installer test:e2e --workers=2
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
