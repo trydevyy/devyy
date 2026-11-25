@@ -75,21 +75,9 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             installer/package-lock.json
-      - name: Fetch pinned HIT source
-        shell: bash
-        env:
-          HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
-        run: |
-          if [[ -z "$HIT_READ_PAT" ]]; then
-            echo "::error::Set HIT_READ_PAT to a token with read access to hit-scm/hit."
-            exit 1
-          fi
-          auth="$(printf 'x-access-token:%s' "$HIT_READ_PAT" | base64 | tr -d '\r\n')"
-          echo "::add-mask::$auth"
-          git submodule sync -- third_party/hit
-          GIT_TERMINAL_PROMPT=0 git -c url.https://github.com/hit-scm/hit.git.insteadOf=git@github.com:hit-scm/hit.git \
-            -c "http.https://github.com/hit-scm/hit.git.extraHeader=Authorization: Basic $auth" \
-            submodule update --init --checkout -- third_party/hit
+      - uses: ./.github/actions/fetch-hit
+        with:
+          token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
       - if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
@@ -209,21 +197,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Fetch pinned HIT source
-        shell: bash
-        env:
-          HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
-        run: |
-          if [[ -z "$HIT_READ_PAT" ]]; then
-            echo "::error::Set HIT_READ_PAT to a token with read access to hit-scm/hit."
-            exit 1
-          fi
-          auth="$(printf 'x-access-token:%s' "$HIT_READ_PAT" | base64 | tr -d '\r\n')"
-          echo "::add-mask::$auth"
-          git submodule sync -- third_party/hit
-          GIT_TERMINAL_PROMPT=0 git -c url.https://github.com/hit-scm/hit.git.insteadOf=git@github.com:hit-scm/hit.git \
-            -c "http.https://github.com/hit-scm/hit.git.extraHeader=Authorization: Basic $auth" \
-            submodule update --init --checkout -- third_party/hit
+      - uses: ./.github/actions/fetch-hit
+        with:
+          token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Import Developer ID certificate
         shell: bash
@@ -262,6 +238,8 @@ jobs:
 
   interface:
     runs-on: ubuntu-24.04
+    env:
+      CAN_FETCH_HIT: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -276,13 +254,20 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             installer/package-lock.json
+      - uses: ./.github/actions/fetch-hit
+        if: env.CAN_FETCH_HIT == 'true'
+        with:
+          token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
+        if: env.CAN_FETCH_HIT == 'true'
         with:
           components: rustfmt
       - run: npm ci
       - run: npm ci --prefix installer
-      - run: make format-check test-js
-      - name: Build browser workspace without private HIT
+      - run: make format-check-rust
+        if: env.CAN_FETCH_HIT == 'true'
+      - run: make format-check-js test-js
+      - name: Build browser workspace
         run: npm run build
       - run: npx playwright install --with-deps --only-shell chromium
       - run: npx playwright test --workers=2

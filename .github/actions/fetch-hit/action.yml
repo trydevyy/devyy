@@ -1,0 +1,28 @@
+name: Fetch pinned HIT source
+description: Check out the HIT commit recorded by Devyy.
+inputs:
+  token:
+    description: Token with read access to hit-scm/hit.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Fetch pinned HIT source
+      shell: bash
+      env:
+        HIT_READ_PAT: ${{ inputs.token }}
+      run: |
+        if [[ -z "$HIT_READ_PAT" ]]; then
+          echo "::error::Set HIT_READ_PAT to a token with read access to hit-scm/hit."
+          exit 1
+        fi
+        auth="$(printf 'x-access-token:%s' "$HIT_READ_PAT" | base64 | tr -d '\r\n')"
+        echo "::add-mask::$auth"
+        git submodule sync -- third_party/hit
+        GIT_TERMINAL_PROMPT=0 git -c url.https://github.com/hit-scm/hit.git.insteadOf=git@github.com:hit-scm/hit.git \
+          -c "http.https://github.com/hit-scm/hit.git.extraHeader=Authorization: Basic $auth" \
+          submodule update --init --checkout -- third_party/hit
+        if [[ ! -f third_party/hit/Cargo.toml ]]; then
+          echo "::error::The pinned HIT checkout is missing third_party/hit/Cargo.toml."
+          exit 1
+        fi
