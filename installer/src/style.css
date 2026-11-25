@@ -725,6 +725,7 @@ textarea::placeholder {
   font-size: 12px;
 }
 .desktop-page .secondary {
+  border: 0;
   color: var(--fg);
   min-width: 82px;
 }
