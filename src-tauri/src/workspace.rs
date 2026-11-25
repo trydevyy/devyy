@@ -151,7 +151,7 @@ fn explorer_entries(base: &Path, depth: usize, limit: usize) -> Vec<Entry> {
             continue;
         };
         let mut items: Vec<_> = items.filter_map(Result::ok).collect();
-        items.sort_by_key(|e| e.file_name());
+        items.sort_by_cached_key(|e| e.file_name());
         for item in items {
             if dir != base && out.len() >= limit {
                 break;
@@ -241,7 +241,6 @@ fn project_logo(base: &Path, files: &[Entry]) -> Option<String> {
         .filter(|entry| !entry.directory)
         .filter_map(|entry| {
             let path = Path::new(&entry.path);
-            let stem = path.file_stem()?.to_str()?.to_lowercase();
             let ext = path.extension()?.to_str()?.to_lowercase();
             let (format, mime) = match ext.as_str() {
                 "svg" => (0, "image/svg+xml"),
@@ -251,6 +250,7 @@ fn project_logo(base: &Path, files: &[Entry]) -> Option<String> {
                 "ico" => (4, "image/x-icon"),
                 _ => return None,
             };
+            let stem = path.file_stem()?.to_str()?.to_lowercase();
             let brand = if matches!(stem.as_str(), "logo" | "logomark" | "logo-mark") {
                 0
             } else if stem.starts_with("logo-")
@@ -581,12 +581,12 @@ pub async fn search_workspace(
                 continue;
             }
             for (line, text) in content.lines().enumerate() {
-                let hay = if options.case_sensitive {
-                    text.to_string()
+                let column = if options.case_sensitive {
+                    text.find(&needle)
                 } else {
-                    text.to_lowercase()
+                    text.to_lowercase().find(&needle)
                 };
-                if let Some(column) = hay.find(&needle) {
+                if let Some(column) = column {
                     results.push(SearchMatch {
                         path: entry.path.clone(),
                         line: line + 1,
@@ -949,10 +949,10 @@ mod opening_tests {
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         for _ in 0..3 {
             let start = std::time::Instant::now();
-            let early = scan_entries(base, 2, 2048);
+            let early = explorer_entries(base, 2, 2048);
             let elapsed = start.elapsed();
             let start = std::time::Instant::now();
-            let all = entries(base);
+            let all = explorer_entries(base, 20, 30_000);
             println!(
                 "snapshot: {} entries in {:?}; full index: {} entries in {:?}",
                 early.len(),

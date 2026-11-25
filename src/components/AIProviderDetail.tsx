@@ -33,6 +33,7 @@ import {
   Download,
 } from "lucide-react";
 import {
+  aiProviderReady,
   aiAccount,
   discoverAIModels,
   removeAIProvider,
@@ -171,11 +172,13 @@ export function accountInfo(
 }
 export default function AIProviderDetail({
   provider,
+  active = true,
   onRemoved,
   onSaved,
   onUsage,
 }: {
   provider: AIProvider;
+  active?: boolean;
   onRemoved: () => void;
   onSaved?: () => void;
   onUsage?: (button: HTMLButtonElement) => void;
@@ -252,10 +255,10 @@ export default function AIProviderDetail({
       setBusy("");
     }
   }
-  async function refreshModels() {
+  async function refreshModels(confirmedSignIn = false) {
     await saveAIProvider(form, key);
     setKey("");
-    const models = await discoverAIModels(provider.id, true);
+    const models = await discoverAIModels(provider.id, true, confirmedSignIn);
     if (
       models.length &&
       (!form.model ||
@@ -297,12 +300,8 @@ export default function AIProviderDetail({
     }
   }
   useEffect(() => {
-    if (provider.kind === "chatgpt" && native)
-      void action("status", () => accountAction("status"));
-  }, [provider.id, provider.kind]);
-
-  useEffect(() => {
     if (
+      !active ||
       !["claude", "antigravity", "opencode"].includes(provider.kind) ||
       !native
     )
@@ -313,6 +312,7 @@ export default function AIProviderDetail({
     setRuntime(undefined);
     void invoke<Record<string, string>>("ai_runtime", {
       providerId: provider.id,
+      probeOnly: true,
     })
       .then((value) => {
         if (current) setRuntime(value);
@@ -326,7 +326,7 @@ export default function AIProviderDetail({
     return () => {
       current = false;
     };
-  }, [provider.id, provider.kind, provider.executable]);
+  }, [active, provider.id, provider.kind, provider.executable]);
 
   async function checkRuntime() {
     setRuntimeError("");
@@ -335,9 +335,12 @@ export default function AIProviderDetail({
         providerId: provider.id,
         executable: form.executable,
       });
-      setRuntime(result);
+      const version = form.kind === "antigravity" ? undefined : result.version;
+      setRuntime(version ? result : { executable: result.executable });
       setNotice(
-        `${form.name} can start${result.version ? ` (version ${result.version})` : ""}.`,
+        version
+          ? `${form.name} version ${version}`
+          : `${form.name} executable found.`,
       );
     } catch (error) {
       setRuntime(undefined);
@@ -407,7 +410,11 @@ export default function AIProviderDetail({
       <header>
         <AIProviderIcon kind={provider.kind} size={22} />
         <h3>{provider.name}</h3>
-        <span className={connected ? "ai-provider-authenticated" : ""}>
+        <span
+          className={
+            aiProviderReady(provider, state) ? "ai-provider-authenticated" : ""
+          }
+        >
           {connected && <Check size={12} />} {label}
         </span>
       </header>
@@ -674,14 +681,10 @@ export default function AIProviderDetail({
                     disabled={
                       !!busy || !native || runtimeChecking || runtimeMissing
                     }
-                    onDone={() => void action("models", refreshModels)}
+                    onDone={() =>
+                      void action("models", () => refreshModels(true))
+                    }
                   />
-                  {form.kind === "antigravity" && (
-                    <p className="ai-provider-notice">
-                      Sign in with Google to use the models available to your
-                      Antigravity account.
-                    </p>
-                  )}
                   {form.kind === "opencode" && (
                     <p className="ai-provider-notice">
                       Connect an account in OpenCode, then choose one of its

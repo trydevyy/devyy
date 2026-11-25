@@ -120,9 +120,9 @@ export default function Preferences({
   const { transition, instant } = useSurfaceMotion();
   const pageTransition = {
     type: "tween",
-    duration: instant ? 0 : 0.24,
+    duration: instant ? 0 : 0.18,
     ease: [0.16, 1, 0.3, 1],
-    opacity: { duration: instant ? 0 : 0.24, ease: "linear" },
+    opacity: { duration: instant ? 0 : 0.18, ease: "easeOut" },
   } as const;
   const [query, setQuery] = useState(initialQuery);
   useEffect(() => {
@@ -445,13 +445,17 @@ export default function Preferences({
           </button>
         </header>
         <div className="settings-scroll" ref={scrollRef}>
-          <AnimatePresence initial={false} custom={direction}>
+          <AnimatePresence mode="wait" initial={false} custom={direction}>
             <SettingsPage
-              className="settings-inner"
+              className={
+                category === "ai" && !searching
+                  ? "settings-inner settings-inner-ai"
+                  : "settings-inner"
+              }
               initial={{
                 opacity: 0,
-                y: instant ? 0 : direction * 24,
-                filter: instant ? "none" : "blur(5px)",
+                y: instant ? 0 : direction * 12,
+                filter: instant ? "none" : "blur(4px)",
               }}
               animate={{
                 opacity: 1,
@@ -463,9 +467,13 @@ export default function Preferences({
               variants={{
                 leave: (d: number) => ({
                   opacity: 0,
-                  y: instant ? 0 : -d * 20,
-                  filter: instant ? "none" : "blur(4px)",
-                  transition: pageTransition,
+                  y: instant ? 0 : -d * 10,
+                  filter: instant ? "none" : "blur(3px)",
+                  transition: {
+                    type: "tween",
+                    duration: instant ? 0 : 0.1,
+                    ease: "easeIn",
+                  },
                 }),
               }}
               key={searching ? "search" : category}
@@ -783,7 +791,7 @@ export default function Preferences({
   if (embedded) {
     return (
       <section
-        className={`settings-view-embedded ${category === "ai" && !searching ? "settings-ai" : ""}`}
+        className="settings-view-embedded"
         role="region"
         aria-label="Settings"
       >
@@ -802,7 +810,7 @@ export default function Preferences({
         initial={{ scale: instant ? 1 : 0.98 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: instant ? 1 : 0.98, y: instant ? 0 : 6 }}
-        className={`settings-modal ${category === "ai" && !searching ? "settings-ai" : ""}`}
+        className="settings-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Preferences"

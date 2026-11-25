@@ -141,7 +141,10 @@ export default function FileTree(p: Props) {
   const children = useMemo(() => {
     const groups = new Map<string, FileEntry[]>();
     for (const file of p.files) {
-      const parent = file.path.split("/").slice(0, -1).join("/");
+      const parent = file.path.slice(
+        0,
+        Math.max(0, file.path.lastIndexOf("/")),
+      );
       const siblings = groups.get(parent) ?? [];
       siblings.push(file);
       groups.set(parent, siblings);

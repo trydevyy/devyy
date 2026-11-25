@@ -51,6 +51,7 @@ export default function ThemeStore({
   const installing = useStoreInstallId("theme");
   const [tab, setTab] = useState<"browse" | "installed">("browse");
   const [installed, setInstalled] = useState<StoreTheme[]>([]);
+  const [loadingInstalled, setLoadingInstalled] = useState(native);
   const [remote, setRemote] = useState<StoreThemeSummary[]>([]);
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -67,10 +68,16 @@ export default function ThemeStore({
     function refresh() {
       void installedThemes().then(
         (themes) => {
-          if (current) setInstalled(themes);
+          if (current) {
+            setInstalled(themes);
+            setLoadingInstalled(false);
+          }
         },
         (error) => {
-          if (current) setActionError(String(error));
+          if (current) {
+            setActionError(String(error));
+            setLoadingInstalled(false);
+          }
         },
       );
     }
@@ -122,6 +129,7 @@ export default function ThemeStore({
               !defaultStoreThemes.some((theme) => theme.id === entry.id),
           ),
         ];
+  const pending = tab === "browse" ? loading : loadingInstalled;
   const selected =
     active?.id ??
     defaultStoreThemes.find((theme) => theme.manifest.base === base)?.id;
@@ -235,13 +243,7 @@ export default function ThemeStore({
           </button>
         </div>
       )}
-      <div
-        className="extensions-list extension-catalog"
-        aria-busy={loading && tab === "browse"}
-      >
-        {loading && tab === "browse" && !themes.length && (
-          <Skeleton variant="cards" label="Loading themes" />
-        )}
+      <div className="extensions-list extension-catalog" aria-busy={pending}>
         {themes.map((entry) => {
           const local = localTheme(entry.id);
           const applied = selected === entry.id;
@@ -315,8 +317,9 @@ export default function ThemeStore({
             </article>
           );
         })}
+        {pending && <Skeleton variant="cards" label="Loading themes" />}
       </div>
-      {!themes.length && (!loading || tab === "installed") && (
+      {!themes.length && !pending && (
         <p className="settings-note">No matching themes.</p>
       )}
       {tab === "browse" && (offset > 0 || remote.length === pageSize) && (

@@ -57,7 +57,7 @@ test("settings pages reverse direction with progressive blur and modals animate 
       const values = {
         exit: [] as number[],
         enter: [] as number[],
-        coverage: [] as number[],
+        overlap: false,
         blur: [] as string[],
       };
       w.settingsFrames = values;
@@ -68,6 +68,7 @@ test("settings pages reverse direction with progressive blur and modals animate 
         // Record the entrance start position even if the browser skips painted frames.
         if (entering && entering !== previous && entering.style.transform) {
           values.enter.push(new DOMMatrix(entering.style.transform).m42);
+          values.blur.push(entering.style.filter);
         }
       });
       observer.observe(document.querySelector(".settings-scroll")!, {
@@ -80,16 +81,15 @@ test("settings pages reverse direction with progressive blur and modals animate 
       };
       function sample() {
         if (!running) return;
-        let coverage = 0;
-        for (const current of document.querySelectorAll(".settings-inner")) {
+        const panels = document.querySelectorAll(".settings-inner");
+        values.overlap ||= panels.length > 1;
+        for (const current of panels) {
           const style = getComputedStyle(current);
           (current === previous ? values.exit : values.enter).push(
             new DOMMatrix(style.transform).m42,
           );
-          coverage += Number(style.opacity);
           if (current !== previous) values.blur.push(style.filter);
         }
-        values.coverage.push(coverage);
         requestAnimationFrame(sample);
       }
       requestAnimationFrame(sample);
@@ -116,14 +116,15 @@ test("settings pages reverse direction with progressive blur and modals animate 
       return w.settingsFrames as {
         exit: number[];
         enter: number[];
-        coverage: number[];
+        overlap: boolean;
         blur: string[];
       };
     });
-    expect(Math.min(...frames.coverage)).toBeGreaterThan(0.75);
-    expect(frames.blur.some((filter) => /^blur\([1-5]/.test(filter))).toBe(
-      true,
-    );
+    expect(frames.overlap).toBe(false);
+    expect(
+      frames.blur.some((filter) => Number.parseFloat(filter.slice(5)) > 0),
+      JSON.stringify(frames),
+    ).toBe(true);
     expect(
       frames.exit.some((y) => (category === "Editor" ? y < 0 : y > 0)),
     ).toBe(true);

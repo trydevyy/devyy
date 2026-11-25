@@ -31,6 +31,7 @@ import {
   Star,
 } from "lucide-react";
 import {
+  aiProviderReady,
   chooseAIModel,
   discoverAIModels,
   setChatProvider,
@@ -80,20 +81,23 @@ export default function AIModelPicker({
     [error, setError] = useState(""),
     [stars, setStars] = useState<string[]>(favorites),
     [onlyFavorites, setOnlyFavorites] = useState(false);
-  const providers = state.providers.filter((p) => p.enabled !== false),
-    provider = state.providers.find((p) => p.id === providerId),
-    inspected = state.providers.find((p) => p.id === selected);
-  const current =
-    state.models[providerId]?.find(
-      (m) => m.id === (choice.model || provider?.model),
-    ) ??
-    (!choice.model
-      ? state.models[providerId]?.find((m) => m.isDefault)
-      : undefined);
+  const providers = state.providers.filter((p) => aiProviderReady(p, state)),
+    provider = providers.find((p) => p.id === providerId),
+    inspected = providers.find((p) => p.id === selected);
+  const current = provider
+    ? (state.models[providerId]?.find(
+        (m) => m.id === (choice.model || provider.model),
+      ) ??
+      (!choice.model
+        ? state.models[providerId]?.find((m) => m.isDefault)
+        : undefined))
+    : undefined;
   const display =
     current?.name && current.name !== current.id
       ? current.name
-      : modelLabel(choice.model || provider?.model || "");
+      : provider
+        ? modelLabel(choice.model || provider.model || "")
+        : "Choose a model";
   const options = (
     onlyFavorites ? providers : providers.filter((p) => p.id === selected)
   )
@@ -163,17 +167,21 @@ export default function AIModelPicker({
   }
   useEffect(() => {
     if (open) {
-      setSelected(providerId);
+      setSelected(
+        providers.some((p) => p.id === providerId)
+          ? providerId
+          : (providers[0]?.id ?? ""),
+      );
       setQuery("");
     }
-  }, [open, providerId]);
+  }, [open, providerId, providers.map((p) => p.id).join(",")]);
   useEffect(() => {
     if (open) void refresh();
   }, [open, selected, onlyFavorites]);
   useEffect(() => {
-    if (choice.effort && state.loaded && !state.models[providerId])
+    if (provider && choice.effort && state.loaded && !state.models[providerId])
       void discoverAIModels(providerId).catch(() => {});
-  }, [providerId, choice.effort, state.loaded]);
+  }, [provider, providerId, choice.effort, state.loaded]);
   function choose(id: string, effort = "", keepOpen = false, owner = selected) {
     const model = state.models[owner]?.find((m) => m.id === id);
     const next = { model: id, effort: supportedEffort(model, effort) };

@@ -76,6 +76,20 @@ async function fixture(
           hasKey: false,
         },
       ];
+      localStorage.setItem(
+        "devyy.ai.verified",
+        JSON.stringify({
+          "custom-test": JSON.stringify([
+            "custom",
+            providers[0].endpoint,
+            "",
+            [],
+            false,
+            false,
+            "",
+          ]),
+        }),
+      );
       let runtimeInstalled = !missingRuntime;
       let workspaceAccess = "attached";
       let defaultRust = false;
@@ -97,6 +111,9 @@ async function fixture(
         isTauri: true,
         aiFixture: {
           calls,
+          finishSignIn() {
+            emit("terminal-exit", { id: terminalSerial, success: true });
+          },
           agent() {
             emit("devyy-ai", {
               requestId,
@@ -142,20 +159,22 @@ async function fixture(
                 data: Array.from(new TextEncoder().encode(`${text} ${id}\r\n`)),
               });
           },
-          problems() {
+          problems(value?: number) {
+            const count = typeof value === "number" ? value : 1;
             emit("lsp-diagnostics", {
               params: {
                 uri: "file:///fixture/src/main.rs",
-                diagnostics: [
-                  {
-                    range: {
-                      start: { line: 0, character: 0 },
-                      end: { line: 0, character: 2 },
-                    },
-                    severity: 1,
-                    message: "Fixture type mismatch",
+                diagnostics: Array.from({ length: count }, (_, index) => ({
+                  range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 2 },
                   },
-                ],
+                  severity: 1,
+                  message:
+                    count === 1
+                      ? "Fixture type mismatch"
+                      : `Fixture problem ${index + 1}`,
+                })),
               },
             });
           },
@@ -419,7 +438,7 @@ async function fixture(
                       },
                     },
                   }
-                : { loggedIn: true, email: "claude@example.test" };
+                : { loggedIn: runtimeInstalled, email: "claude@example.test" };
             if (command === "ai_chat") {
               requestId = String(
                 (args.request as { requestId: string }).requestId,
@@ -1027,6 +1046,23 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     page.getByRole("switch", { name: "Enable Claude account", exact: true }),
   ).toHaveAttribute("aria-checked", "false");
   await detail.getByRole("button", { name: "Usage", exact: true }).click();
+  await expect(
+    page.getByRole("meter", { name: "ChatGPT session remaining" }),
+  ).toHaveAttribute("aria-valuenow", "75");
+  await page.evaluate(() => {
+    const w = window as any;
+    const call = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = async (command: string, args: any) => {
+      const result = await call(command, args);
+      return command === "ai_account" && args.providerId === "chatgpt"
+        ? { ...result, limits: null }
+        : result;
+    };
+  });
+  await page.getByRole("button", { name: "Refresh AI usage" }).click();
+  await expect(
+    page.getByRole("button", { name: "Refresh AI usage" }),
+  ).toBeEnabled();
   await expect(
     page.getByRole("meter", { name: "ChatGPT session remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
@@ -1789,11 +1825,21 @@ test("Antigravity and OpenCode providers display real logos, models, and CLI not
 test("Google and OpenCode sign-in open provider-owned sessions and clean up on close", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 900, height: 640 });
   await fixture(page);
   await start(page);
   await page
     .getByRole("button", { name: "AI provider settings", exact: true })
     .click();
+  expect(
+    await page.evaluate(() =>
+      (window as any).aiFixture.calls.some(
+        (c: any) =>
+          (c.command === "ai_runtime" || c.command === "ai_models") &&
+          c.args.providerId === "antigravity",
+      ),
+    ),
+  ).toBe(false);
   for (const [name, label, expectedArgs] of [
     ["Antigravity", "Sign in with Google", ["acp", "--login"]],
     ["OpenCode", "Connect an account", ["auth", "login"]],
@@ -1801,9 +1847,12 @@ test("Google and OpenCode sign-in open provider-owned sessions and clean up on c
     await page.getByRole("tab", { name: new RegExp("^" + name) }).click();
     const detail = page.getByRole("region", { name, exact: true });
     await detail.getByRole("button", { name: label, exact: true }).click();
-    await expect(
-      detail.getByRole("region", { name: name + " sign-in" }),
-    ).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: name + " sign-in" });
+    await expect(dialog).toBeVisible();
+    expect(
+      (await dialog.locator(".provider-sign-in-terminal").boundingBox())!
+        .height,
+    ).toBeGreaterThan(300);
     await expect
       .poll(() =>
         page.evaluate(
@@ -1818,13 +1867,25 @@ test("Google and OpenCode sign-in open provider-owned sessions and clean up on c
         shellPath: "/fixture/cli",
         shellArgs: expectedArgs,
       });
-    await detail
-      .getByRole("button", { name: "Close sign-in session", exact: true })
-      .click();
-    await expect(
-      detail.getByRole("region", { name: name + " sign-in" }),
-    ).toHaveCount(0);
+    if (name === "Antigravity") {
+      await page.evaluate(() => (window as any).aiFixture.finishSignIn());
+      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await expect(detail.getByText("2 models available")).toBeVisible();
+    } else {
+      await dialog
+        .getByRole("button", { name: "Close sign-in session", exact: true })
+        .click();
+    }
+    await expect(dialog).toHaveCount(0);
   }
+  await page.getByRole("button", { name: "Close preferences" }).click();
+  await page.getByRole("button", { name: "Choose AI model" }).click();
+  await expect(
+    page.getByRole("button", { name: "Models from Antigravity" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Models from OpenCode" }),
+  ).toHaveCount(0);
 });
 
 test("model and access controls share a row", async ({ page }) => {
@@ -2078,4 +2139,65 @@ test("composer input box has corner drag thumb and dropping context keeps AI wor
   await expect(page.locator(".ai-attachment-chip")).toContainText(
     "Problem: main.rs",
   );
+});
+
+test("AI Providers widens Preferences and Themes reserves space for pending cards", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.__TAURI_INTERNALS__.invoke = (command: string, args: any) =>
+      command === "store_catalog" && args.kind === "themes"
+        ? new Promise((resolve) => {
+            w.finishThemeCatalog = () => resolve([]);
+          })
+        : invoke(command, args);
+  });
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const modal = page.getByRole("dialog", { name: "Preferences", exact: true });
+  const width = (await modal.boundingBox())!.width;
+  await modal.getByRole("tab", { name: "AI providers", exact: true }).click();
+  await expect
+    .poll(async () => (await modal.boundingBox())?.width)
+    .toBeGreaterThan(width);
+  await expect(modal).toHaveCSS("transition-property", "width");
+  await modal.getByRole("tab", { name: "Themes", exact: true }).click();
+  const skeleton = modal.getByRole("status", { name: "Loading themes" });
+  await expect(skeleton).toBeVisible();
+  await expect(
+    modal.getByRole("button", { name: "Preview Dark" }),
+  ).toBeVisible();
+  await page.evaluate(() => (window as any).finishThemeCatalog());
+  await expect(skeleton).toHaveCount(0);
+});
+
+test("large diagnostic bursts render a bounded Problems viewport and clear stale results", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.keyboard.press(`${mod}+o`);
+  await expect(
+    page.locator(".editor-document.visible .cm-content"),
+  ).toContainText("fn main()");
+  await page.evaluate(() => {
+    const fixture = (window as any).aiFixture;
+    fixture.problems(500);
+    fixture.problems(5000);
+  });
+  await page.getByRole("tab", { name: /^problems/i }).click();
+  const problems = page.locator(".problems-list");
+  await expect(
+    problems.getByRole("button", { name: /^Fixture problem 1 / }),
+  ).toBeVisible();
+  expect(await problems.getByRole("button").count()).toBeLessThan(60);
+  await problems.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(
+    problems.getByRole("button", { name: /^Fixture problem 5000 / }),
+  ).toBeVisible();
+  await page.evaluate(() => (window as any).aiFixture.problems(0));
+  await expect(page.getByText("No problems detected")).toBeVisible();
 });

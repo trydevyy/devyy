@@ -15,7 +15,7 @@
 
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
-import { discoverAIModels, loadAI, useAI } from "../lib/ai";
+import { aiProviderReady, discoverAIModels, loadAI, useAI } from "../lib/ai";
 import type { Settings } from "../lib/types";
 import Select from "./ui/Select";
 import { useAICompletionStatus } from "../lib/aiCompletion";
@@ -34,13 +34,13 @@ export default function CompletionSettings({
   useEffect(() => {
     void loadAI();
   }, []);
-  const provider = state.providers.find(
-    (item) => item.id === settings.aiCompletionProvider,
-  );
-  const models = state.models[settings.aiCompletionProvider] ?? [];
-  const model = settings.aiCompletionModel;
+  const provider = state.providers
+    .filter((p) => aiProviderReady(p, state))
+    .find((item) => item.id === settings.aiCompletionProvider);
+  const models = provider ? (state.models[provider.id] ?? []) : [];
+  const model = provider ? settings.aiCompletionModel : "";
   useEffect(() => {
-    if (!settings.aiCompletionProvider) return;
+    if (!provider) return;
     let current = true;
     setError("");
     void discoverAIModels(settings.aiCompletionProvider).catch((error) => {
@@ -49,7 +49,7 @@ export default function CompletionSettings({
     return () => {
       current = false;
     };
-  }, [settings.aiCompletionProvider]);
+  }, [provider?.id]);
   return (
     <section
       className="completion-settings"
@@ -97,7 +97,7 @@ export default function CompletionSettings({
         </span>
         <Select
           aria-label="AI completion provider"
-          value={settings.aiCompletionProvider}
+          value={provider?.id ?? ""}
           onChange={(event) =>
             onChange({
               aiCompletionProvider: event.target.value,
@@ -107,7 +107,7 @@ export default function CompletionSettings({
         >
           <option value="">Automatic</option>
           {state.providers
-            .filter((p) => p.enabled !== false)
+            .filter((p) => aiProviderReady(p, state))
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}

@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, RefreshCw, X } from "lucide-react";
 import {
   aiAccount,
+  aiProviderReady,
   loadAI,
   saveAIProvider,
   useAI,
@@ -151,9 +152,7 @@ export default function AIProviders() {
           <header className="ai-providers-toolbar">
             <div className="ai-providers-title">
               <strong>AI providers</strong>
-              <small>
-                Choose a provider to set up its connection and default model.
-              </small>
+              <small>Manage sign-ins and models.</small>
             </div>
             <span />
             {checked && (
@@ -190,16 +189,15 @@ export default function AIProviders() {
                       ),
                     ),
                     index = providers.findIndex((p) => p.id === chosen),
-                    next =
-                      event.key === "ArrowDown"
-                        ? (index + 1) % tabs.length
-                        : event.key === "ArrowUp"
-                          ? (index - 1 + tabs.length) % tabs.length
-                          : event.key === "Home"
-                            ? 0
-                            : event.key === "End"
-                              ? tabs.length - 1
-                              : -1;
+                    next = ["ArrowDown", "ArrowRight"].includes(event.key)
+                      ? (index + 1) % tabs.length
+                      : ["ArrowUp", "ArrowLeft"].includes(event.key)
+                        ? (index - 1 + tabs.length) % tabs.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? tabs.length - 1
+                            : -1;
                   if (next >= 0) {
                     event.preventDefault();
                     setSelected(providers[next].id);
@@ -227,7 +225,12 @@ export default function AIProviders() {
                         <AIProviderIcon kind={provider.kind} />
                         <span>
                           <strong>{provider.name}</strong>
-                          <small>{label}</small>
+                          <small>
+                            {aiProviderReady(provider, state) &&
+                            !["chatgpt", "claude"].includes(provider.kind)
+                              ? "Connection verified"
+                              : label}
+                          </small>
                         </span>
                       </button>
                       <button
@@ -258,11 +261,12 @@ export default function AIProviders() {
                   key={provider.id}
                   id={`provider-${provider.id}`}
                   role="tabpanel"
-                  aria-label={provider.name}
                   hidden={provider.id !== chosen}
+                  aria-label={provider.name}
                 >
                   <AIProviderDetail
                     provider={provider}
+                    active={provider.id === chosen}
                     onRemoved={() => {
                       setDraft(undefined);
                       setSelected(state.providers[0]?.id ?? "chatgpt");

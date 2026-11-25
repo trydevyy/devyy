@@ -712,9 +712,6 @@ async fn consume<R: tauri::Runtime>(
     mut response: reqwest::Response,
     protocol: &str,
 ) -> Result<(Turn, Value), String> {
-    if !response.status().is_success() {
-        return Err(format!("Provider returned HTTP {} during the agent request. Check the model, endpoint and tool support.",response.status()));
-    }
     let limits: serde_json::Map<String, Value> = response
         .headers()
         .iter()
@@ -723,6 +720,9 @@ async fn consume<R: tauri::Runtime>(
         .collect();
     if !limits.is_empty() {
         emit(app, &r.request_id, "limits", json!(limits));
+    }
+    if !response.status().is_success() {
+        return Err(format!("Provider returned HTTP {} during the agent request. Check the model, endpoint and tool support.",response.status()));
     }
     let mut sse = Sse::default();
     let mut turn = Turn::default();
@@ -1050,6 +1050,14 @@ async fn cli_turn<R: tauri::Runtime>(
                     emit(app, &r.request_id, "delta", json!(delta));
                 }
             }
+        }
+        if value["type"] == "rate_limit_event" && value["rate_limit_info"].is_object() {
+            emit(
+                app,
+                &r.request_id,
+                "limits",
+                value["rate_limit_info"].clone(),
+            );
         }
         if value["type"] == "result" || value["event"] == "result" {
             result = if value["event"] == "result" {

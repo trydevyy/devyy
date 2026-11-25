@@ -19,13 +19,27 @@ export { fileUri } from "./fileUri";
 let state: Record<string, unknown> | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let running = false;
+let inFlight: Promise<unknown> | undefined;
 export function sendExtensionEditorState(value: Record<string, unknown>) {
   state = value;
   clearTimeout(timer);
-  if (native && running)
-    timer = setTimeout(() => {
-      void hostRequest("editorState", state).catch(() => {});
-    }, 50);
+  if (native && running && !inFlight) timer = setTimeout(flushEditorState, 50);
+}
+async function flushEditorState() {
+  const pending = state;
+  if (!running || inFlight || !pending) return;
+  const request = hostRequest("editorState", pending);
+  inFlight = request;
+  try {
+    await request;
+  } catch {
+    // The next editor change or host restart will send a fresh snapshot.
+  } finally {
+    if (inFlight === request) {
+      inFlight = undefined;
+      if (state && state !== pending) sendExtensionEditorState(state);
+    }
+  }
 }
 window.addEventListener("devyy-extension-host-ready", () => {
   running = true;
@@ -33,5 +47,6 @@ window.addEventListener("devyy-extension-host-ready", () => {
 });
 window.addEventListener("devyy-extension-host-reset", () => {
   running = false;
+  inFlight = undefined;
   clearTimeout(timer);
 });

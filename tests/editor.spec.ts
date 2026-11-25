@@ -266,6 +266,12 @@ test("the Linux desktop uses opaque surfaces with saved vibrancy enabled", async
   await expect(
     page.getByRole("slider", { name: "Window transparency" }),
   ).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Interface motion" }).click();
+  const dropdown = page.locator(".devyy-select-popup");
+  await expect(dropdown).toHaveCSS("animation-name", "none");
+  await expect(dropdown).toHaveCSS("backdrop-filter", "none");
+  await page.keyboard.press("Escape");
+
   const transition = await page.evaluate(async () => {
     document.getElementById("settings-tab-editor")!.click();
     const end = performance.now() + 400;

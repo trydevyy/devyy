@@ -156,6 +156,7 @@ export interface AIState {
   accounts: Record<string, Record<string, unknown>>;
   models: Record<string, AIModel[]>;
   choices: Record<string, AIChoice>;
+  verified: Record<string, string>;
   loaded: boolean;
   error: string;
 }
@@ -319,6 +320,60 @@ function savedUsage(): Record<string, AIUsage> {
     return {};
   }
 }
+function savedVerification(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem("devyy.ai.verified") ?? "{}") ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function connectionSignature(provider: AIProvider) {
+  return JSON.stringify([
+    provider.kind,
+    provider.endpoint,
+    provider.executable,
+    provider.args ?? [],
+    !!provider.cliJson,
+    provider.hasKey,
+    provider.kind === "cli" ? provider.model : "",
+  ]);
+}
+
+export function aiProviderReady(provider: AIProvider, state: AIState) {
+  if (provider.enabled === false) return false;
+  const account = state.accounts[provider.id];
+  if (provider.kind === "chatgpt")
+    return !!account?.account && account.planEnabled !== false;
+  if (provider.kind === "claude") return account?.loggedIn === true;
+  if (
+    ["custom", "openai", "anthropic"].includes(provider.kind) &&
+    !provider.hasKey
+  ) {
+    try {
+      if (
+        !["localhost", "127.0.0.1", "[::1]"].includes(
+          new URL(provider.endpoint).hostname,
+        )
+      )
+        return false;
+    } catch {
+      return false;
+    }
+  }
+  return state.verified[provider.id] === connectionSignature(provider);
+}
+
+function setVerified(provider: AIProvider, connected: boolean) {
+  const verified = { ...state.verified };
+  if (connected) verified[provider.id] = connectionSignature(provider);
+  else delete verified[provider.id];
+  update({ verified });
+  try {
+    localStorage.setItem("devyy.ai.verified", JSON.stringify(verified));
+  } catch {}
+}
+
 let state: AIState = {
   providers: initialProviders,
   conversations: [],
@@ -328,6 +383,7 @@ let state: AIState = {
   accounts: {},
   models: {},
   choices: savedChoices(),
+  verified: savedVerification(),
   loaded: false,
   error: "",
 };
@@ -404,6 +460,16 @@ export function loadAI(force = false): Promise<void> {
         loaded: true,
         error: "",
       });
+      if (!force) {
+        await Promise.allSettled(
+          state.providers
+            .filter(
+              (p) =>
+                p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
+            )
+            .map((p) => aiAccount(p.id, "status", crypto.randomUUID())),
+        );
+      }
     } catch (e) {
       update({ loaded: true, error: String(e) });
     }
@@ -435,6 +501,7 @@ export async function saveAIProvider(
     previous?.cliJson !== provider.cliJson ||
     JSON.stringify(previous?.args ?? []) !== JSON.stringify(provider.args ?? [])
   ) {
+    setVerified(provider, false);
     modelVersions.set(provider.id, (modelVersions.get(provider.id) ?? 0) + 1);
     const models = { ...state.models };
     delete models[provider.id];
@@ -459,6 +526,8 @@ export async function saveAIProvider(
 }
 export async function removeAIProvider(providerId: string) {
   await invoke("ai_delete_provider", { providerId });
+  const provider = state.providers.find((p) => p.id === providerId);
+  if (provider) setVerified(provider, false);
   await loadAI(true);
 }
 export function newAIChat(providerId: string): string {
@@ -533,12 +602,18 @@ const modelVersions = new Map<string, number>();
 export async function discoverAIModels(
   providerId: string,
   force = false,
+  confirmedSignIn = false,
 ): Promise<AIModel[]> {
   if (!force && state.models[providerId]) return state.models[providerId];
   if (!native) return [];
   const version = modelVersions.get(providerId) ?? 0;
+  const provider = state.providers.find((p) => p.id === providerId);
   const values = await invoke<(string | AIModel)[]>("ai_models", {
     providerId,
+  }).catch((error) => {
+    if (provider && (modelVersions.get(providerId) ?? 0) === version)
+      setVerified(provider, false);
+    throw error;
   });
   const models = (Array.isArray(values) ? values : [])
     .map((model) =>
@@ -546,6 +621,12 @@ export async function discoverAIModels(
     )
     .filter((model) => model && typeof model.id === "string");
   if ((modelVersions.get(providerId) ?? 0) !== version) return [];
+  if (provider && !["chatgpt", "claude", "codex"].includes(provider.kind)) {
+    const signedIn = ["antigravity", "opencode"].includes(provider.kind)
+      ? confirmedSignIn || aiProviderReady(provider, state)
+      : true;
+    setVerified(provider, models.length > 0 && signedIn);
+  }
   update({ models: { ...state.models, [providerId]: models } });
   return models;
 }
@@ -1085,20 +1166,25 @@ export async function aiAccount(
       inputTokens: 0,
       outputTokens: 0,
     };
+    const changedAccount =
+      action !== "status" ||
+      identity(account) !== identity(state.accounts[providerId]) ||
+      account.loggedIn !== state.accounts[providerId]?.loggedIn;
+    const reported =
+      account.limits && typeof account.limits === "object"
+        ? (account.limits as Record<string, unknown>)
+        : undefined;
     update({
       accounts: { ...state.accounts, [providerId]: account },
       models,
-      ...("limits" in account
+      ...(reported || changedAccount
         ? {
             usage: {
               ...state.usage,
               [providerId]: {
                 ...usage,
-                limits:
-                  account.limits && typeof account.limits === "object"
-                    ? (account.limits as Record<string, unknown>)
-                    : undefined,
-                observedAt: Date.now(),
+                limits: reported,
+                observedAt: reported ? Date.now() : undefined,
               },
             },
           }
@@ -1114,7 +1200,7 @@ export function remainingLimits(
 ): { label: string; remaining: number; resetsAt?: number }[] {
   if (!raw) return [];
   const data = (raw.rateLimits ?? raw) as Record<string, unknown>;
-  return (
+  const windows = (
     [
       ["primary", "Current window"],
       ["secondary", "Weekly window"],
@@ -1133,6 +1219,59 @@ export function remainingLimits(
         remaining: Math.max(0, Math.min(100, 100 - window.usedPercent)),
         resetsAt:
           typeof window.resetsAt === "number" ? window.resetsAt : undefined,
+      },
+    ];
+  });
+  if (windows.length) return windows;
+  if (typeof raw.utilization === "number" && Number.isFinite(raw.utilization)) {
+    return [
+      {
+        label:
+          typeof raw.rateLimitType === "string"
+            ? raw.rateLimitType.replaceAll("_", " ")
+            : "Reported window",
+        remaining: Math.max(0, Math.min(100, (1 - raw.utilization) * 100)),
+        resetsAt: typeof raw.resetsAt === "number" ? raw.resetsAt : undefined,
+      },
+    ];
+  }
+  return [
+    ["x-ratelimit", "requests", "Request rate limit"],
+    ["x-ratelimit", "tokens", "Token rate limit"],
+    ["x-ratelimit", "project-tokens", "Project token rate limit"],
+    ["anthropic-ratelimit", "requests", "Request rate limit"],
+    ["anthropic-ratelimit", "tokens", "Token rate limit"],
+    ["anthropic-ratelimit", "input-tokens", "Input token rate limit"],
+    ["anthropic-ratelimit", "output-tokens", "Output token rate limit"],
+  ].flatMap(([prefix, key, label]) => {
+    const header = (field: string) =>
+      prefix === "anthropic-ratelimit"
+        ? raw[`${prefix}-${key}-${field}`]
+        : raw[`${prefix}-${field}-${key}`];
+    const total = header("limit");
+    const left = header("remaining");
+    if (
+      (typeof total !== "string" && typeof total !== "number") ||
+      (typeof left !== "string" && typeof left !== "number") ||
+      !Number.isFinite(Number(total)) ||
+      Number(total) <= 0 ||
+      !Number.isFinite(Number(left)) ||
+      String(left).trim() === ""
+    )
+      return [];
+    const reset = header("reset");
+    const date =
+      typeof reset === "string" && /^\d{4}-/.test(reset)
+        ? Date.parse(reset)
+        : NaN;
+    return [
+      {
+        label,
+        remaining: Math.max(
+          0,
+          Math.min(100, (Number(left) / Number(total)) * 100),
+        ),
+        ...(Number.isFinite(date) ? { resetsAt: date / 1000 } : {}),
       },
     ];
   });

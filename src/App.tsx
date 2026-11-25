@@ -40,6 +40,7 @@ import {
 } from "./lib/aiContext";
 import {
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -107,6 +108,7 @@ import type { Comparison } from "./components/DiffEditor";
 const GitGraph = lazy(() => import("./components/GitGraph"));
 const DiffEditor = lazy(() => import("./components/DiffEditor"));
 import Editor, { offset, toPosition } from "./components/Editor";
+import ProblemList from "./components/ProblemList";
 import FileTree, { FileIcon } from "./components/FileTree";
 import Setup from "./components/Setup";
 import ExtensionViews from "./components/ExtensionViews";
@@ -128,7 +130,7 @@ import {
   extensionLanguageFeature,
   extensionCommand,
   syncExtensionHost,
-  useExtensionHost,
+  useExtensionHostValue,
   type HostEvent,
 } from "./lib/extensionHost";
 import { initializeExtensions, useExtensions } from "./lib/extensions";
@@ -239,7 +241,8 @@ const initialTab: Tab = {
 export default function App() {
   const confirmAction = useConfirm();
   const installedExtensions = useExtensions();
-  const extensionHost = useExtensionHost();
+  const hostContexts = useExtensionHostValue((state) => state.contexts);
+  const extensionWebviews = useExtensionHostValue((state) => state.webviews);
   const extensionContainers = useMemo(() => {
     const map = new Map<
       string,
@@ -276,11 +279,11 @@ export default function App() {
         (ext) =>
           ext.enabled &&
           ext.contributes.views?.[container.id]?.some((view) =>
-            matchesContext(view.when, extensionHost.contexts),
+            matchesContext(view.when, hostContexts),
           ),
       ),
     );
-  }, [installedExtensions, extensionHost.contexts]);
+  }, [installedExtensions, hostContexts]);
   useEffect(() => {
     const focus = (event: Event) => {
       const message = (
@@ -417,6 +420,52 @@ export default function App() {
     [matches, setMatches] = useState<SearchMatch[]>([]),
     [searching, setSearching] = useState(false);
   const [problems, setProblems] = useState<Problem[]>([]);
+  const pendingProblems = useRef(
+    new Map<
+      string,
+      {
+        path: string;
+        collection?: string;
+        entries: Problem[];
+      }
+    >(),
+  );
+  const problemsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  function queueProblems(
+    path: string,
+    entries: Problem[],
+    collection?: string,
+  ) {
+    const key = path + "\0" + (collection ?? "");
+    pendingProblems.current.set(key, { path, collection, entries });
+    if (problemsTimer.current !== undefined) return;
+    problemsTimer.current = setTimeout(() => {
+      problemsTimer.current = undefined;
+      const pending = pendingProblems.current;
+      pendingProblems.current = new Map();
+      if (!pending.size) return;
+      startTransition(() =>
+        setProblems((old) => [
+          ...old.filter(
+            (problem) =>
+              !pending.has(problem.path + "\0" + (problem.collection ?? "")),
+          ),
+          ...Array.from(pending.values()).flatMap(({ entries }) => entries),
+        ]),
+      );
+    }, 40);
+  }
+  function clearQueuedProblems(
+    match: (path: string, collection?: string) => boolean,
+  ) {
+    for (const [key, entry] of pendingProblems.current)
+      if (match(entry.path, entry.collection))
+        pendingProblems.current.delete(key);
+  }
+  useEffect(() => () => clearTimeout(problemsTimer.current), []);
+
   const [outputEntries, setOutputEntries] = useState<OutputEntry[]>([
     {
       id: "init-output",
@@ -547,6 +596,7 @@ export default function App() {
     );
   const busyRef = useRef(false);
   const workspaceWaiters = useRef<(() => void)[]>([]);
+  const workspaceOpenRequest = useRef(0);
   const terminalGroup = useRef<TerminalsHandle>(null);
   const [terminalToolbar, setTerminalToolbar] = useState<HTMLDivElement | null>(
     null,
@@ -692,7 +742,7 @@ export default function App() {
     source = "Devyy",
     level: "info" | "warn" | "error" | "debug" | "trace" = "info",
   ) {
-    const rawLines = String(text).split(/\r?\n/);
+    const rawLines = String(text).split(/\r?\n/).slice(-500);
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], {
       hour: "2-digit",
@@ -706,7 +756,14 @@ export default function App() {
       text: line,
       level,
     }));
-    setOutputEntries((prev) => [...prev.slice(-499), ...newEntries]);
+    startTransition(() =>
+      setOutputEntries((prev) => {
+        const retained = 500 - newEntries.length;
+        return retained
+          ? [...prev.slice(-retained), ...newEntries]
+          : newEntries;
+      }),
+    );
   }
 
   function log(
@@ -1133,6 +1190,7 @@ export default function App() {
     )
       return false;
     busyRef.current = true;
+    const openRequest = ++workspaceOpenRequest.current;
     setWorkspaceScan(true);
     try {
       const next: Workspace = disconnect
@@ -1168,6 +1226,7 @@ export default function App() {
       ++gitStatusRequest.current;
       gitDrafts.current.clear();
       setCommit("");
+      clearQueuedProblems(() => true);
       setProblems([]);
       setLspStatus({});
       setMatches([]);
@@ -1195,11 +1254,21 @@ export default function App() {
       if (first) await openFile(first.path);
       void invoke<Workspace>("refresh_workspace")
         .then((indexed) => {
-          if (wsRef.current.root !== next.root || indexed.root !== next.root)
+          if (
+            openRequest !== workspaceOpenRequest.current ||
+            wsRef.current.root !== next.root ||
+            indexed.root !== next.root
+          )
             return;
           if (remoteName) indexed.name = remoteName;
-          setWorkspace(indexed);
-          wsRef.current = indexed;
+          startTransition(() =>
+            setWorkspace((current) =>
+              openRequest === workspaceOpenRequest.current &&
+              current.root === next.root
+                ? indexed
+                : current,
+            ),
+          );
         })
         .catch((error) => log(String(error)));
       return true;
@@ -1443,22 +1512,17 @@ export default function App() {
           pathFromUri(String(payload.uri), wsRef.current.root) ??
           tabsRef.current.find((tab) => tab.extensionUri === payload.uri)?.path;
         if (path)
-          setProblems((old) => [
-            ...old.filter(
-              (problem) =>
-                !(
-                  problem.path === path &&
-                  problem.collection === payload.collection
-                ),
-            ),
-            ...(payload.diagnostics as LspDiagnostic[]).map((diagnostic) => ({
+          queueProblems(
+            path,
+            (payload.diagnostics as LspDiagnostic[]).map((diagnostic) => ({
               ...diagnostic,
               severity:
                 diagnostic.severity === undefined ? 1 : diagnostic.severity + 1,
               path,
               collection: String(payload.collection),
             })),
-          ]);
+            String(payload.collection),
+          );
       }
       if (
         message.event === "webview" &&
@@ -1511,6 +1575,7 @@ export default function App() {
       setTabs(remaining);
       if (activeRef.current.startsWith("devyy:webview:"))
         setActive(remaining.at(-1)?.path ?? "");
+      clearQueuedProblems((_path, collection) => !!collection);
       setProblems((old) => old.filter((problem) => !problem.collection));
       setComparison((document) =>
         document?.source === "extension" ? null : document,
@@ -2060,9 +2125,19 @@ export default function App() {
       }),
     [],
   );
+  const previousDiagnostics = useRef<Record<string, LspDiagnostic[]>>({});
   const diagnosticsByPath = useMemo(() => {
     const map: Record<string, LspDiagnostic[]> = {};
     for (const p of problems) (map[p.path] ??= []).push(p);
+    for (const [path, entries] of Object.entries(map)) {
+      const previous = previousDiagnostics.current[path];
+      if (
+        previous?.length === entries.length &&
+        previous.every((item, index) => item === entries[index])
+      )
+        map[path] = previous;
+    }
+    previousDiagnostics.current = map;
     return map;
   }, [problems]);
   useEffect(() => {
@@ -2138,6 +2213,10 @@ export default function App() {
           };
         },
       });
+    return registerAIContext("workbench-files", sources);
+  }, [workspace.root, workspace.files, tabs.length]);
+  useEffect(() => {
+    const sources: AIContextSource[] = [];
     sources.push({
       kind: "selection",
       id: "editor-selection",
@@ -2200,6 +2279,10 @@ export default function App() {
           content: problemText(problem),
         }),
       });
+    return registerAIContext("workbench-diagnostics", sources);
+  }, [active, problems]);
+  useEffect(() => {
+    const sources: AIContextSource[] = [];
     sources.push({
       kind: "output",
       id: "workbench-output",
@@ -2225,15 +2308,7 @@ export default function App() {
         }),
       });
     return registerAIContext("workbench", sources);
-  }, [
-    workspace.root,
-    workspace.files,
-    tabs.length,
-    active,
-    problems,
-    output,
-    comparison,
-  ]);
+  }, [output, comparison]);
   async function save(path = activeRef.current): Promise<boolean> {
     if (busyRef.current) return false;
     const previous = saveQueue.current.get(path);
@@ -2342,6 +2417,7 @@ export default function App() {
       void hostRequest("closeWebview", { id: target.webviewId }).catch(notify);
     if (!target?.webviewId && !target?.previewKind && path !== "devyy:settings")
       void closeDocument(path).catch(() => {});
+    clearQueuedProblems((queuedPath) => queuedPath === path);
     setProblems((old) => old.filter((p) => p.path !== path));
     return true;
   }
@@ -2467,6 +2543,7 @@ export default function App() {
         Object.entries(old).map(([path, lines]) => [replace(path), lines]),
       ),
     );
+    clearQueuedProblems(() => true);
     setProblems([]);
     if (workspace.root === "demo") {
       setDemo((d) =>
@@ -2545,6 +2622,7 @@ export default function App() {
           groups,
         ),
       );
+      clearQueuedProblems(contains);
       setProblems((old) => old.filter((problem) => !contains(problem.path)));
       setMarkdownModes((old) =>
         Object.fromEntries(
@@ -2619,6 +2697,7 @@ export default function App() {
           groups,
         ),
       );
+      clearQueuedProblems(containsAny);
       setProblems((old) => old.filter((problem) => !containsAny(problem.path)));
       setMarkdownModes((old) =>
         Object.fromEntries(
@@ -2662,10 +2741,10 @@ export default function App() {
     void listen<DiagnosticEvent>("lsp-diagnostics", ({ payload }) => {
       const path = pathFromUri(payload.params.uri, wsRef.current.root);
       if (path)
-        setProblems((old) => [
-          ...old.filter((d) => d.path !== path || d.collection),
-          ...payload.params.diagnostics.map((d) => ({ ...d, path })),
-        ]);
+        queueProblems(
+          path,
+          payload.params.diagnostics.map((d) => ({ ...d, path })),
+        );
     }).then((fn) => {
       if (disposed) fn();
       else unlisten = fn;
@@ -3592,19 +3671,45 @@ export default function App() {
     help: () => setHelp(true),
     reload: () => window.location.reload(),
   };
-  const extensionContexts = {
-    ...extensionHost.contexts,
-    ...resourceContext(
-      fileUri(
-        `${workspace.root === "demo" ? "/demo" : workspace.root}/${active}`,
+  const editorIsOpen = !!tab;
+  const editorHasSelection =
+    !!currentView.current && !currentView.current.state.selection.main.empty;
+  const extensionContexts = useMemo(
+    () => ({
+      ...hostContexts,
+      ...resourceContext(
+        fileUri(
+          `${workspace.root === "demo" ? "/demo" : workspace.root}/${active}`,
+        ),
+        language(active),
       ),
-      language(active),
-    ),
-    workspaceFolderCount: workspace.root === "demo" ? 0 : 1,
-    editorIsOpen: !!tab,
-    editorHasSelection:
-      !!currentView.current && !currentView.current.state.selection.main.empty,
-  };
+      workspaceFolderCount: workspace.root === "demo" ? 0 : 1,
+      editorIsOpen,
+      editorHasSelection,
+    }),
+    [hostContexts, workspace.root, active, editorIsOpen, editorHasSelection],
+  );
+  const extensionCommands = useMemo(() => {
+    const commands: PaletteItem[] = [];
+    for (const extension of installedExtensions) {
+      if (!extension.enabled) continue;
+      for (const item of extension.contributes.commands ?? []) {
+        if (
+          !matchesContext(item.enablement, extensionContexts) ||
+          !commandPaletteVisible(extension, item.command, extensionContexts)
+        )
+          continue;
+        commands.push({
+          id: item.command,
+          label: item.category ? `${item.category}: ${item.title}` : item.title,
+          detail: extension.name,
+          extension: { id: extension.id, icon: extension.icon },
+          run: () => void extensionCommand(item.command).catch(notify),
+        });
+      }
+    }
+    return commands;
+  }, [installedExtensions, extensionContexts]);
   const commands: PaletteItem[] = commandInfo.map(([id, label, detail]) => ({
     id,
     label,
@@ -3612,32 +3717,18 @@ export default function App() {
     shortcut: displayBinding(bindings[id]),
     run: commandActions[id],
   }));
-  for (const extension of installedExtensions.filter((e) => e.enabled))
-    for (const item of (extension.contributes.commands ?? []).filter(
-      (item) =>
-        matchesContext(item.enablement, extensionContexts) &&
-        commandPaletteVisible(extension, item.command, extensionContexts),
-    ))
-      commands.push({
-        id: item.command,
-        label: item.category ? `${item.category}: ${item.title}` : item.title,
-        detail: extension.name,
-        extension: { id: extension.id, icon: extension.icon },
-        run: () => {
-          void extensionCommand(item.command).catch(notify);
-        },
-      });
+  commands.push(...extensionCommands);
   commandRef.current = commands;
   const shortcutData = useRef({
     installedExtensions,
-    contexts: extensionHost.contexts,
+    contexts: hostContexts,
     active,
     root: workspace.root,
     overrides: settings.bindings,
   });
   shortcutData.current = {
     installedExtensions,
-    contexts: extensionHost.contexts,
+    contexts: hostContexts,
     active,
     root: workspace.root,
     overrides: settings.bindings,
@@ -3968,7 +4059,7 @@ export default function App() {
       `${workspace.root === "demo" ? "/demo" : workspace.root}/${path}`,
     );
     const context = {
-      ...extensionHost.contexts,
+      ...hostContexts,
       ...resourceContext(uri, language(path), folder),
       editorHasSelection:
         !!currentView.current &&
@@ -4268,8 +4359,8 @@ export default function App() {
   );
   function tabTitle(t: Tab) {
     return t.webviewId
-      ? (extensionHost.webviews.find((view) => view.id === t.webviewId)
-          ?.title ?? "Extension")
+      ? (extensionWebviews.find((view) => view.id === t.webviewId)?.title ??
+          "Extension")
       : t.path === "devyy:settings"
         ? "Settings"
         : filename(t.path);
@@ -5980,91 +6071,95 @@ export default function App() {
                 aria-labelledby="panel-tab-problems"
               >
                 {problems.length ? (
-                  <div className="problems-list">
-                    {problems.map((p, i) => (
-                      <button
-                        key={`${p.path}:${i}`}
-                        draggable
-                        onDragStart={(event) =>
-                          writeAIContextDrag(event.dataTransfer, [
-                            { kind: "problem", id: `${p.path}:${i}` },
-                          ])
-                        }
-                        onClick={() =>
-                          void openFile(p.path, p.range.start.line + 1)
-                        }
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          openMenu(e, [
-                            {
-                              label: "Explain with Devyy AI",
-                              action: () => {
-                                window.dispatchEvent(
-                                  new CustomEvent("devyy-ai-open", {
-                                    detail: {
-                                      draft: `Explain this diagnostic in ${filename(p.path)}: "${p.message}" (line ${p.range.start.line + 1})`,
-                                      refs: [
-                                        {
-                                          kind: "problem",
-                                          id: `${p.path}:${i}`,
-                                        },
-                                      ],
-                                    },
-                                  }),
-                                );
+                  panelTab === "problems" &&
+                  panel && (
+                    <ProblemList
+                      problems={problems}
+                      renderRow={(p, i) => (
+                        <button
+                          key={`${p.path}:${i}`}
+                          draggable
+                          onDragStart={(event) =>
+                            writeAIContextDrag(event.dataTransfer, [
+                              { kind: "problem", id: `${p.path}:${i}` },
+                            ])
+                          }
+                          onClick={() =>
+                            void openFile(p.path, p.range.start.line + 1)
+                          }
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            openMenu(e, [
+                              {
+                                label: "Explain with Devyy AI",
+                                action: () => {
+                                  window.dispatchEvent(
+                                    new CustomEvent("devyy-ai-open", {
+                                      detail: {
+                                        draft: `Explain this diagnostic in ${filename(p.path)}: "${p.message}" (line ${p.range.start.line + 1})`,
+                                        refs: [
+                                          {
+                                            kind: "problem",
+                                            id: `${p.path}:${i}`,
+                                          },
+                                        ],
+                                      },
+                                    }),
+                                  );
+                                },
                               },
-                            },
-                            {
-                              label: "Fix with Devyy AI",
-                              action: () => {
-                                window.dispatchEvent(
-                                  new CustomEvent("devyy-ai-open", {
-                                    detail: {
-                                      draft: `Fix this issue in ${filename(p.path)} at line ${p.range.start.line + 1}: "${p.message}"`,
-                                      refs: [
-                                        {
-                                          kind: "problem",
-                                          id: `${p.path}:${i}`,
-                                        },
-                                      ],
-                                    },
-                                  }),
-                                );
+                              {
+                                label: "Fix with Devyy AI",
+                                action: () => {
+                                  window.dispatchEvent(
+                                    new CustomEvent("devyy-ai-open", {
+                                      detail: {
+                                        draft: `Fix this issue in ${filename(p.path)} at line ${p.range.start.line + 1}: "${p.message}"`,
+                                        refs: [
+                                          {
+                                            kind: "problem",
+                                            id: `${p.path}:${i}`,
+                                          },
+                                        ],
+                                      },
+                                    }),
+                                  );
+                                },
                               },
-                            },
-                            {
-                              label: "Go to Problem",
-                              separator: true,
-                              action: () =>
-                                void openFile(p.path, p.range.start.line + 1),
-                            },
-                            {
-                              label: "Copy Problem Message",
-                              action: () =>
-                                void writeClipboardText(p.message).catch(
-                                  notify,
-                                ),
-                            },
-                            {
-                              label: "Copy Path",
-                              action: () =>
-                                void writeClipboardText(p.path).catch(notify),
-                            },
-                          ]);
-                        }}
-                      >
-                        {p.severity === 1 ? (
-                          <CircleX size={14} />
-                        ) : (
-                          <CircleAlert size={14} />
-                        )}
-                        <span>{p.message}</span>
-                        <small>
-                          {p.path}:{p.range.start.line + 1}
-                        </small>
-                      </button>
-                    ))}
-                  </div>
+                              {
+                                label: "Go to Problem",
+                                separator: true,
+                                action: () =>
+                                  void openFile(p.path, p.range.start.line + 1),
+                              },
+                              {
+                                label: "Copy Problem Message",
+                                action: () =>
+                                  void writeClipboardText(p.message).catch(
+                                    notify,
+                                  ),
+                              },
+                              {
+                                label: "Copy Path",
+                                action: () =>
+                                  void writeClipboardText(p.path).catch(notify),
+                              },
+                            ]);
+                          }}
+                        >
+                          {p.severity === 1 ? (
+                            <CircleX size={14} />
+                          ) : (
+                            <CircleAlert size={14} />
+                          )}
+                          <span title={p.message}>{p.message}</span>
+                          <small>
+                            {p.path}:{p.range.start.line + 1}
+                          </small>
+                        </button>
+                      )}
+                    />
+                  )
                 ) : (
                   <div className="panel-empty">
                     <span className="success-circle">

@@ -44,6 +44,7 @@ import {
   Bookmark,
 } from "lucide-react";
 import {
+  aiProviderReady,
   chooseAIModel,
   deleteAIChat,
   editAIMessage,
@@ -150,7 +151,12 @@ export default function AIChatPanel({
     previewRef = useRef<HTMLDivElement>(null);
   const chat = ai.conversations.find((c) => c.id === ai.selected),
     running = !!(chat && ai.active[chat.id]);
-  const chosen = chat?.providerId ?? providerId,
+  const readyProviders = ai.providers.filter((p) => aiProviderReady(p, ai));
+  const chosen =
+      chat?.providerId ??
+      (readyProviders.some((p) => p.id === providerId)
+        ? providerId
+        : (readyProviders[0]?.id ?? providerId)),
     provider = ai.providers.find((p) => p.id === chosen);
   const choice = {
     model: chat?.model ?? ai.choices[chosen]?.model ?? provider?.model ?? "",
@@ -370,8 +376,8 @@ export default function AIChatPanel({
       setError("");
       return;
     }
-    if (!provider || provider.enabled === false) {
-      setError("Choose a model from an enabled provider.");
+    if (!provider || !aiProviderReady(provider, ai)) {
+      setError("Connect an AI provider in Settings before sending a message.");
       return;
     }
     if (!native) {

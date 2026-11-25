@@ -199,19 +199,23 @@ pub async fn lsp_start<R: tauri::Runtime>(
             let app = reader_app;
             let lang = reader_lang;
             let read_messages = || {
-            let mut reader = BufReader::new(stdout);
+            let mut reader = BufReader::with_capacity(64 * 1024, stdout);
+            let mut line = String::new();
+            let mut body = Vec::new();
             loop {
                 let mut size = 0usize;
                 loop {
-                    let mut line = String::new();
+                    line.clear();
                     if reader.read_line(&mut line).unwrap_or(0) == 0 { return; }
                     if line == "\r\n" || line == "\n" { break; }
-                    if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length:") { size = length.trim().parse().unwrap_or(0); }
+                    if let Some((header, length)) = line.split_once(':') {
+                        if header.eq_ignore_ascii_case("content-length") { size = length.trim().parse().unwrap_or(0); }
+                    }
                 }
                 if size == 0 || size > 16_000_000 { return; }
-                let mut body = vec![0; size];
+                body.resize(size, 0);
                 if reader.read_exact(&mut body).is_err() { return; }
-                let Ok(message) = serde_json::from_slice::<Value>(&body) else { continue };
+                let Ok(mut message) = serde_json::from_slice::<Value>(&body) else { continue };
                 if message.get("method").is_some() && message.get("id").is_some() {
                     let result = if message["method"] == "workspace/configuration" {
                         Value::Array(message["params"]["items"].as_array().map(|items| items.iter().map(|item| { let section=item["section"].as_str().unwrap_or(""); if section.is_empty() {configuration.clone()} else {section.split('.').fold(&configuration,|value,key| &value[key]).clone()} }).collect()).unwrap_or_default())
@@ -223,7 +227,7 @@ pub async fn lsp_start<R: tauri::Runtime>(
                 } else if let Some(id) = message["id"].as_u64() {
                     if let Ok(mut map) = responses.lock() { if let Some(tx) = map.remove(&id) { let _ = tx.send(message); } }
                 } else if message["method"] == "textDocument/publishDiagnostics" {
-                    let _ = app.emit("lsp-diagnostics", LspEvent { language: lang.clone(), params: message["params"].clone() });
+                    let _ = app.emit("lsp-diagnostics", LspEvent { language: lang.clone(), params: message["params"].take() });
                 } else if message.get("method").is_some() {
                     if message["method"] == "window/logMessage" {
                         if let Some(text) = message["params"]["message"].as_str() {

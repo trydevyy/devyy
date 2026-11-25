@@ -108,16 +108,21 @@ function publish() {
   snapshot = { ...snapshot, revision: snapshot.revision + 1 };
   subscribers.forEach((fn) => fn());
 }
+function subscribeSnapshot(fn: () => void) {
+  subscribers.add(fn);
+  return () => {
+    subscribers.delete(fn);
+  };
+}
+
 export function useExtensionHost() {
-  return useSyncExternalStore(
-    (fn) => {
-      subscribers.add(fn);
-      return () => {
-        subscribers.delete(fn);
-      };
-    },
-    () => snapshot,
-  );
+  return useSyncExternalStore(subscribeSnapshot, () => snapshot);
+}
+
+export function useExtensionHostValue<T>(
+  select: (state: typeof snapshot) => T,
+) {
+  return useSyncExternalStore(subscribeSnapshot, () => select(snapshot));
 }
 export function hostRequest<T = unknown>(
   method: string,
@@ -210,6 +215,22 @@ async function subscribe() {
             snapshot.statusMessageKind = "info";
             publish();
           }
+        }
+        if (
+          !started &&
+          !allExtensions().some((entry) => entry.enabled && entry.hasRuntime)
+        ) {
+          if (p.id !== undefined)
+            void invoke("lsp_respond", {
+              language: p.language,
+              id: p.id,
+              result: null,
+              error: {
+                code: -32601,
+                message: "No extension handles this request",
+              },
+            }).catch(() => {});
+          return;
         }
         void hostRequest("languageServerMessage", {
           ...p,
@@ -336,8 +357,11 @@ async function subscribe() {
           };
         publish();
       } else if (message.event === "context") {
-        snapshot.contexts = { ...snapshot.contexts, [String(p.key)]: p.value };
-        publish();
+        const key = String(p.key);
+        if (!Object.is(snapshot.contexts[key], p.value)) {
+          snapshot.contexts = { ...snapshot.contexts, [key]: p.value };
+          publish();
+        }
       } else if (message.event === "webview") {
         snapshot.webviews = [
           ...snapshot.webviews.filter((v) => v.id !== p.id),

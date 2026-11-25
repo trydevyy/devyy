@@ -184,6 +184,20 @@ async function nativeFixture(page: Page, dependencies = true) {
           enabled: true,
         },
       ];
+      localStorage.setItem(
+        "devyy.ai.verified",
+        JSON.stringify({
+          fixture: JSON.stringify([
+            "custom",
+            providers[0].endpoint,
+            "",
+            [],
+            false,
+            false,
+            "",
+          ]),
+        }),
+      );
       let connected = false;
       let complete: ((value: unknown) => void) | undefined;
       const account = {

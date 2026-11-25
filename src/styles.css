@@ -8804,16 +8804,16 @@ body {
   gap: 6px;
 }
 /* Provider master/detail configuration. */
-.settings-ai {
+:is(.settings-modal, .settings-view-embedded):has(.settings-inner-ai) {
   width: min(1200px, calc(100vw - 56px));
 }
-.settings-ai .settings-scroll {
+.settings-scroll:has(> .settings-inner-ai) {
   padding: 16px 20px 20px;
   overflow: hidden;
   align-content: stretch;
   grid-template-rows: minmax(0, 1fr);
 }
-.settings-ai .settings-inner {
+.settings-inner.settings-inner-ai {
   max-width: none;
   flex: 1;
   min-height: 0;
@@ -9485,7 +9485,8 @@ body {
   }
 }
 
-.settings-ai .settings-footer {
+:is(.settings-modal, .settings-view-embedded):has(.settings-inner-ai)
+  .settings-footer {
   display: none;
 }
 
@@ -10003,9 +10004,6 @@ body {
   gap: 8px 12px;
   margin: 0 0 12px;
   overflow-wrap: anywhere;
-}
-.ai-provider-detail-scroll > .ai-provider-section:first-child {
-  padding-top: 0;
 }
 .ai-provider-section {
   padding: 20px 0;
@@ -15309,4 +15307,152 @@ button[aria-busy="true"]::after {
   .editor-skeleton > span {
     animation: none;
   }
+}
+
+/* Provider connections use the same surfaces in Settings and first-run setup. */
+.settings-modal {
+  transition: width var(--enter-duration) var(--ease);
+}
+.ai-provider-settings {
+  container: providers / inline-size;
+  min-width: 0;
+}
+.ai-providers-toolbar {
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.ai-provider-workspace {
+  gap: 14px;
+}
+.ai-provider-list {
+  width: clamp(146px, 26cqi, 190px);
+}
+.ai-provider-list [role="tab"] {
+  padding: 10px 8px;
+}
+.ai-provider-details {
+  background: var(--paper);
+}
+.ai-provider-detail-scroll > .ai-provider-section {
+  padding: 14px;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--shell);
+}
+.ai-provider-detail > footer {
+  flex-wrap: wrap;
+}
+.provider-sign-in-session {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(920px, calc(100vw - 32px));
+  height: min(710px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  padding: clamp(12px, 3vw, 24px);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.provider-sign-in-session[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.provider-sign-in-session::backdrop {
+  background: #0009;
+}
+.provider-sign-in-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.provider-sign-in-terminal {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.provider-sign-in-session > .setting-action {
+  align-self: flex-end;
+}
+@container providers (max-width: 620px) {
+  .ai-provider-workspace {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ai-provider-list {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 6px;
+    overflow: visible;
+  }
+  .ai-provider-list [role="tablist"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 115px), 1fr));
+    min-width: 0;
+    max-height: min(172px, 24dvh);
+    overflow: auto;
+  }
+  .ai-provider-list [role="tablist"] > div {
+    min-width: 0;
+    padding-right: 5px;
+  }
+  .ai-provider-list [role="tab"] {
+    padding: 5px;
+    min-width: 0;
+  }
+  .ai-provider-list .ai-add-provider {
+    margin: 0;
+  }
+  .ai-provider-detail-scroll {
+    padding: 10px;
+  }
+  .ai-provider-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+}
+
+.ai-provider-detail-scroll > .ai-provider-section > h4 {
+  margin-top: 0;
+}
+.ai-provider-account-row {
+  flex-wrap: wrap;
+}
+:root[data-runtime="native"][data-platform="linux"]
+  :is(
+    .devyy-select-popup,
+    .devyy-color-popup,
+    .devyy-suggestions,
+    .header-popover-content,
+    .context-menu,
+    .ai-popover
+  ) {
+  animation: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--surface);
+}
+
+.problems-window {
+  overflow-anchor: none;
+}
+.problems-window > button {
+  height: var(--problem-row-height);
+  overflow: hidden;
+}
+.problems-window > button > span,
+.problems-window > button > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problems-window > button > small {
+  max-width: 42%;
 }

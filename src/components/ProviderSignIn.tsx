@@ -16,7 +16,7 @@
 import { readClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useMemo, useRef, useState } from "react";
-import { Clipboard, ExternalLink } from "lucide-react";
+import { Clipboard, ExternalLink, X } from "lucide-react";
 import Terminal, { type TerminalHandle } from "./Terminal";
 import type { AIProvider } from "../lib/ai";
 
@@ -34,6 +34,7 @@ export default function ProviderSignIn({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [exited, setExited] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
   const terminalRef = useRef<TerminalHandle>(null);
   const google = provider.kind === "antigravity";
   const options = useMemo(
@@ -74,6 +75,7 @@ export default function ProviderSignIn({
           onClick={() => {
             setError("");
             setExited(false);
+            setSucceeded(false);
             setOpen(true);
           }}
         >
@@ -82,14 +84,35 @@ export default function ProviderSignIn({
         </button>
       </div>
       {open && (
-        <section
+        <dialog
           className="provider-sign-in-session"
+          data-escape-scope="active"
           aria-label={`${provider.name} sign-in`}
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={(event) => {
+            event.preventDefault();
+            setOpen(false);
+          }}
         >
+          <header className="provider-sign-in-header">
+            <h3>{provider.name} sign-in</h3>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Cancel sign-in"
+              onClick={() => setOpen(false)}
+            >
+              <X size={16} />
+            </button>
+          </header>
           <div className="provider-sign-in-header">
             <p>
               {exited
-                ? "Sign-in session closed. Select Load models to check the connection."
+                ? succeeded
+                  ? "Sign-in finished. Select Done to verify the connection."
+                  : "Sign-in ended without a successful result."
                 : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
             </p>
             {!exited && (
@@ -119,7 +142,10 @@ export default function ProviderSignIn({
               cursorStyle="bar"
               copyOnSelect={false}
               onReady={() => {}}
-              onExit={() => setExited(true)}
+              onExit={(success) => {
+                setExited(true);
+                setSucceeded(success === true);
+              }}
               onError={(e) => setError(String(e))}
               onOpen={() => {}}
               theme={
@@ -136,14 +162,15 @@ export default function ProviderSignIn({
             className="setting-action"
             onClick={() => {
               setOpen(false);
-              onDone();
+              if (succeeded) onDone();
             }}
           >
             {exited ? "Done" : "Close sign-in session"}
           </button>
-        </section>
+          {error && <ErrorToast message={error} />}
+        </dialog>
       )}
-      {error && <ErrorToast message={error} />}
+      {!open && error && <ErrorToast message={error} />}
     </div>
   );
 }

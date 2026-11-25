@@ -238,7 +238,25 @@ fn create_session<R: tauri::Runtime>(
                 }
             }
         }
-        let _ = events.emit("terminal-exit", id);
+        // The PTY can reach EOF just before the child reports its exit status.
+        let mut success = None;
+        for _ in 0..20 {
+            let status = events
+                .state::<Terminals>()
+                .sessions
+                .lock()
+                .ok()
+                .and_then(|mut sessions| sessions.get_mut(&id)?.child.try_wait().ok().flatten());
+            if let Some(status) = status {
+                success = Some(status.success());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = events.emit(
+            "terminal-exit",
+            serde_json::json!({ "id": id, "success": success }),
+        );
     });
     Ok(id)
 }

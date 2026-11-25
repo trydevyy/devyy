@@ -117,6 +117,27 @@ describe("AI provider usage", () => {
     );
     expect(remainingLimits()).toEqual([]);
   });
+  it("reads OpenAI-compatible and Anthropic request limits and Claude Code utilization", () => {
+    expect(
+      remainingLimits({
+        "x-ratelimit-limit-tokens": "1000",
+        "x-ratelimit-remaining-tokens": "500",
+        "anthropic-ratelimit-requests-limit": "40",
+        "anthropic-ratelimit-requests-remaining": "10",
+        "anthropic-ratelimit-requests-reset": "2027-01-15T00:00:00Z",
+      }),
+    ).toEqual([
+      { label: "Token rate limit", remaining: 50 },
+      {
+        label: "Request rate limit",
+        remaining: 25,
+        resetsAt: Date.parse("2027-01-15T00:00:00Z") / 1000,
+      },
+    ]);
+    expect(
+      remainingLimits({ rateLimitType: "five_hour", utilization: 0.5 }),
+    ).toEqual([{ label: "five hour", remaining: 50, resetsAt: undefined }]);
+  });
   it("routes the actual AI publishers while leaving unrelated extension panels alone", () => {
     expect(isAIExtension("OpenAI.ChatGPT")).toBe(true);
     expect(isAIExtension("anthropic.claude-code")).toBe(true);

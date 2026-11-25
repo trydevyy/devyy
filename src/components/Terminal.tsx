@@ -63,7 +63,7 @@ export default forwardRef<
     cursorStyle: "block" | "bar" | "underline";
     copyOnSelect: boolean;
     onReady: (id: number | null) => void;
-    onExit?: () => void;
+    onExit?: (success?: boolean) => void;
     onError: (error: unknown) => void;
     onOpen: () => void;
     theme: "paper" | "midnight" | "monochrome";
@@ -187,6 +187,15 @@ export default forwardRef<
     let id: number | null = null,
       disposed = false;
     const queued = new Map<number, number[][]>();
+    const earlyExits = new Map<number, boolean | undefined>();
+    const finish = (success?: boolean) => {
+      setExited(true);
+      callback.current.onReady(null);
+      callback.current.onExit?.(success);
+      term.write(
+        "\r\n\x1b[90mSession ended. Use restart for a new shell.\x1b[0m\r\n",
+      );
+    };
     const cleanup: (() => void)[] = [];
     const drainListeners = () => cleanup.splice(0).forEach((fn) => fn());
     const init = async () => {
@@ -205,16 +214,18 @@ export default forwardRef<
         ),
       );
       cleanup.push(
-        await listen<number>("terminal-exit", ({ payload }) => {
-          if (!disposed && payload === id) {
-            setExited(true);
-            callback.current.onReady(null);
-            callback.current.onExit?.();
-            term.write(
-              "\r\n\x1b[90mSession ended. Use restart for a new shell.\x1b[0m\r\n",
-            );
-          }
-        }),
+        await listen<number | { id: number; success?: boolean }>(
+          "terminal-exit",
+          ({ payload }) => {
+            const terminalId =
+              typeof payload === "number" ? payload : payload.id;
+            if (disposed) return;
+            const success =
+              typeof payload === "number" ? undefined : payload.success;
+            if (terminalId === id) finish(success);
+            else if (id === null) earlyExits.set(terminalId, success);
+          },
+        ),
       );
       if (disposed) {
         drainListeners();
@@ -232,7 +243,9 @@ export default forwardRef<
       }
       for (const data of queued.get(id) ?? []) term.write(new Uint8Array(data));
       queued.clear();
-      callback.current.onReady(id);
+      if (earlyExits.has(id)) finish(earlyExits.get(id));
+      else callback.current.onReady(id);
+      earlyExits.clear();
     };
     void init().catch((e) => {
       drainListeners();

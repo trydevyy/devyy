@@ -14,7 +14,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { motion, useIsPresent } from "motion/react";
-import { useSurfaceMotion } from "../lib/motion";
+import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
+import { nativeLinux } from "../lib/native";
 import {
   useEffect,
   useLayoutEffect,
@@ -53,10 +54,15 @@ export default function AIPopover({
       if (!rect || !panel) return;
       const w = Math.min(width, innerWidth - 24),
         h = Math.min(panel.scrollHeight, innerHeight - 32);
-      setPosition({
+      const next = {
         left: Math.max(12, Math.min(innerWidth - w - 12, rect.right - w)),
         top: Math.max(12, Math.min(innerHeight - h - 12, rect.top - h - 8)),
-      });
+      };
+      setPosition((current) =>
+        current?.left === next.left && current.top === next.top
+          ? current
+          : next,
+      );
     };
     place();
     const observer = new ResizeObserver(place);
@@ -114,7 +120,8 @@ export default function AIPopover({
   }, [anchor, present, positioned]);
   return createPortal(
     <motion.div
-      layout={position !== null}
+      layout={positioned && !nativeLinux}
+      onUpdate={modalFrameUpdate}
       transition={transition}
       initial={{ opacity: 0, scale: instant ? 1 : 0.97, y: instant ? 0 : 5 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}

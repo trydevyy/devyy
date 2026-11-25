@@ -925,10 +925,6 @@ async fn consume<R: tauri::Runtime>(
     r: &ChatRequest,
     mut response: reqwest::Response,
 ) -> Result<(), String> {
-    if !response.status().is_success() {
-        let code = response.status().as_u16();
-        return Err(api_error(&read_json(response).await?, code));
-    }
     let mut sse = Sse::default();
     let limits: serde_json::Map<String, Value> = response
         .headers()
@@ -943,6 +939,10 @@ async fn consume<R: tauri::Runtime>(
         .collect();
     if !limits.is_empty() {
         emit(app, &r.request_id, "limits", json!(limits));
+    }
+    if !response.status().is_success() {
+        let code = response.status().as_u16();
+        return Err(api_error(&read_json(response).await?, code));
     }
     let mut total = 0;
     while let Some(chunk) = response

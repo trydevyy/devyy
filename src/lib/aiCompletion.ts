@@ -19,6 +19,7 @@ import type {
   CompletionResult,
 } from "@codemirror/autocomplete";
 import {
+  aiProviderReady,
   aiSnapshot,
   discoverAIModels,
   loadAI,
@@ -70,7 +71,7 @@ async function resolveProvider(
   const candidates = state.providers
     .filter(
       (p) =>
-        p.enabled !== false &&
+        aiProviderReady(p, state) &&
         (!settings.aiCompletionProvider ||
           p.id === settings.aiCompletionProvider),
     )

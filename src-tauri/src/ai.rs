@@ -402,6 +402,7 @@ pub async fn ai_runtime(
     state: State<'_, AiState>,
     provider_id: String,
     executable: Option<String>,
+    probe_only: Option<bool>,
 ) -> Result<Value, String> {
     let mut p = provider(&app, &state, &provider_id)?;
     if let Some(executable) = executable {
@@ -430,6 +431,9 @@ pub async fn ai_runtime(
         .get_program()
         .to_string_lossy()
         .into_owned();
+    if probe_only == Some(true) || p.kind == "antigravity" {
+        return Ok(json!({"executable": program}));
+    }
     let child = command
         .arg("--version")
         .stderr(Stdio::piped())
@@ -1063,13 +1067,6 @@ async fn http_chat<R: tauri::Runtime>(
             }
         )
     })?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "{} returned HTTP {}. Check your key, model, endpoint, and account limits.",
-            p.name,
-            response.status()
-        ));
-    }
     let limits: serde_json::Map<String, Value> = response
         .headers()
         .iter()
@@ -1081,6 +1078,13 @@ async fn http_chat<R: tauri::Runtime>(
         .collect();
     if !limits.is_empty() {
         emit(app, &r.request_id, "limits", json!(limits));
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "{} returned HTTP {}. Check your key, model, endpoint, and account limits.",
+            p.name,
+            response.status()
+        ));
     }
     let mut sse = Sse::default();
     let mut total = 0;
@@ -1909,6 +1913,8 @@ pub async fn ai_models(
         return chatgpt::models(&app, &state).await;
     }
     if p.kind == "cli" {
+        crate::process::executable(&p.executable)
+            .ok_or("CLI executable not found. Choose its full path or add it to PATH.")?;
         return Ok(if p.model.is_empty() {
             vec![]
         } else {

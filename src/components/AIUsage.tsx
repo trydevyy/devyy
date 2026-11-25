@@ -207,13 +207,18 @@ export default function AIUsage({
               {tab === "limits" ? (
                 <>
                   {limits.length ? (
-                    limits.map((limit) => (
-                      <div className="ai-quota-card" key={limit.label}>
+                    limits.map((limit, index) => (
+                      <div
+                        className="ai-quota-card"
+                        key={`${limit.label}:${index}`}
+                      >
                         <div>
                           <span>
                             {limit.label === "Weekly window"
                               ? "Weekly"
-                              : "Session"}
+                              : limit.label === "Current window"
+                                ? "Session"
+                                : limit.label}
                           </span>
                           <strong>
                             {Math.round(limit.remaining)}% <small>left</small>
@@ -222,7 +227,7 @@ export default function AIUsage({
                         <div
                           className="ai-quota-track"
                           role="meter"
-                          aria-label={`${provider.name} ${limit.label === "Weekly window" ? "weekly" : "session"} remaining`}
+                          aria-label={`${provider.name} ${limit.label === "Weekly window" ? "weekly" : limit.label === "Current window" ? "session" : limit.label} remaining`}
                           aria-valuemin={0}
                           aria-valuemax={100}
                           aria-valuenow={limit.remaining}
@@ -241,15 +246,52 @@ export default function AIUsage({
                     ))
                   ) : (
                     <div className="ai-quota-unavailable">
-                      <strong>Unavailable</strong>
+                      <strong>
+                        {provider.kind === "chatgpt"
+                          ? "ChatGPT plan usage"
+                          : "No reported limits"}
+                      </strong>
                       <span>
                         {provider.kind === "claude"
                           ? "Remaining quota isn’t reported by Claude Code"
                           : ["chatgpt"].includes(provider.kind)
-                            ? "Remaining plan quota isn’t reported to Devyy. View it in ChatGPT."
+                            ? "Review your remaining allowance, app limits, and credits in ChatGPT."
                             : "Account balance isn’t reported by this API"}
                       </span>
+                      {provider.kind === "chatgpt" && (
+                        <a
+                          className="setting-action"
+                          href="https://chatgpt.com/settings/usage"
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => {
+                            if (!native) return;
+                            event.preventDefault();
+                            void openUrl(
+                              "https://chatgpt.com/settings/usage",
+                            ).catch((error) =>
+                              setErrors((previous) => ({
+                                ...previous,
+                                [provider.id]: String(error),
+                              })),
+                            );
+                          }}
+                        >
+                          Manage ChatGPT usage <ExternalLink size={12} />
+                        </a>
+                      )}
                     </div>
+                  )}
+                  {raw && usage?.observedAt && limits.length > 0 && (
+                    <small className="settings-note">
+                      Last reported at{" "}
+                      {new Date(usage.observedAt).toLocaleTimeString()}
+                      {provider.kind === "chatgpt" &&
+                        limits.some(({ label }) =>
+                          label.includes("rate limit"),
+                        ) &&
+                        ". Request rate limits are separate from your ChatGPT plan allowance."}
+                    </small>
                   )}
                   {raw && !limits.length && (
                     <details className="ai-raw-limits">
