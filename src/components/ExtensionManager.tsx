@@ -26,7 +26,7 @@ import {
   X,
   RefreshCw,
 } from "lucide-react";
-import ExtensionProgress, { ExtensionInstallLabel } from "./ExtensionProgress";
+import ExtensionProgress from "./ExtensionProgress";
 import {
   installExtension,
   installLocalExtension,
@@ -55,9 +55,9 @@ export default function ExtensionManager({
   const [results, setResults] = useState<RegistryExtension[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [localBusy, setBusy] = useState("");
+  const [localBusy, setBusy] = useState<{ id: string; command: string }>();
   const installId = useExtensionInstallId();
-  const busy = localBusy || installId;
+  const busy = localBusy?.id || installId;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -98,7 +98,7 @@ export default function ExtensionManager({
     command: string,
     args: Record<string, unknown> = {},
   ) {
-    if (command !== "install_extension") setBusy(id);
+    if (command !== "install_extension") setBusy({ id, command });
     try {
       if (command === "install_extension") await installExtension(id);
       else if (command === "repair_dependencies")
@@ -121,7 +121,7 @@ export default function ExtensionManager({
     } catch (e) {
       toast.error(String(e));
     } finally {
-      setBusy("");
+      setBusy(undefined);
     }
   }
   const filtered = installed.filter((e) =>
@@ -151,6 +151,7 @@ export default function ExtensionManager({
         </div>
         <button
           className="setting-action"
+          aria-busy={busy === "local-vsix"}
           disabled={!native || !!busy}
           onClick={() => {
             void open({
@@ -167,6 +168,9 @@ export default function ExtensionManager({
           <FolderOpen size={13} /> Install VSIX
         </button>
       </div>
+      {installId === "local-vsix" && (
+        <ExtensionProgress id="local-vsix" name="VSIX package" />
+      )}
       <label className="extensions-search">
         <Search size={15} />
         <input
@@ -235,7 +239,7 @@ export default function ExtensionManager({
       ) : null}
       {tab === "browse" && native && !error && (
         <div
-          className={`extensions-list ${loading ? "is-loading" : ""}`}
+          className={`extensions-list extension-catalog ${loading ? "is-loading" : ""}`}
           aria-busy={loading}
         >
           {results.map((extension) => {
@@ -267,39 +271,35 @@ export default function ExtensionManager({
                   <span>
                     {extension.namespace} <small>v{extension.version}</small>
                   </span>
-                  <p>{extension.description}</p>
+                  <p
+                    className="extension-card-summary"
+                    title={extension.description}
+                  >
+                    {extension.description}
+                  </p>
                   <small>
                     {extension.downloadCount === undefined
                       ? "Downloads unavailable"
                       : `${extension.downloadCount.toLocaleString()} downloads`}
                   </small>
-                  <ExtensionProgress
-                    id={id}
-                    name={extension.displayName ?? extension.name}
-                  />
                 </div>
                 <button
                   className={`extension-install ${local && !update ? "installed" : ""}`}
+                  aria-busy={installId === id.toLowerCase()}
                   disabled={!!busy || (!!local && !update)}
                   onClick={() => void action(id, "install_extension")}
                 >
-                  {busy.toLowerCase() === id.toLowerCase() ? (
-                    <LoaderCircle size={13} className="spinning" />
-                  ) : local && !update ? (
+                  {local && !update ? (
                     <Check size={13} />
                   ) : (
                     <Download size={13} />
                   )}
-                  {busy.toLowerCase() === id.toLowerCase() ? (
-                    <ExtensionInstallLabel id={id} />
-                  ) : update ? (
-                    "Update"
-                  ) : local ? (
-                    "Installed"
-                  ) : (
-                    "Install"
-                  )}
+                  {update ? "Update" : local ? "Installed" : "Install"}
                 </button>
+                <ExtensionProgress
+                  id={id}
+                  name={extension.displayName ?? extension.name}
+                />
               </article>
             );
           })}
@@ -331,7 +331,7 @@ export default function ExtensionManager({
         </div>
       )}
       {tab === "installed" && (
-        <div className="extensions-list">
+        <div className="extensions-list extension-catalog">
           {filtered.map((extension) => {
             const support = capabilities(extension);
             const runtime = host.statuses.find(
@@ -360,8 +360,12 @@ export default function ExtensionManager({
                   <span>
                     {extension.id} <small>v{extension.version}</small>
                   </span>
-                  <p>{extension.description}</p>
-                  <ExtensionProgress id={extension.id} name={extension.name} />
+                  <p
+                    className="extension-card-summary"
+                    title={extension.description}
+                  >
+                    {extension.description}
+                  </p>
                   <div className="extension-capabilities">
                     {support.supported.map((item) => (
                       <span key={item}>{item}</span>
@@ -379,6 +383,10 @@ export default function ExtensionManager({
                 </div>
                 <div className="extension-actions">
                   <button
+                    aria-busy={
+                      localBusy?.id === extension.id &&
+                      localBusy.command === "set_extension_enabled"
+                    }
                     disabled={!!busy}
                     onClick={() =>
                       void action(extension.id, "set_extension_enabled", {
@@ -393,6 +401,10 @@ export default function ExtensionManager({
                     extension.extensionPack?.length
                   ) && (
                     <button
+                      aria-busy={
+                        localBusy?.id === extension.id &&
+                        localBusy.command === "repair_dependencies"
+                      }
                       disabled={!!busy}
                       onClick={() =>
                         void action(extension.id, "repair_dependencies")
@@ -425,6 +437,10 @@ export default function ExtensionManager({
                     </button>
                   )}
                   <button
+                    aria-busy={
+                      localBusy?.id === extension.id &&
+                      localBusy.command === "uninstall_extension"
+                    }
                     disabled={!!busy}
                     onClick={() =>
                       void action(extension.id, "uninstall_extension")
@@ -433,6 +449,7 @@ export default function ExtensionManager({
                     Uninstall
                   </button>
                 </div>
+                <ExtensionProgress id={extension.id} name={extension.name} />
               </article>
             );
           })}

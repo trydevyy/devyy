@@ -13,13 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke as invokeNative, isTauri } from "@tauri-apps/api/core";
 import { listen as listenNative } from "@tauri-apps/api/event";
 import { serverLanguages } from "./languageServers";
 import { activateExtensionLanguage } from "./extensionHost";
 import type { Position, LspDiagnostic } from "./types";
-export const native = isTauri();
-export { invoke };
+import { embeddedThemePreview } from "./previewMode";
+export const native = !embeddedThemePreview && isTauri();
+export const invoke: typeof invokeNative = embeddedThemePreview
+  ? () => Promise.reject(Error("This action is unavailable in the preview."))
+  : invokeNative;
 export const listen: typeof listenNative = native
   ? listenNative
   : async () => () => {};

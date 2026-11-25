@@ -38,7 +38,7 @@ export default function AIProviderIcon({
     return <Server size={size} strokeWidth={1.65} aria-hidden="true" />;
   return (
     <img
-      src={`/providers/${logo}.png`}
+      src={`${import.meta.env.BASE_URL}providers/${logo}.png`}
       className={`ai-provider-logo ai-provider-logo-${logo}`}
       width={size}
       height={size}

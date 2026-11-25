@@ -1,0 +1,77 @@
+[
+  {
+    "id": "devyy-paper",
+    "name": "Light",
+    "description": "A light workbench with a soft gray sidebar.",
+    "author": "Devyy",
+    "bundled": true,
+    "creator": {
+      "name": "Devyy",
+      "official": true,
+      "verified": true
+    },
+    "colors": {
+      "shell": "#ededee",
+      "paper": "#fafafa",
+      "surface": "#f0eff3",
+      "accent": "#252525"
+    },
+    "manifest": {
+      "version": 1,
+      "base": "paper",
+      "colors": {},
+      "layout": {},
+      "sprites": []
+    }
+  },
+  {
+    "id": "devyy-midnight",
+    "name": "Dark",
+    "description": "Devyy’s original dark workbench.",
+    "author": "Devyy",
+    "bundled": true,
+    "creator": {
+      "name": "Devyy",
+      "official": true,
+      "verified": true
+    },
+    "colors": {
+      "shell": "#1b1c1e",
+      "paper": "#222325",
+      "surface": "#2a2b2e",
+      "accent": "#f2f2f2"
+    },
+    "manifest": {
+      "version": 1,
+      "base": "midnight",
+      "colors": {},
+      "layout": {},
+      "sprites": []
+    }
+  },
+  {
+    "id": "devyy-monochrome",
+    "name": "Monochrome",
+    "description": "A true black workbench with a grayscale palette.",
+    "author": "Devyy",
+    "bundled": true,
+    "creator": {
+      "name": "Devyy",
+      "official": true,
+      "verified": true
+    },
+    "colors": {
+      "shell": "#000000",
+      "paper": "#000000",
+      "surface": "#0a0a0a",
+      "accent": "#ffffff"
+    },
+    "manifest": {
+      "version": 1,
+      "base": "monochrome",
+      "colors": {},
+      "layout": {},
+      "sprites": []
+    }
+  }
+]

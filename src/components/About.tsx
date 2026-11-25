@@ -125,6 +125,7 @@ export default function About({
       <div className="about-buttons">
         <button
           className="setting-action"
+          aria-busy={busy}
           disabled={!native || busy}
           onClick={() => {
             setBusy(true);
@@ -135,7 +136,7 @@ export default function About({
               .finally(() => setBusy(false));
           }}
         >
-          <RefreshCw size={13} className={busy ? "spinning" : ""} />
+          <RefreshCw size={13} />
           Check for updates
         </button>
         {update?.status === "available" && update.url && (

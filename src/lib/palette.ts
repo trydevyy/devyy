@@ -30,9 +30,14 @@ export function accentColor(settings: Settings, dark: boolean) {
         dark ? "dark" : "light"
       ];
 }
-export function onAccent(hex: string) {
+export function onAccent(hex: string, backdrop = "#000000") {
+  const opacity = hex.length === 9 ? parseInt(hex.slice(7), 16) / 255 : 1;
   const channels = [1, 3, 5]
-    .map((p) => parseInt(hex.slice(p, p + 2), 16) / 255)
+    .map((p) => {
+      const track = parseInt(hex.slice(p, p + 2), 16);
+      const background = parseInt(backdrop.slice(p, p + 2), 16);
+      return (track * opacity + background * (1 - opacity)) / 255;
+    })
     .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
   const luminance =
     channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;

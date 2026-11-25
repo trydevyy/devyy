@@ -20,14 +20,7 @@ import Select from "./ui/Select";
 import { useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  ArrowLeft,
-  Clock3,
-  ExternalLink,
-  LoaderCircle,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Clock3, ExternalLink, RefreshCw, X } from "lucide-react";
 import { aiAccount, remainingLimits, useAI } from "../lib/ai";
 import { invoke, native } from "../lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -173,16 +166,13 @@ export default function AIUsage({
           ))}
         </div>
         <button
+          aria-busy={busy}
           className="icon-button"
           aria-label="Refresh AI usage"
           onClick={() => void refresh()}
           disabled={busy || !native}
         >
-          {busy ? (
-            <LoaderCircle className="spinning" size={15} />
-          ) : (
-            <RefreshCw size={15} />
-          )}
+          <RefreshCw size={15} />
         </button>
         {!embedded && (
           <button

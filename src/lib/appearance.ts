@@ -18,6 +18,7 @@ import { invoke, native } from "./native";
 import type { Settings } from "./types";
 import { useExtensions } from "./extensions";
 import { accentColor, onAccent } from "./palette";
+import type { StoreTheme } from "./store";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 function mediaPreference(query: string) {
@@ -36,15 +37,16 @@ const motion = mediaPreference("(prefers-reduced-motion: reduce)");
 export function useAppearance(
   settings: Settings,
   onError: (error: unknown) => void,
+  storeTheme?: StoreTheme,
 ) {
   const extensions = useExtensions();
   useEffect(() => {
     void import("./textmate")
-      .then((m) => m.applyExtensionTheme(settings))
+      .then((m) => m.applyExtensionTheme(settings, storeTheme?.manifest.colors))
       .catch((error) =>
         onError(`Could not load extension theme: ${String(error)}`),
       );
-  }, [settings.extensionTheme, settings.theme, extensions]);
+  }, [settings.extensionTheme, settings.theme, extensions, storeTheme]);
   const reducedTransparency = useSyncExternalStore(
     transparency.subscribe,
     transparency.snapshot,
@@ -96,8 +98,9 @@ export function useAppearance(
     const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (favicon)
       favicon.href =
-        settings.theme === "paper" ? "/devyy-light.svg" : "/devyy.svg";
-  }, [settings.accent, settings.customAccent, settings.theme]);
+        storeTheme?.manifest.icon ??
+        `${import.meta.env.BASE_URL}${settings.theme === "paper" ? "devyy-light.svg" : "devyy.svg"}`;
+  }, [settings.accent, settings.customAccent, settings.theme, storeTheme]);
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = settings.theme;
@@ -109,8 +112,16 @@ export function useAppearance(
       theme: settings.theme,
       vibrancy,
     })
-      .then((result) => {
-        if (current) root.dataset.material = result.material;
+      .then(async (result) => {
+        if (!current) return;
+        root.dataset.material = result.material;
+        if (storeTheme?.manifest.icon) {
+          await invoke("set_theme_icon", {
+            icon: storeTheme.manifest.icon,
+          }).catch((error) =>
+            callback.current(`Could not set the theme icon: ${String(error)}`),
+          );
+        }
       })
       .catch((error) => {
         if (current) {
@@ -123,7 +134,7 @@ export function useAppearance(
     return () => {
       current = false;
     };
-  }, [settings.theme, vibrancy]);
+  }, [settings.theme, vibrancy, storeTheme]);
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty(
@@ -177,6 +188,46 @@ export function useAppearance(
     settings.glassBlur,
     settings.animationSpeed,
   ]);
+  useEffect(() => {
+    if (!storeTheme) return;
+    const root = document.documentElement;
+    const previous = new Map<string, string>();
+    function write(key: string, value: string) {
+      previous.set(key, root.style.getPropertyValue(key));
+      root.style.setProperty(key, value);
+    }
+    for (const [key, value] of Object.entries(storeTheme.manifest.colors)) {
+      if (key.startsWith("syntax-") || key === "editor-foreground") continue;
+      write(`--${key}`, value);
+      if (key === "paper" || key === "shell") {
+        const rgb = value
+          .slice(1, 7)
+          .match(/../g)
+          ?.map((channel) => parseInt(channel, 16));
+        if (rgb) write(`--${key}-rgb`, rgb.join(", "));
+      }
+    }
+    if (storeTheme.manifest.layout.radius !== undefined) {
+      write("--store-radius", `${storeTheme.manifest.layout.radius}px`);
+      root.dataset.storeRadius = "";
+    }
+    return () => {
+      delete root.dataset.storeRadius;
+      for (const [key, value] of previous) {
+        if (value) root.style.setProperty(key, value);
+        else root.style.removeProperty(key);
+      }
+    };
+  }, [storeTheme, settings.accent, settings.customAccent, settings.theme]);
+  useEffect(() => {
+    const root = document.documentElement;
+    const style = getComputedStyle(root);
+    const backdrop = style.getPropertyValue("--paper").trim();
+    const off = style.getPropertyValue("--faint").trim();
+    const on = style.getPropertyValue("--accent-line").trim();
+    root.style.setProperty("--switch-off-ink", onAccent(off, backdrop));
+    root.style.setProperty("--switch-on-ink", onAccent(on, backdrop));
+  }, [settings.theme, settings.accent, settings.customAccent, storeTheme]);
   useEffect(() => {
     document.documentElement.dataset.motion =
       settings.reduceMotion || reducedMotion ? "reduced" : "full";

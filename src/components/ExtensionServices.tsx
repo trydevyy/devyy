@@ -27,6 +27,7 @@ import { fileUri } from "../lib/extensionWorkbench";
 import { invoke, native } from "../lib/native";
 import ExtensionQuickInput from "./ExtensionQuickInput";
 import { restoreFocus } from "../lib/focus";
+import { handleStoreLink, readStoreLink } from "../lib/store";
 export interface WorkbenchRequest {
   id: string;
   method: string;
@@ -71,11 +72,15 @@ function pathOption(value: unknown) {
 }
 export default function ExtensionServices({
   onRequest,
+  onStoreLink,
 }: {
+  onStoreLink: (kind: "language-server" | "extension" | "theme") => void;
   onRequest: (request: WorkbenchRequest) => Promise<unknown>;
 }) {
   const handler = useRef(onRequest);
   handler.current = onRequest;
+  const storeLink = useRef(onStoreLink);
+  storeLink.current = onStoreLink;
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   useEffect(() => {
     const listener = (event: Event) => {
@@ -174,26 +179,46 @@ export default function ExtensionServices({
     if (!native) return;
     let disposed = false;
     let stop: (() => void) | undefined;
+    const pendingStoreUris = new Set<string>();
+    let storeQueue = Promise.resolve();
     const handle = (urls: string[]) => {
-      for (const uri of urls)
-        if (uri === "devyy://auth-complete" || uri === "devyy://auth-complete/")
-          continue;
-        else if (uri.startsWith("devyy:"))
-          void hostRequest("handleUri", { uri }).catch((e) =>
-            toast.error(String(e)),
+      for (const uri of urls) {
+        const listing = readStoreLink(uri);
+        if (listing) {
+          if (pendingStoreUris.has(uri)) continue;
+          pendingStoreUris.add(uri);
+          storeQueue = storeQueue.then(async () => {
+            try {
+              if (disposed) return;
+              storeLink.current(listing.kind);
+              await handleStoreLink(listing);
+            } catch (error) {
+              toast.error(String(error));
+            } finally {
+              pendingStoreUris.delete(uri);
+            }
+          });
+        } else if (
+          uri.startsWith("devyy:") &&
+          !/^devyy:\/\/(?:auth-complete|store|account)(?:\/|$)/.test(uri)
+        ) {
+          void hostRequest("handleUri", { uri }).catch((error) =>
+            toast.error(String(error)),
           );
+        }
+      }
     };
     void onOpenUrl(handle)
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else stop = unlisten;
-      })
-      .catch((e) => toast.error(String(e)));
-    void getCurrent()
-      .then((urls) => {
+      .then(async (unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        stop = unlisten;
+        const urls = await getCurrent();
         if (!disposed && urls) handle(urls);
       })
-      .catch(() => {});
+      .catch((error) => toast.error(String(error)));
     return () => {
       disposed = true;
       stop?.();

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { InstallProgress } from "./ExtensionProgress";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import ErrorToast from "./ui/ErrorToast";
 import ProviderSignIn from "./ProviderSignIn";
@@ -24,7 +25,6 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
-  LoaderCircle,
   Plus,
   RefreshCw,
   Trash2,
@@ -441,16 +441,13 @@ export default function AIProviderDetail({
                 </span>
               </div>
               <button
+                aria-busy={busy === "install"}
                 className="setting-action"
                 disabled={!!busy || !native}
                 onClick={() => void action("install", installRuntime)}
               >
-                {busy === "install" ? (
-                  <LoaderCircle className="spinning" size={14} />
-                ) : (
-                  <Download size={14} />
-                )}
-                {installPhase || "Install"}
+                <Download size={14} />
+                Install
               </button>
               {busy === "install" && (
                 <button
@@ -465,6 +462,12 @@ export default function AIProviderDetail({
                 >
                   Cancel
                 </button>
+              )}
+              {busy === "install" && (
+                <InstallProgress
+                  name={form.name}
+                  status={installPhase || "Installing…"}
+                />
               )}
             </div>
           )}
@@ -498,6 +501,7 @@ export default function AIProviderDetail({
                   </small>
                 </span>
                 <button
+                  aria-busy={busy === "login"}
                   className="setting-action"
                   disabled={
                     !!busy ||
@@ -509,11 +513,7 @@ export default function AIProviderDetail({
                     void action("login", () => accountAction("login"))
                   }
                 >
-                  {busy === "login" ? (
-                    <LoaderCircle className="spinning" size={12} />
-                  ) : (
-                    <ExternalLink size={12} />
-                  )}{" "}
+                  <ExternalLink size={12} />{" "}
                   {form.kind === "chatgpt"
                     ? connected
                       ? "Reconnect"
@@ -808,6 +808,7 @@ export default function AIProviderDetail({
             </button>
           </div>
           <button
+            aria-busy={busy === "models"}
             className="setting-action"
             disabled={
               !!busy ||
@@ -818,12 +819,7 @@ export default function AIProviderDetail({
             }
             onClick={() => void action("models", refreshModels)}
           >
-            {busy === "models" ? (
-              <LoaderCircle className="spinning" size={12} />
-            ) : (
-              <RefreshCw size={12} />
-            )}{" "}
-            Load models
+            <RefreshCw size={12} /> Load models
           </button>
         </section>
         {builtInCLI && (
@@ -870,14 +866,11 @@ export default function AIProviderDetail({
                   {builtInCLI && (
                     <button
                       className="setting-action"
+                      aria-busy={busy === "runtime"}
                       disabled={!!busy || runtimeChecking || !native}
                       onClick={() => void action("runtime", checkRuntime)}
                     >
-                      <RefreshCw
-                        size={12}
-                        className={busy === "runtime" ? "spinning" : ""}
-                      />{" "}
-                      Check executable
+                      <RefreshCw size={12} /> Check executable
                     </button>
                   )}
                   {runtime && (
@@ -935,6 +928,7 @@ export default function AIProviderDetail({
           </button>
         )}
         <button
+          aria-busy={busy === "save"}
           className="setting-action ai-primary-action"
           disabled={!!busy || !native || !!argsError}
           onClick={() =>
@@ -946,12 +940,7 @@ export default function AIProviderDetail({
             })
           }
         >
-          {busy === "save" ? (
-            <LoaderCircle size={12} className="spinning" />
-          ) : (
-            <Check size={12} />
-          )}{" "}
-          Save provider
+          <Check size={12} /> Save provider
         </button>
       </footer>
     </section>

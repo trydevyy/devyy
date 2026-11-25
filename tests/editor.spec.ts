@@ -87,6 +87,7 @@ test("file palette, workspace search, split, preferences and keyboard flow", asy
   await page.keyboard.press(`${mod}+\\`);
   await expect(page.locator(".editors")).toHaveClass(/split/);
   await page.keyboard.press(`${mod}+,`);
+  await page.getByRole("tab", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
   await page.getByRole("button", { name: "Dark", exact: true }).click();
@@ -161,7 +162,7 @@ test("vibrancy and motion preferences persist, and the workspace fits compact wi
     .getByRole("switch", { name: "Reduce motion", exact: true })
     .click();
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
-  await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+  await page.getByRole("tab", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(page.locator(".terminal-welcome strong")).toBeVisible();

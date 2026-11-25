@@ -10,8 +10,8 @@ try {
     ? matchMedia("(prefers-color-scheme: dark)").matches
       ? "midnight"
       : "paper"
-    : saved.theme === "paper"
-      ? "paper"
+    : saved.theme === "paper" || saved.theme === "monochrome"
+      ? saved.theme
       : "midnight";
   root.dataset.vibrancy =
     saved.vibrancy === false ||

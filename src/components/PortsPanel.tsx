@@ -294,10 +294,11 @@ export default function PortsPanel({
           className="icon-button"
           title="Refresh ports"
           aria-label="Refresh ports"
+          aria-busy={loading}
           disabled={loading || !signedIn}
           onClick={() => void refresh()}
         >
-          <RefreshCw size={13} className={loading ? "spinning" : ""} />
+          <RefreshCw size={13} />
         </button>
       </div>
       {!tunnels.length && (
@@ -498,9 +499,10 @@ export default function PortsPanel({
                 <button
                   type="submit"
                   className="button primary"
+                  aria-busy={busy}
                   disabled={busy || !newPort}
                 >
-                  {busy ? "Connecting..." : "Forward port"}
+                  Forward port
                 </button>
               </div>
             </form>

@@ -98,3 +98,22 @@ export default function FileIcon({
     </span>
   );
 }
+
+export function LanguageIcon({ language: id }: { language: string }) {
+  const aliases: Record<string, string> = { "c++": "cpp", "c#": "csharp" };
+  const languageIds = manifest.languageIds as Record<string, string>;
+  const extensions = manifest.fileExtensions as Record<string, string>;
+  const icons = manifest.icons as Record<string, string>;
+  const languageId = aliases[id] ?? id;
+  const name =
+    icons[languageIds[languageId] ?? extensions[languageId] ?? languageId] ??
+    icons.file;
+  return (
+    <img
+      className="settings-store-icon"
+      src={`${import.meta.env.BASE_URL}file-icons/${name}`}
+      alt=""
+      loading="lazy"
+    />
+  );
+}

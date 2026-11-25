@@ -1373,8 +1373,10 @@ version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
+ "gtk",
  "hit",
  "ignore",
+ "image",
  "json5",
  "jsonwebtoken",
  "keyring",
@@ -2818,6 +2820,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

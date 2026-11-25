@@ -17,7 +17,7 @@ import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Plus, RefreshCw, X } from "lucide-react";
+import { Plus, RefreshCw, X } from "lucide-react";
 import {
   aiAccount,
   loadAI,
@@ -166,16 +166,12 @@ export default function AIProviders() {
               </small>
             )}
             <button
+              aria-busy={busy}
               className="ai-text-action"
               disabled={busy || !native}
               onClick={() => void refresh()}
             >
-              {busy ? (
-                <LoaderCircle className="spinning" size={13} />
-              ) : (
-                <RefreshCw size={13} />
-              )}{" "}
-              Refresh sign-ins
+              <RefreshCw size={13} /> Refresh sign-ins
             </button>
           </header>
           {(error || state.error) && (

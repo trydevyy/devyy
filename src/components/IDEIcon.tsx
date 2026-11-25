@@ -28,7 +28,7 @@ export default function IDEIcon({ id }: { id: string }) {
   return icons[id] && !failed ? (
     <img
       className={`ide-import-icon ide-import-icon-${id}`}
-      src={`/ide-icons/${icons[id]}`}
+      src={`${import.meta.env.BASE_URL}ide-icons/${icons[id]}`}
       alt=""
       aria-hidden="true"
       draggable={false}

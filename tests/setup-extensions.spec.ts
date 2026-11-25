@@ -53,6 +53,14 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await page.screenshot({ path: testInfo.outputPath("devyy-setup.png") });
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(progress).toHaveAttribute("aria-valuenow", "3");
+  await expect(setup).toContainText("Available in the desktop app");
+  await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    setup.getByRole("navigation", { name: "AI providers", exact: true }),
+  ).toBeVisible();
+  await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-valuenow", "6");
   await expect(
     setup.getByRole("region", { name: "Editor preview" }),
   ).toBeVisible();
@@ -67,13 +75,6 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await setup
     .getByRole("switch", { name: "Setup word wrap", exact: true })
     .click();
-  await setup.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(setup).toContainText("Available in the desktop app");
-  await setup.getByRole("button", { name: "Continue", exact: true }).click();
-  await setup.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(
-    setup.getByRole("navigation", { name: "AI providers", exact: true }),
-  ).toBeVisible();
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
     setup.getByRole("region", { name: "Source control" }),
@@ -174,7 +175,14 @@ async function nativeFixture(page: import("@playwright/test").Page) {
         invoke: async (cmd: string, args: Record<string, unknown>) => {
           if (cmd === "plugin:event|listen") return ++callback;
           if (cmd === "set_appearance") return { material: "vibrancy" };
-          if (cmd === "terminal_profiles") return [];
+          if (
+            [
+              "terminal_profiles",
+              "store_catalog",
+              "store_installed_themes",
+            ].includes(cmd)
+          )
+            return [];
           if (cmd === "list_extensions") return installed ? [extension] : [];
           if (cmd === "search_extensions")
             return {
@@ -286,7 +294,7 @@ test("Open VSX install activates grammar, snippets and theme and can disable the
     .click();
   await expect(editor).toContainText("hello name");
   await page.keyboard.press(`${mod}+,`);
-  await settings.getByRole("tab", { name: "Appearance", exact: true }).click();
+  await settings.getByRole("tab", { name: "Themes", exact: true }).click();
   await chooseOption(
     settings.getByRole("combobox", {
       name: "Extension color theme",
@@ -333,6 +341,7 @@ test("native settings import previews changes and custom LSP configuration prese
   await settings
     .getByRole("tab", { name: "Language servers", exact: true })
     .click();
+  await settings.getByRole("tab", { name: "Configured", exact: true }).click();
   await settings
     .getByRole("button", { name: "Configure", exact: true })
     .click();
@@ -351,4 +360,49 @@ test("native settings import previews changes and custom LSP configuration prese
           .args,
     ),
   ).toEqual(["/a path/server.js", "--stdio"]);
+});
+
+test("bundled Store themes preview and apply offline", async ({ page }) => {
+  await page.goto("/?playground=1");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("tab", { name: "Themes", exact: true }).click();
+  const store = page.getByRole("region", { name: "Theme store" });
+  await expect(store.getByRole("article")).toHaveCount(3);
+  await store.getByRole("tab", { name: /Installed/ }).click();
+  await expect(store.getByRole("article")).toHaveCount(3);
+  const previewButton = store.getByRole("button", { name: "Preview Light" });
+  await previewButton.click();
+  const preview = page.getByRole("dialog", { name: "Light", exact: true });
+  await expect(preview).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+  await expect(previewButton).toBeFocused();
+  await previewButton.click();
+  await expect(
+    preview.getByRole("img", { name: "Verified creator" }),
+  ).toBeVisible();
+  const workbench = preview.frameLocator("iframe");
+  await expect(workbench.locator("html")).toHaveAttribute(
+    "data-theme",
+    "paper",
+  );
+  await expect(workbench.locator(".cm-editor").first()).toBeVisible();
+  await preview.getByRole("button", { name: "Apply theme" }).click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
+  await expect(
+    store
+      .getByRole("article")
+      .filter({ hasText: "Light" })
+      .getByRole("button", { name: "Active" }),
+  ).toBeDisabled();
+
+  const followSystem = page.getByRole("switch", {
+    name: "Follow system appearance",
+  });
+  await expect(followSystem).toHaveAttribute("aria-checked", "false");
+  await expect(followSystem.locator("span")).toHaveCSS(
+    "background-color",
+    "rgb(23, 23, 23)",
+  );
 });

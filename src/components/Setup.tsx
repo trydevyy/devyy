@@ -25,6 +25,7 @@ import {
   Sun,
 } from "lucide-react";
 import AIProviders from "./AIProviders";
+import { activateStoreTheme, defaultStoreThemes } from "../lib/store";
 import type { Settings } from "../lib/types";
 import AccentPicker from "./AccentPicker";
 import EditorPreview from "./EditorPreview";
@@ -36,10 +37,10 @@ import AccountSignIn, { useAccountProfile } from "./AccountSignIn";
 const steps = [
   "Devyy account",
   "Appearance",
-  "Editor",
   "Import",
   "Extensions",
   "AI providers",
+  "Editor",
   "Git & GitHub",
 ];
 export default function Setup({
@@ -52,12 +53,13 @@ export default function Setup({
   onFinish: () => void;
 }) {
   const [step, setStep] = useState(0);
+  const current = steps[step];
   const profile = useAccountProfile();
   const [suggestions, setSuggestions] = useState<string[]>([]);
   return (
     <ModalBackdrop className="setup-backdrop">
       <section
-        className={`setup-dialog ${step === 5 ? "setup-providers" : ""}`}
+        className={`setup-dialog ${current === "AI providers" ? "setup-providers" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Set up devyy"
@@ -112,10 +114,10 @@ export default function Setup({
                 [
                   "Sign in to Devyy",
                   "Find your focus.",
-                  "Make room for your code.",
                   "Pick up where you left off.",
                   "Add the tools you use.",
                   "Connect your AI providers.",
+                  "Make room for your code.",
                   "Connect your repositories.",
                 ][step]
               }
@@ -125,33 +127,43 @@ export default function Setup({
                 [
                   "Continue as a guest to set up a local workspace.",
                   "The workspace updates as you go.",
-                  "Set the type and spacing that feel right to you.",
                   "Import compatible preferences from an editor on this machine.",
                   "Browse Open VSX for languages, syntax, snippets, and themes.",
                   "Sign in or connect an API endpoint. You can change these later.",
+                  "Set the type and spacing that feel right to you.",
                   "Install Git, sign in to GitHub, and choose your commit identity.",
                 ][step]
               }
             </p>
-            {step === 0 && <AccountSignIn profile={profile} />}
-            {step === 1 && (
+            {current === "Devyy account" && <AccountSignIn profile={profile} />}
+            {current === "Appearance" && (
               <>
                 <div
                   className="setup-theme-choices"
                   role="group"
                   aria-label="Setup theme"
                 >
-                  {(["midnight", "paper", "monochrome"] as const).map(
-                    (theme) => (
+                  {[...defaultStoreThemes]
+                    .sort(
+                      (a, b) =>
+                        Number(b.manifest.base === "midnight") -
+                        Number(a.manifest.base === "midnight"),
+                    )
+                    .map(({ manifest: { base: theme }, name }) => (
                       <button
                         key={theme}
                         aria-pressed={
                           settings.theme === theme &&
                           !settings.followSystemTheme
                         }
-                        onClick={() =>
-                          onChange({ theme, followSystemTheme: false })
-                        }
+                        onClick={() => {
+                          activateStoreTheme(undefined);
+                          onChange({
+                            theme,
+                            followSystemTheme: false,
+                            extensionTheme: "",
+                          });
+                        }}
                       >
                         <span className={`setup-theme-window ${theme}`}>
                           <span>
@@ -174,25 +186,21 @@ export default function Setup({
                           ) : (
                             <Monitor size={14} />
                           )}{" "}
-                          {theme === "midnight"
-                            ? "Dark"
-                            : theme === "paper"
-                              ? "Light"
-                              : "Monochrome"}
+                          {name}
                           {settings.theme === theme &&
                             !settings.followSystemTheme && <Check size={13} />}
                         </span>
                       </button>
-                    ),
-                  )}
+                    ))}
                 </div>
                 <label className="setup-check">
                   <input
                     type="checkbox"
                     checked={settings.followSystemTheme}
-                    onChange={(e) =>
-                      onChange({ followSystemTheme: e.target.checked })
-                    }
+                    onChange={(e) => {
+                      if (e.target.checked) activateStoreTheme(undefined);
+                      onChange({ followSystemTheme: e.target.checked });
+                    }}
                   />{" "}
                   Follow system appearance
                 </label>
@@ -220,7 +228,7 @@ export default function Setup({
                 </div>
               </>
             )}
-            {step === 2 && (
+            {current === "Editor" && (
               <>
                 <EditorPreview settings={settings} />
                 <CompletionSettings
@@ -300,16 +308,18 @@ export default function Setup({
                 </div>
               </>
             )}
-            {step === 3 && (
+            {current === "Import" && (
               <SettingsImport
                 settings={settings}
                 onChange={onChange}
                 onSuggestions={setSuggestions}
               />
             )}
-            {step === 4 && <ExtensionManager suggested={suggestions} />}
-            {step === 5 && <AIProviders />}
-            {step === 6 && <GitHubSettings />}
+            {current === "Extensions" && (
+              <ExtensionManager suggested={suggestions} />
+            )}
+            {current === "AI providers" && <AIProviders />}
+            {current === "Git & GitHub" && <GitHubSettings />}
           </div>
           <footer>
             <button

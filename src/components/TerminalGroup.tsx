@@ -68,6 +68,8 @@ export default forwardRef<
   TerminalsHandle,
   {
     toolbarHost: HTMLElement | null;
+    themeColors?: Record<string, string>;
+    preview?: boolean;
     root: string;
     settings: Settings;
     onReady: (id: number | null) => void;
@@ -75,7 +77,16 @@ export default forwardRef<
     onOpen: () => void;
   }
 >(function TerminalGroup(
-  { root, settings, onReady, onError, onOpen, toolbarHost },
+  {
+    root,
+    settings,
+    onReady,
+    onError,
+    onOpen,
+    toolbarHost,
+    themeColors,
+    preview,
+  },
   ref,
 ) {
   const [sessions, setSessions] = useState<Session[]>([
@@ -674,6 +685,8 @@ export default forwardRef<
                 cursorStyle={settings.terminalCursorStyle}
                 copyOnSelect={settings.terminalCopyOnSelect}
                 theme={settings.theme}
+                colors={themeColors}
+                preview={preview}
                 fontSize={settings.terminalFontSize}
                 scrollback={settings.terminalScrollback}
                 cursorBlink={settings.cursorBlink && !settings.reduceMotion}

@@ -357,6 +357,7 @@ export default function RemoteExplorer({
                 <button
                   className="ssh-server-link"
                   aria-pressed={connected}
+                  aria-busy={busy === server.id}
                   disabled={!!busy}
                   onClick={() => void toggleWorkspace(server)}
                   title={`${connected ? "Disconnect from" : "Connect to"} ${server.user}@${server.host} (${server.remotePath})`}
@@ -365,9 +366,7 @@ export default function RemoteExplorer({
                   <span>
                     <strong>{server.label}</strong>
                   </span>
-                  {busy === server.id ? (
-                    <RefreshCw size={13} className="spinning" />
-                  ) : connected ? (
+                  {connected ? (
                     <span className="ssh-connected-dot" aria-hidden="true" />
                   ) : (
                     <FolderOpen size={13} />
@@ -580,12 +579,12 @@ export default function RemoteExplorer({
                 >
                   Cancel
                 </button>
-                <button className="button primary" disabled={!!busy}>
-                  {busy
-                    ? "Connecting…"
-                    : editor.action
-                      ? "Connect"
-                      : "Save server"}
+                <button
+                  className="button primary"
+                  disabled={!!busy}
+                  aria-busy={!!busy}
+                >
+                  {editor.action ? "Connect" : "Save server"}
                 </button>
               </div>
             </form>

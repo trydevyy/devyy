@@ -24,19 +24,42 @@ import "@fontsource/dm-sans/latin-500.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-700.css";
 import "./styles.css";
-function reportCrash(kind: "error" | "rejection", line = 0) {
-  if (isTauri()) {
-    void invoke("report_frontend_crash", { kind, line }).catch(() => {});
+import { embeddedThemePreview } from "./lib/previewMode";
+
+function reportCrash(
+  kind: "error" | "rejection",
+  value: unknown,
+  line = 0,
+  componentStack?: string,
+) {
+  if (!embeddedThemePreview && isTauri()) {
+    const error = value instanceof Error ? value.message : String(value ?? "");
+    const stack = [
+      value instanceof Error ? value.stack : undefined,
+      componentStack,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    void invoke("report_frontend_crash", {
+      kind,
+      line,
+      error: error.slice(0, 4096),
+      stack: stack.slice(0, 32768),
+    }).catch(() => {});
   }
 }
 
-window.addEventListener("error", (event) => reportCrash("error", event.lineno));
-window.addEventListener("unhandledrejection", () => reportCrash("rejection"));
+window.addEventListener("error", (event) =>
+  reportCrash("error", event.error ?? event.message, event.lineno),
+);
+window.addEventListener("unhandledrejection", (event) =>
+  reportCrash("rejection", event.reason),
+);
 
 ReactDOM.createRoot(document.getElementById("root")!, {
   onUncaughtError(error, info) {
     console.error(error, info);
-    reportCrash("error");
+    reportCrash("error", error, 0, info.componentStack ?? undefined);
   },
 }).render(
   <React.StrictMode>

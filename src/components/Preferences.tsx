@@ -61,6 +61,9 @@ import AIProviders from "./AIProviders";
 import GitHubSettings from "./GitHubSettings";
 import CompletionSettings from "./CompletionSettings";
 import { extensionThemes, useExtensions } from "../lib/extensions";
+import StoreBrowser from "./StoreBrowser";
+import ThemeStore from "./ThemeStore";
+import { activateStoreTheme } from "../lib/store";
 import AccentPicker from "./AccentPicker";
 import { defaults, type Settings } from "../lib/types";
 import {
@@ -117,7 +120,9 @@ export default function Preferences({
             .toLowerCase()
             .includes(t),
         )
-      : c.category === category && c.key !== "vcsProvider",
+      : c.category === category &&
+        c.key !== "vcsProvider" &&
+        c.type !== "theme-store",
   );
   const keys = commandInfo.filter(([, label, group]) =>
     searching
@@ -163,6 +168,7 @@ export default function Preferences({
     scrollRef.current?.scrollTo(0, 0);
   }
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
+    if (key === "followSystemTheme" && value) activateStoreTheme(undefined);
     onChange((s) => ({ ...s, [key]: value }));
   }
   function applyBinding() {
@@ -181,39 +187,18 @@ export default function Preferences({
   function control(item: SettingControl) {
     const key = item.key,
       value = settings[key];
+    if (item.type === "theme-store")
+      return (
+        <button className="setting-action" onClick={() => choose("themes")}>
+          Open Themes
+        </button>
+      );
     if (item.type === "accent")
       return (
         <AccentPicker
           settings={settings}
           onChange={(patch) => onChange((s) => ({ ...s, ...patch }))}
         />
-      );
-    if (item.type === "theme")
-      return (
-        <div className="theme-options">
-          {(["paper", "midnight", "monochrome"] as const).map((theme) => (
-            <button
-              key={theme}
-              className={settings.theme === theme ? "selected" : ""}
-              aria-pressed={settings.theme === theme}
-              onClick={() =>
-                onChange((s) => ({ ...s, theme, followSystemTheme: false }))
-              }
-            >
-              <span className={`theme-preview ${theme}`}>
-                <i />
-                <i />
-                <i />
-              </span>
-              {theme === "paper"
-                ? "Light"
-                : theme === "midnight"
-                  ? "Dark"
-                  : "Monochrome"}
-              {settings.theme === theme && <Check size={12} />}
-            </button>
-          ))}
-        </div>
       );
     if (item.type === "range")
       return (
@@ -481,7 +466,15 @@ export default function Preferences({
               ) : null}
               {searching && <ExtensionConfiguration query={query} />}
               {!searching && category === "extensions" && <ExtensionManager />}
-              {!searching && category === "languages" && <LanguageServers />}
+              {!searching && category === "languages" && (
+                <StoreBrowser configured={<LanguageServers />} />
+              )}
+              {!searching && category === "themes" && (
+                <ThemeStore
+                  base={settings.theme}
+                  followSystem={settings.followSystemTheme}
+                />
+              )}
               {!searching && category === "ai" && <AIProviders />}
               {!searching && category === "account" && (
                 <AccountSettings settings={settings} onChange={onChange} />
@@ -519,7 +512,7 @@ export default function Preferences({
                 </>
               )}
               {!searching &&
-                category === "appearance" &&
+                category === "themes" &&
                 extensionThemes().length > 0 && (
                   <div className="setting-row">
                     <span>
@@ -535,6 +528,7 @@ export default function Preferences({
                         const theme = extensionThemes().find(
                           (t) => t.key === e.target.value,
                         );
+                        activateStoreTheme(undefined);
                         onChange((s) => ({
                           ...s,
                           extensionTheme: e.target.value,
@@ -758,6 +752,7 @@ export default function Preferences({
           </span>
           <button
             onClick={() => {
+              activateStoreTheme(undefined);
               onChange({ ...defaults, bindings: {} });
               setRecording(null);
             }}

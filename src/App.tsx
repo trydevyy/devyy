@@ -57,7 +57,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowUpRight,
   Asterisk,
-  Blocks,
   Copy,
   Eye,
   Columns2,
@@ -94,6 +93,13 @@ import {
 import * as Popover from "@radix-ui/react-popover";
 import PortsPanel from "./components/PortsPanel";
 import { useAppearance } from "./lib/appearance";
+import {
+  activateStoreTheme,
+  restoreStoreTheme,
+  useStoreTheme,
+} from "./lib/store";
+import { embeddedThemePreview } from "./lib/previewMode";
+import StoreSprites, { TitlebarStoreSprites } from "./components/StoreSprites";
 import type { GitBranchAction, GitSubmoduleAction } from "./lib/git";
 import SourceControl from "./components/SourceControl";
 import type { Comparison } from "./components/DiffEditor";
@@ -197,14 +203,13 @@ import {
 import { triggerSignatureHelp } from "./lib/lspSignatureHelp";
 
 type Section =
-  | "files"
-  | "search"
-  | "git"
-  | "run"
-  | "tools"
-  | "remote"
-  | `extension:${string}`;
+  "files" | "search" | "git" | "run" | "remote" | `extension:${string}`;
 import InputDialog, { type Dialog } from "./components/InputDialog";
+import {
+  movePreviewSprite,
+  selectPreviewSprite,
+  useThemePreview,
+} from "./lib/themePreview";
 import Empty from "./components/Empty";
 import HelpModal from "./components/HelpModal";
 
@@ -212,9 +217,10 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const emptyLines: number[] = [];
 const emptyDiagnostics: LspDiagnostic[] = [];
 const playground =
-  (import.meta.env.DEV ||
+  embeddedThemePreview ||
+  ((import.meta.env.DEV ||
     (!native && import.meta.env.VITE_DEVYY_PLAYGROUND === "1")) &&
-  new URLSearchParams(location.search).get("playground") === "1";
+    new URLSearchParams(location.search).get("playground") === "1");
 const showcase = playground
   ? new URLSearchParams(location.search).get("showcase")
   : null;
@@ -256,10 +262,10 @@ export default function App() {
           fallback: ext.icon,
         });
       for (const id of Object.keys(ext.contributes.views ?? {}))
-        if (!["explorer", "scm", "debug", "test"].includes(id) && !map.has(id))
+        if (!["explorer", "scm", "debug"].includes(id) && !map.has(id))
           map.set(id, {
             id,
-            title: ext.name,
+            title: id === "test" ? "Testing" : ext.name,
             extension: ext.id,
             fallback: ext.icon,
           });
@@ -299,6 +305,7 @@ export default function App() {
   }, []);
   const [setupOpen, setSetupOpen] = useState(
     () =>
+      !embeddedThemePreview &&
       !(playground && import.meta.env.VITE_DEVYY_PLAYGROUND === "1") &&
       !readLocal("devyy.setupCompleted", false),
   );
@@ -385,7 +392,11 @@ export default function App() {
   const [focus, setFocus] = useState(false),
     [palette, setPalette] = useState<"files" | "commands" | null>(null);
   const [settings, setSettings] = useState<Settings>(() =>
-      normalizeSettings(readLocal("devyy.settings", {})),
+      normalizeSettings(
+        embeddedThemePreview
+          ? { followSystemTheme: false }
+          : readLocal("devyy.settings", {}),
+      ),
     ),
     [settingsOpen, setSettingsOpen] = useState(false),
     [settingsPage, setSettingsPage] = useState<SettingsCategory>("appearance"),
@@ -552,7 +563,9 @@ export default function App() {
   }, []);
   const openMenu = useContextMenu();
   const [sizes, setSizes] = useState(() => {
-    const saved = readLocal<Record<string, number>>("devyy.layout", {});
+    const saved = embeddedThemePreview
+      ? {}
+      : readLocal<Record<string, number>>("devyy.layout", {});
     return {
       sidebar: Number.isFinite(saved.sidebar)
         ? Math.max(160, Math.min(600, saved.sidebar))
@@ -625,7 +638,8 @@ export default function App() {
     setPanel(!panel);
   }
   useEffect(() => {
-    localStorage.setItem("devyy.layout", JSON.stringify(sizes));
+    if (!embeddedThemePreview)
+      localStorage.setItem("devyy.layout", JSON.stringify(sizes));
   }, [sizes]);
   useEffect(() => {
     const resize = () =>
@@ -726,7 +740,8 @@ export default function App() {
     }
   }, [formattedOutputText, outputAutoScroll]);
   useEffect(() => {
-    localStorage.setItem("devyy.settings", JSON.stringify(settings));
+    if (!embeddedThemePreview)
+      localStorage.setItem("devyy.settings", JSON.stringify(settings));
   }, [settings]);
   useEffect(() => {
     if (playground && !showcase)
@@ -746,7 +761,12 @@ export default function App() {
       modal?.querySelector<HTMLElement>(selector)
     )?.focus();
     const trap = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !modal) return;
+      if (
+        event.key !== "Tab" ||
+        !modal ||
+        activeSurface(".desktop-theme-preview[open]")
+      )
+        return;
       const items = [...modal.querySelectorAll<HTMLElement>(selector)];
       const first = items[0],
         last = items.at(-1);
@@ -765,12 +785,43 @@ export default function App() {
       restoreFocus(previous);
     };
   }, [paletteOpen, settingsOpen, help, dialog, setupOpen]);
-  useAppearance(settings, notify);
+  const installedTheme = useStoreTheme();
+  const themePreview = useThemePreview();
+  const storeTheme = themePreview?.theme ?? installedTheme;
+  const editorBackground = storeTheme?.manifest.editorBackground;
+  const appearanceSettings = useMemo<Settings>(() => {
+    if (!storeTheme) return settings;
+    const { manifest } = storeTheme;
+    return {
+      ...settings,
+      theme: manifest.base,
+      fontSize: manifest.layout.fontSize ?? settings.fontSize,
+      lineHeight: manifest.layout.lineHeight ?? settings.lineHeight,
+      fontFamily: manifest.layout.fontFamily ?? settings.fontFamily,
+    };
+  }, [settings, storeTheme]);
+  useEffect(() => {
+    function applyDefault(event: Event) {
+      const theme = (event as CustomEvent<Settings["theme"]>).detail;
+      setSettings((current) => ({
+        ...current,
+        theme,
+        followSystemTheme: false,
+        extensionTheme: "",
+      }));
+    }
+    window.addEventListener("devyy-default-theme", applyDefault);
+    void restoreStoreTheme();
+    return () =>
+      window.removeEventListener("devyy-default-theme", applyDefault);
+  }, []);
+  useAppearance(appearanceSettings, notify, storeTheme);
   useAccountSync(settings, setSettings);
   useEffect(() => {
     if (
       !showcase ||
       showcase === "hero" ||
+      showcase === "theme" ||
       window.parent === window ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     )
@@ -3512,12 +3563,14 @@ export default function App() {
       setSettingsPage("about");
       setSettingsOpen(true);
     },
-    theme: () =>
+    theme: () => {
+      activateStoreTheme(undefined);
       setSettings((s) => ({
         ...s,
-        theme: s.theme === "paper" ? "midnight" : "paper",
+        theme: appearanceSettings.theme === "paper" ? "midnight" : "paper",
         followSystemTheme: false,
-      })),
+      }));
+    },
     wrap: () => setSettings((s) => ({ ...s, wordWrap: !s.wordWrap })),
     help: () => setHelp(true),
     reload: () => window.location.reload(),
@@ -3589,7 +3642,9 @@ export default function App() {
       const ui = uiRef.current;
       if (
         target.closest("[data-shortcut-recorder], .terminal-session input") ||
-        activeSurface(".setup-dialog,.extension-prompt")
+        activeSurface(
+          ".setup-dialog,.extension-prompt,.desktop-theme-preview[open]",
+        )
       )
         return false;
       if (ui.dialog || ui.help) return false;
@@ -3619,6 +3674,7 @@ export default function App() {
         !binding ||
         ui.dialog ||
         ui.help ||
+        document.querySelector(".desktop-theme-preview[open]") ||
         target.closest(
           "[data-shortcut-recorder], .terminal-session input, .extension-prompt",
         )
@@ -4178,11 +4234,6 @@ export default function App() {
     { id: "git" as const, icon: GitBranch, label: "Source control" },
     { id: "run" as const, icon: Play, label: "Run & build" },
     { id: "remote" as const, icon: Radio, label: "Remote Explorer" },
-    {
-      id: "tools" as const,
-      icon: Blocks,
-      label: "Extensions & languages",
-    },
   ];
   const hasProject = workspace.root !== "demo" || playground;
   useEffect(() => {
@@ -4437,7 +4488,7 @@ export default function App() {
                 value={t.content}
                 readOnly={t.readOnly || workspaceScan}
                 languageId={t.languageId}
-                settings={settings}
+                settings={appearanceSettings}
                 diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
                 onChange={edit}
                 onCursor={handleCursor}
@@ -4482,13 +4533,22 @@ export default function App() {
     >
       <header className="titlebar" data-tauri-drag-region>
         <div className="titlebar-left" data-tauri-drag-region>
-          <span className="window-space" />
+          {showcase !== "theme" && <span className="window-space" />}
           <button
             className="titlebar-app"
             onClick={() => setActive("")}
             aria-label="devyy home"
           >
-            <Asterisk size={19} strokeWidth={2.2} />
+            {themePreview?.theme.manifest.icon ? (
+              <img
+                width={19}
+                height={19}
+                alt=""
+                src={themePreview.theme.manifest.icon}
+              />
+            ) : (
+              <Asterisk size={19} strokeWidth={2.2} />
+            )}
             <span>devyy</span>
           </button>
           <span className="title-divider" data-tauri-drag-region />
@@ -4572,10 +4632,9 @@ export default function App() {
                   menuCommand("save-all"),
                   menuCommand("close", { separator: true }),
                   menuCommand("close-all"),
-                  menuCommand("settings", { separator: true }),
+                  menuCommand("settings"),
                   {
                     label: "Exit Devyy",
-                    separator: true,
                     action: () => {
                       if (native) void getCurrentWindow().close();
                     },
@@ -4687,6 +4746,18 @@ export default function App() {
             }
           }}
         >
+          <TitlebarStoreSprites
+            theme={storeTheme}
+            editing={
+              themePreview?.editable
+                ? {
+                    selected: themePreview.selected,
+                    onSelect: selectPreviewSprite,
+                    onMove: movePreviewSprite,
+                  }
+                : undefined
+            }
+          />
           {(workspace.root !== "demo" || playground) && (
             <>
               <button
@@ -4909,7 +4980,6 @@ export default function App() {
                   search: "Search",
                   git: "Source control",
                   run: "Run & Debug",
-                  tools: "Extensions & languages",
                   remote: "Remote Explorer",
                 } as Record<string, string>
               )[section] ??
@@ -5247,55 +5317,6 @@ export default function App() {
               </>
             ))}
           {section === "git" && <ExtensionViews container="scm" />}
-          {section === "tools" && <ExtensionViews container="test" />}
-          {section === "tools" && (
-            <div className="sidebar-content tools-content">
-              <h3>Extensions</h3>
-              <p className="muted tiny">
-                Languages, themes, and views from Open VSX.
-              </p>
-              <button
-                className="primary full"
-                onClick={() => commandActions.extensions()}
-              >
-                Browse extensions <ArrowUpRight size={13} />
-              </button>
-              <p className="muted tiny">
-                {installedExtensions.length} installed /{" "}
-                {installedExtensions.filter((e) => e.enabled).length} enabled
-              </p>
-              {extensionHost.statuses.some((s) => s.status === "error") && (
-                <p className="muted tiny">
-                  Some extension features need attention. Open Installed
-                  extensions for details.
-                </p>
-              )}
-              <ExtensionViews container="devyy" />
-              <h3>Language servers</h3>
-              {Object.entries(lspStatus).map(([id, status]) => (
-                <div className="language-tool" key={id}>
-                  <div>
-                    <Code2 size={15} />
-                    <strong>{id}</strong>
-                  </div>
-                  <small>{status}</small>
-                </div>
-              ))}
-              <p className="muted tiny">
-                Servers start when you open a matching file. Manage their
-                settings or add a server below.
-              </p>
-              <button
-                className="setting-action"
-                onClick={() => {
-                  setSettingsPage("languages");
-                  setSettingsOpen(true);
-                }}
-              >
-                Manage language servers
-              </button>
-            </div>
-          )}
           <div className="sidebar-foot">
             <span>
               <Asterisk size={14} /> devyy
@@ -5457,7 +5478,7 @@ export default function App() {
                     onApplyAll={() => void applyAllAIProposals()}
                     document={comparison}
                     active={diffActive}
-                    settings={settings}
+                    settings={appearanceSettings}
                     busy={gitBusy || workspaceScan}
                     onClose={() => {
                       setComparison(null);
@@ -5538,6 +5559,22 @@ export default function App() {
                       } as React.CSSProperties
                     }
                   >
+                    {editorBackground && (
+                      <img
+                        className="theme-editor-background"
+                        src={editorBackground.image}
+                        alt=""
+                        draggable={false}
+                        style={{
+                          opacity: editorBackground.opacity,
+                          objectFit: editorBackground.fit,
+                          objectPosition: `${editorBackground.x}% ${editorBackground.y}%`,
+                          imageRendering: editorBackground.pixelated
+                            ? "pixelated"
+                            : "auto",
+                        }}
+                      />
+                    )}
                     {tabs.map(renderEditor)}
                     {markdownSplit && (
                       <div
@@ -5901,7 +5938,9 @@ export default function App() {
                   <TerminalGroup
                     ref={terminalGroup}
                     toolbarHost={terminalToolbar}
-                    settings={settings}
+                    settings={appearanceSettings}
+                    themeColors={storeTheme?.manifest.colors}
+                    preview={showcase === "theme"}
                     key={workspace.root}
                     root={workspace.root}
                     onReady={setTerminalId}
@@ -6110,8 +6149,8 @@ export default function App() {
                       </span>
                       <button
                         onClick={() => {
-                          setSection("tools");
-                          showSidebar(true);
+                          setSettingsPage("languages");
+                          setSettingsOpen(true);
                         }}
                       >
                         <Braces size={12} />
@@ -6242,7 +6281,31 @@ export default function App() {
           />
         )}
       </AnimatePresence>
-      <ExtensionServices onRequest={extensionWorkbenchRequest} />
+      <StoreSprites
+        theme={storeTheme}
+        editing={
+          themePreview?.editable
+            ? {
+                selected: themePreview.selected,
+                onSelect: selectPreviewSprite,
+                onMove: movePreviewSprite,
+              }
+            : undefined
+        }
+      />
+      <ExtensionServices
+        onRequest={extensionWorkbenchRequest}
+        onStoreLink={(kind) => {
+          setSettingsPage(
+            kind === "language-server"
+              ? "languages"
+              : kind === "theme"
+                ? "themes"
+                : "extensions",
+          );
+          setSettingsOpen(true);
+        }}
+      />
       {openingUpdate && <UpdateOverlay />}
       <Toaster
         theme={settings.theme === "paper" ? "light" : "dark"}

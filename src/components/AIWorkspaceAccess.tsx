@@ -257,14 +257,13 @@ export default function AIWorkspaceAccess({
                   </button>
                   <button
                     className="primary"
+                    aria-busy={busy}
                     disabled={busy}
                     onClick={() => void grant(pending)}
                   >
-                    {busy
-                      ? "Allowing…"
-                      : pending === "full"
-                        ? "Allow full workspace access"
-                        : "Allow workspace reading"}
+                    {pending === "full"
+                      ? "Allow full workspace access"
+                      : "Allow workspace reading"}
                   </button>
                 </footer>
               </div>

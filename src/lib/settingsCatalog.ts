@@ -22,6 +22,7 @@ import {
   Keyboard,
   Layout,
   Palette,
+  SwatchBook,
   TerminalSquare,
   Asterisk,
   Blocks,
@@ -42,8 +43,14 @@ export const categories = [
   {
     id: "appearance",
     label: "Appearance",
-    description: "Theme, transparency, and interface motion.",
+    description: "Interface size, accent color, transparency, and motion.",
     icon: Palette,
+  },
+  {
+    id: "themes",
+    label: "Themes",
+    description: "Browse, import, and manage workbench themes.",
+    icon: SwatchBook,
   },
   {
     id: "editor",
@@ -143,7 +150,7 @@ export interface SettingControl {
     | "switch"
     | "range"
     | "select"
-    | "theme"
+    | "theme-store"
     | "font-size"
     | "profile"
     | "accent";
@@ -197,12 +204,12 @@ export const controls: SettingControl[] = [
   },
   {
     key: "theme",
-    category: "appearance",
-    section: "Color & material",
+    category: "themes",
+    section: "Theme store",
     label: "Color theme",
-    description: "Choose a light or dark appearance.",
-    keywords: "light dark colors",
-    type: "theme",
+    description: "Browse, preview, and apply workbench themes.",
+    keywords: "light dark monochrome default appearance",
+    type: "theme-store",
   },
   {
     key: "accent",
@@ -213,7 +220,7 @@ export const controls: SettingControl[] = [
     keywords: "white neutral custom color secondary",
     type: "accent",
   },
-  ...switches("appearance", "Color & material", [
+  ...switches("themes", "System appearance", [
     [
       "followSystemTheme",
       "Follow system appearance",

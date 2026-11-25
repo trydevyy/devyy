@@ -15,7 +15,7 @@
 
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
-import { Check, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
+import { Check, ExternalLink, RefreshCw } from "lucide-react";
 import { invoke, native } from "../lib/native";
 import FileIcon from "./FileIcon";
 interface Association {
@@ -98,15 +98,12 @@ export default function DefaultApplications() {
         <h3>Default applications</h3>
         <div style={{ display: "flex", gap: "8px" }}>
           <button
+            aria-busy={busy === "all"}
             className="setting-action"
             disabled={!!busy || !native}
             onClick={() => void changeAll()}
           >
-            {busy === "all" ? (
-              <LoaderCircle className="spinning" size={13} />
-            ) : (
-              <Check size={13} />
-            )}
+            <Check size={13} />
             Set all as default
           </button>
           <button
@@ -146,12 +143,11 @@ export default function DefaultApplications() {
             </span>
             <button
               className="setting-action"
+              aria-busy={busy === type.extension}
               disabled={!!busy || type.isDefault}
               onClick={() => void change(type.extension)}
             >
-              {busy === type.extension ? (
-                <LoaderCircle className="spinning" size={13} />
-              ) : type.isDefault ? (
+              {type.isDefault ? (
                 <Check size={13} />
               ) : (
                 <ExternalLink size={13} />

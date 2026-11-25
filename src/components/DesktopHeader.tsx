@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -54,10 +54,6 @@ function HeaderMenuItemRow({
     }, 120);
   };
 
-  if (item.separator) {
-    return <div className="header-menu-separator" role="separator" />;
-  }
-
   if (item.children && item.children.length > 0) {
     return (
       <Popover.Root open={submenuOpen} onOpenChange={setSubmenuOpen}>
@@ -82,9 +78,7 @@ function HeaderMenuItemRow({
             onMouseEnter={handleEnter}
             onMouseLeave={handleLeave}
           >
-            {item.children.map((sub, idx) => (
-              <HeaderMenuItemRow key={idx} item={sub} onClose={onClose} />
-            ))}
+            <HeaderMenuItems items={item.children} onClose={onClose} />
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
@@ -112,6 +106,24 @@ function HeaderMenuItemRow({
       )}
     </button>
   );
+}
+
+function HeaderMenuItems({
+  items,
+  onClose,
+}: {
+  items: MenuItem[];
+  onClose: () => void;
+}) {
+  const rows = items.filter((item) => item.label);
+  return rows.map((item, index) => (
+    <Fragment key={index}>
+      {index > 0 && item.separator && (
+        <div className="header-menu-separator" role="separator" />
+      )}
+      <HeaderMenuItemRow item={item} onClose={onClose} />
+    </Fragment>
+  ));
 }
 
 export function DesktopMenuBar({
@@ -237,13 +249,10 @@ export function DesktopMenuBar({
                 sideOffset={6}
                 onCloseAutoFocus={(e) => e.preventDefault()}
               >
-                {menu.items.map((item, idx) => (
-                  <HeaderMenuItemRow
-                    key={idx}
-                    item={item}
-                    onClose={() => setActiveMenu(null)}
-                  />
-                ))}
+                <HeaderMenuItems
+                  items={menu.items}
+                  onClose={() => setActiveMenu(null)}
+                />
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>

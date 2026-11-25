@@ -21,7 +21,6 @@ import {
   X,
   FileCode,
   FilePlus,
-  LoaderCircle,
   AlertCircle,
   ShieldCheck,
   RotateCcw,
@@ -105,16 +104,13 @@ export default function AIReviewView({
         </div>
         <div className="ai-review-actions-bar">
           <button
+            aria-busy={qaBusy}
             className="setting-action"
             onClick={() => void runQaCheck()}
             disabled={qaBusy || !native || !cwd}
             title="Check Git status and merge conflicts"
           >
-            {qaBusy ? (
-              <LoaderCircle size={13} className="spinning" />
-            ) : (
-              <ShieldCheck size={13} />
-            )}
+            <ShieldCheck size={13} />
             Check working tree
           </button>
           {pending.length > 0 && onApproveAll && (

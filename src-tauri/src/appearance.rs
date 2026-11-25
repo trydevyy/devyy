@@ -27,6 +27,7 @@ pub fn set_appearance(
     theme: String,
     vibrancy: bool,
 ) -> Result<Appearance, String> {
+    #[cfg(not(target_os = "macos"))]
     let is_monochrome = theme == "monochrome";
     let theme = match theme.as_str() {
         "paper" => Theme::Light,
@@ -39,24 +40,10 @@ pub fn set_appearance(
     } else {
         include_bytes!("../icons/theme-light.png")
     };
-    window
-        .set_icon(tauri::image::Image::from_bytes(bytes).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    apply_icon(&window, bytes)?;
 
     #[cfg(target_os = "macos")]
     {
-        use objc2::AnyThread;
-        use objc2::MainThreadMarker;
-        use objc2_app_kit::{NSApplication, NSImage};
-        use objc2_foundation::NSData;
-        if let Some(main) = MainThreadMarker::new() {
-            let data = NSData::with_bytes(bytes);
-            if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
-                unsafe {
-                    NSApplication::sharedApplication(main).setApplicationIconImage(Some(&image));
-                }
-            }
-        }
         use window_vibrancy::{
             apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
         };
@@ -98,16 +85,64 @@ pub fn set_appearance(
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = vibrancy;
-        window
-            .set_background_color(Some(if is_monochrome {
-                tauri::window::Color(0, 0, 0, 255)
-            } else if theme == Theme::Dark {
-                tauri::window::Color(27, 28, 30, 255)
-            } else {
-                tauri::window::Color(237, 237, 238, 255)
-            }))
-            .map_err(|e| e.to_string())?;
-        Ok(Appearance { material: "solid" })
+        #[cfg(target_os = "linux")]
+        let transparent = {
+            use gtk::prelude::WidgetExt;
+
+            vibrancy
+                && window
+                    .gtk_window()
+                    .ok()
+                    .and_then(|gtk| WidgetExt::screen(&gtk))
+                    .is_some_and(|screen| screen.is_composited() && screen.rgba_visual().is_some())
+                && window
+                    .set_background_color(Some(tauri::window::Color(0, 0, 0, 0)))
+                    .is_ok()
+        };
+        #[cfg(not(target_os = "linux"))]
+        let transparent = false;
+        if !transparent {
+            window
+                .set_background_color(Some(if is_monochrome {
+                    tauri::window::Color(0, 0, 0, 255)
+                } else if theme == Theme::Dark {
+                    tauri::window::Color(27, 28, 30, 255)
+                } else {
+                    tauri::window::Color(237, 237, 238, 255)
+                }))
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(Appearance {
+            material: if transparent { "translucent" } else { "solid" },
+        })
     }
+}
+
+pub(crate) fn apply_icon(window: &WebviewWindow, bytes: &[u8]) -> Result<(), String> {
+    window
+        .set_icon(tauri::image::Image::from_bytes(bytes).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let bytes = bytes.to_vec();
+        window
+            .run_on_main_thread(move || {
+                use objc2::{AnyThread, MainThreadMarker};
+                use objc2_app_kit::{NSApplication, NSImage};
+                use objc2_foundation::NSData;
+                if let Some(marker) = MainThreadMarker::new() {
+                    if let Some(image) =
+                        NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(&bytes))
+                    {
+                        unsafe {
+                            NSApplication::sharedApplication(marker)
+                                .setApplicationIconImage(Some(&image))
+                        };
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

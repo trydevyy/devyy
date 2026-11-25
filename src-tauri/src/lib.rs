@@ -36,6 +36,7 @@ mod remote;
 mod setup_import;
 mod shells;
 mod ssh;
+mod store;
 mod terminal;
 #[path = "../../shared/webhook.rs"]
 mod webhook;
@@ -75,6 +76,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(account::Accounts::default())
+        .manage(store::Store::default())
         .manage(remote::Remotes::default())
         .manage(ai::AiState::default())
         .manage(ai::agent::AccessState::default())
@@ -91,21 +93,21 @@ pub fn run() {
         .setup(|app| {
             crash_report::install(app.handle());
             menus::install(app.handle())?;
+            #[cfg(all(target_os = "linux", not(debug_assertions)))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handler = process::command("xdg-mime")
+                    .args(["query", "default", "x-scheme-handler/devyy"])
+                    .output();
+                if handler.is_ok_and(|response| {
+                    response.status.success() && response.stdout.iter().all(u8::is_ascii_whitespace)
+                }) {
+                    let _ = app.deep_link().register_all();
+                }
+            }
             #[cfg(any(windows, target_os = "macos"))]
             if let Err(error) = menus::install_tray(app.handle()) {
                 eprintln!("Could not open the system tray: {error}");
-            }
-            {
-                use tauri::Emitter;
-                use tauri_plugin_deep_link::DeepLinkExt;
-                let handle = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    for url in event.urls() {
-                        if url.scheme() == "devyy" && url.host_str() == Some("account") {
-                            let _ = handle.emit("devyy-account-callback", url.as_str());
-                        }
-                    }
-                });
             }
             if let Ok(cwd) = std::env::current_dir() {
                 associations::enqueue(
@@ -123,8 +125,18 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             crash_report::report_frontend_crash,
             account::account_begin,
-            account::account_finish,
+            store::store_catalog,
+            store::store_install_language,
+            store::store_install_theme,
+            store::store_theme_details,
+            store::store_import_theme,
+            store::store_restore_themes,
+            store::store_local_theme,
+            store::store_installed_themes,
+            store::store_remove_theme,
+            store::set_theme_icon,
             account::account_request,
+            account::account_origin,
             account::account_disconnect,
             remote::remote_list,
             remote::remote_stop,
@@ -228,6 +240,13 @@ pub fn run() {
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
+                if urls.iter().any(|url| url.scheme() == "devyy") {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
                 associations::enqueue(
                     app,
                     urls.iter()

@@ -27,7 +27,6 @@ import {
   Play,
   Square,
   ChevronRight,
-  RefreshCw,
   FolderOpen,
 } from "lucide-react";
 import { invoke, listen, native, workspaceRelativePath } from "../lib/native";
@@ -359,16 +358,13 @@ export default function Debugger({
       <div className="debug-controls">
         <button
           className="primary"
+          aria-busy={busy}
           disabled={busy || (running ? thread === null : !program.trim())}
           title={running ? "Continue" : "Start debugging"}
           aria-label={running ? "Continue" : "Start debugging"}
           onClick={() => (running ? void control("continue") : void start())}
         >
-          {busy ? (
-            <RefreshCw size={14} className="spinning" />
-          ) : (
-            <Play size={14} />
-          )}
+          <Play size={14} />
           <span>{running ? "Continue" : "Start debugging"}</span>
         </button>
         <button

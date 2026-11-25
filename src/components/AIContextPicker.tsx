@@ -21,7 +21,6 @@ import {
   Check,
   FileCode2,
   Folder,
-  LoaderCircle,
   Paperclip,
   Search,
   TerminalSquare,
@@ -210,16 +209,13 @@ export default function AIContextPicker({
                   <Upload size={13} /> From device
                 </button>
                 <button
+                  aria-busy={busy}
                   className="setting-action"
                   disabled={!selected.length || busy}
                   onClick={() => void attach()}
                 >
-                  {busy ? (
-                    <LoaderCircle size={13} className="spinning" />
-                  ) : (
-                    <Paperclip size={13} />
-                  )}{" "}
-                  Attach{selected.length ? ` (${selected.length})` : ""}
+                  <Paperclip size={13} /> Attach
+                  {selected.length ? ` (${selected.length})` : ""}
                 </button>
               </footer>
             </div>

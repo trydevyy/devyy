@@ -25,10 +25,49 @@ function bytes(value: number) {
   const unit = value < 1024 * 1024 ? 1024 : 1024 * 1024;
   return `${(value / unit).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit === 1024 ? "KiB" : "MiB"}`;
 }
-export function ExtensionInstallLabel({ id }: { id: string }) {
-  const progress = useExtensionInstall(id);
-  return <>{progress ? labels[progress.phase] : "Installing…"}</>;
+export function InstallProgress({
+  name,
+  status,
+  detail,
+  ratio,
+}: {
+  name: string;
+  status: string;
+  detail?: string;
+  ratio?: number;
+}) {
+  const percent = ratio === undefined ? undefined : Math.floor(ratio * 100);
+  return (
+    <div className="card-install-progress">
+      <div className="extension-progress-label">
+        <span role="status">{status}</span>
+        {detail && (
+          <span>
+            {detail}
+            {percent !== undefined && (
+              <span className="extension-progress-percent">{percent}%</span>
+            )}
+          </span>
+        )}
+      </div>
+      <div
+        className={`extension-progress-track ${ratio === undefined ? "indeterminate" : ""}`}
+        role="progressbar"
+        aria-label={name}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={detail ?? status}
+      >
+        <div
+          className="extension-progress-fill"
+          style={{ transform: `scaleX(${ratio ?? 1})` }}
+        />
+      </div>
+    </div>
+  );
 }
+
 export default function ExtensionProgress({
   id,
   name,
@@ -46,44 +85,22 @@ export default function ExtensionProgress({
     : progress.total
       ? Math.min(1, progress.downloaded / progress.total)
       : undefined;
-  const percent = ratio === undefined ? undefined : Math.floor(ratio * 100);
-  const text = downloading
+  const detail = downloading
     ? progress.total
       ? `${bytes(progress.downloaded)} / ${bytes(progress.total)}`
       : `${bytes(progress.downloaded)} downloaded`
-    : labels[progress.phase];
+    : undefined;
   return (
-    <div className="extension-progress">
-      <div className="extension-progress-label">
-        <span role="status">
-          {progress.packageId && progress.packageId !== progress.id
-            ? `${labels[progress.phase]} ${progress.packageId}`
-            : downloading
-              ? "Downloading"
-              : labels[progress.phase]}
-        </span>
-        <span>
-          {downloading ? text : completeDownload ? "Download complete" : ""}
-          {downloading && percent !== undefined && (
-            <span className="extension-progress-percent">{percent}%</span>
-          )}
-        </span>
-      </div>
-      <div
-        key={progress.packageId ?? progress.id}
-        className={`extension-progress-track ${ratio === undefined ? "indeterminate" : ""}`}
-        role="progressbar"
-        aria-label={`${name} download`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        aria-valuetext={downloading ? text : labels[progress.phase]}
-      >
-        <div
-          className="extension-progress-fill"
-          style={{ transform: `scaleX(${ratio ?? 1})` }}
-        />
-      </div>
-    </div>
+    <InstallProgress
+      key={progress.packageId ?? progress.id}
+      name={`${name} download`}
+      status={
+        progress.packageId
+          ? `${labels[progress.phase]} ${progress.packageId}`
+          : labels[progress.phase]
+      }
+      detail={detail}
+      ratio={ratio}
+    />
   );
 }

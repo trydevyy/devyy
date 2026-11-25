@@ -81,8 +81,12 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary" disabled={busy || !value.trim()}>
-            {busy ? "Working…" : dialog.label}
+          <button
+            className="primary"
+            disabled={busy || !value.trim()}
+            aria-busy={busy}
+          >
+            {dialog.label}
           </button>
         </div>
       </form>

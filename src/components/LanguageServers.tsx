@@ -18,6 +18,7 @@ import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
 import { Check, Plus, RotateCcw, Save, Search, X } from "lucide-react";
 import { toast } from "sonner";
+import { LanguageIcon } from "./FileIcon";
 import { native } from "../lib/native";
 import {
   refreshLanguageServers,
@@ -43,9 +44,15 @@ export default function LanguageServers() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    void refreshLanguageServers()
-      .then(setServers)
-      .catch((e) => setError(String(e)));
+    function refresh() {
+      void refreshLanguageServers()
+        .then(setServers)
+        .catch((e) => setError(String(e)));
+    }
+    refresh();
+    window.addEventListener("devyy-language-servers-changed", refresh);
+    return () =>
+      window.removeEventListener("devyy-language-servers-changed", refresh);
   }, []);
   function choose(server: ServerConfig) {
     setEdit({ ...server });
@@ -81,10 +88,6 @@ export default function LanguageServers() {
   }
   return (
     <div className="language-servers">
-      <p className="settings-note">
-        Extensions add their language servers automatically. Add a server here
-        to use your own installation or override an extension’s settings.
-      </p>
       {!native && (
         <p className="settings-note">
           Language server configuration is available in the desktop app.
@@ -191,7 +194,12 @@ export default function LanguageServers() {
           </label>
           {error && <ErrorToast message={error} />}
           <div className="server-edit-actions">
-            <button className="primary" disabled={busy} type="submit">
+            <button
+              className="primary"
+              aria-busy={busy}
+              disabled={busy}
+              type="submit"
+            >
               <Save size={13} /> Save server
             </button>
             <button
@@ -204,23 +212,28 @@ export default function LanguageServers() {
           </div>
         </form>
       ) : (
-        <div>
+        <div className="settings-store-list">
           {error && <ErrorToast message={error} />}
           {servers
             .filter((s) =>
-              `${s.language} ${s.command}`.includes(query.toLowerCase()),
+              `${s.language} ${s.command}`
+                .toLowerCase()
+                .includes(query.toLowerCase()),
             )
             .map((server) => (
-              <div className="server-row" key={server.language}>
-                <span>
+              <article className="desktop-store-card" key={server.language}>
+                <div className="desktop-store-card-heading">
+                  <LanguageIcon language={server.language} />
                   <strong>{server.language}</strong>
+                </div>
+                <span>
                   {server.source && (
                     <small className="server-source">
                       From {server.source}
                       {server.custom ? " (customized)" : ""}
                     </small>
                   )}
-                  <code>
+                  <code className="server-command">
                     {server.command}
                     {server.args.length ? ` ${server.args.join(" ")}` : ""}
                   </code>
@@ -255,7 +268,7 @@ export default function LanguageServers() {
                     <RotateCcw size={13} />
                   </button>
                 )}
-              </div>
+              </article>
             ))}
         </div>
       )}

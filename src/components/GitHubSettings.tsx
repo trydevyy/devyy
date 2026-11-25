@@ -292,13 +292,11 @@ export default function GitHubSettings({
             className="icon-button"
             title="Check GitHub status"
             aria-label="Check status"
+            aria-busy={busy === "status"}
             disabled={!native || !!busy}
             onClick={() => void refresh()}
           >
-            <RefreshCw
-              size={14}
-              className={busy === "status" ? "spinning" : ""}
-            />
+            <RefreshCw size={14} />
           </button>
         </header>
         {!status?.connected && busy !== "login" && (

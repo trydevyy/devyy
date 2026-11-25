@@ -335,10 +335,11 @@ export default function GitGraph({
             {more && (
               <button
                 className="git-graph-more"
+                aria-busy={busy}
                 disabled={busy}
                 onClick={() => void load()}
               >
-                {busy ? "Loading…" : "Load older commits"}
+                Load older commits
               </button>
             )}
             {busy && (

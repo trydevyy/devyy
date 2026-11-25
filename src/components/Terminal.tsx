@@ -67,9 +67,11 @@ export default forwardRef<
     onError: (error: unknown) => void;
     onOpen: () => void;
     theme: "paper" | "midnight" | "monochrome";
+    colors?: Record<string, string>;
     fontSize: number;
     scrollback: number;
     cursorBlink: boolean;
+    preview?: boolean;
   }
 >(function Terminal(
   {
@@ -84,9 +86,11 @@ export default forwardRef<
     onError,
     onOpen,
     theme,
+    colors,
     fontSize,
     scrollback,
     cursorBlink,
+    preview = false,
   },
   ref,
 ) {
@@ -95,8 +99,8 @@ export default forwardRef<
   copySelection.current = copyOnSelect;
   const terminal = useRef<XTerminal | null>(null);
   const requestFit = useRef<() => void>(() => {});
-  const currentTheme = useRef(theme);
-  currentTheme.current = theme;
+  const currentTheme = useRef(terminalTheme(theme, colors));
+  currentTheme.current = terminalTheme(theme, colors);
   const host = useRef<HTMLDivElement>(null),
     callback = useRef({ onReady, onExit, onError });
   callback.current = { onReady, onExit, onError };
@@ -137,7 +141,7 @@ export default forwardRef<
     reducedMotion,
   ]);
   useEffect(() => {
-    if (!native || root === "demo" || !host.current) return;
+    if ((!preview && (!native || root === "demo")) || !host.current) return;
     setExited(false);
     const term = new XTerminal({
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
@@ -147,12 +151,39 @@ export default forwardRef<
       cursorStyle,
       cursorBlink: cursorBlink && !reducedMotion,
       allowProposedApi: false,
-      theme: terminalTheme(currentTheme.current),
+      disableStdin: preview,
+      theme: currentTheme.current,
     });
     terminal.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current);
+    if (preview) {
+      const resize = () => {
+        if (host.current?.clientWidth && host.current.clientHeight) fit.fit();
+      };
+      requestFit.current = resize;
+      const observer = new ResizeObserver(resize);
+      observer.observe(host.current);
+      resize();
+      term.write(
+        [
+          "\x1b[36m~/playground\x1b[0m \x1b[32m❯\x1b[0m cargo run",
+          "\x1b[32m   Compiling\x1b[0m devyy-playground v0.1.0",
+          "\x1b[32m    Finished\x1b[0m dev profile in 0.24s",
+          "\x1b[32m     Running\x1b[0m `target/debug/devyy-playground`",
+          "Hello from Devyy!",
+          "",
+          "\x1b[36m~/playground\x1b[0m \x1b[32m❯\x1b[0m ",
+        ].join("\r\n"),
+      );
+      return () => {
+        observer.disconnect();
+        requestFit.current = () => {};
+        terminal.current = null;
+        term.dispose();
+      };
+    }
     let id: number | null = null,
       disposed = false;
     const queued = new Map<number, number[][]>();
@@ -303,13 +334,14 @@ export default forwardRef<
       callback.current.onReady(null);
       if (id !== null) void invoke("terminal_close", { id }).catch(() => {});
     };
-  }, [root, profile, generation]);
+  }, [root, profile, generation, preview]);
   useEffect(() => {
-    if (terminal.current) terminal.current.options.theme = terminalTheme(theme);
-  }, [theme]);
+    if (terminal.current)
+      terminal.current.options.theme = terminalTheme(theme, colors);
+  }, [theme, colors]);
   return (
     <div className="terminal-content">
-      {root === "demo" || !native ? (
+      {!preview && (root === "demo" || !native) ? (
         <div className="terminal-welcome">
           <TerminalSquare size={23} />
           <div>
@@ -341,29 +373,40 @@ export default forwardRef<
   );
 });
 
-export function terminalTheme(theme: "paper" | "midnight" | "monochrome") {
+export function terminalTheme(
+  theme: "paper" | "midnight" | "monochrome",
+  colors?: Record<string, string>,
+) {
   const light = theme === "paper";
   const oled = theme === "monochrome";
   return {
-    background: light ? "#f0eff3" : oled ? "#0a0a0a" : "#2a2b2e",
-    foreground: light ? "#494453" : oled ? "#eaeaea" : "#d7d3de",
-    cursor: light ? "#80659f" : oled ? "#ffffff" : "#b9a2d7",
-    selectionBackground: light ? "#dcd3e8" : oled ? "#2a2a2a" : "#494053",
-    black: "#28262e",
-    red: "#d28c8d",
-    green: "#9eb394",
-    yellow: "#c5b189",
-    blue: "#8eaac6",
-    magenta: "#b499cd",
-    cyan: "#8eafb5",
-    white: "#ddd9e4",
-    brightBlack: "#797480",
-    brightRed: "#e4a1a1",
-    brightGreen: "#b0c8a5",
-    brightYellow: "#ddc79a",
-    brightBlue: "#a8c0dd",
-    brightMagenta: "#cab1df",
-    brightCyan: "#a3c5cb",
-    brightWhite: "#ffffff",
+    background:
+      colors?.["terminal"] ??
+      (light ? "#f0eff3" : oled ? "#0a0a0a" : "#2a2b2e"),
+    foreground:
+      colors?.["terminal-foreground"] ??
+      (light ? "#494453" : oled ? "#eaeaea" : "#d7d3de"),
+    cursor:
+      colors?.["terminal-cursor"] ??
+      (light ? "#80659f" : oled ? "#ffffff" : "#b9a2d7"),
+    selectionBackground:
+      colors?.["terminal-selection"] ??
+      (light ? "#dcd3e8" : oled ? "#2a2a2a" : "#494053"),
+    black: colors?.["terminal-black"] ?? "#28262e",
+    red: colors?.["terminal-red"] ?? "#d28c8d",
+    green: colors?.["terminal-green"] ?? "#9eb394",
+    yellow: colors?.["terminal-yellow"] ?? "#c5b189",
+    blue: colors?.["terminal-blue"] ?? "#8eaac6",
+    magenta: colors?.["terminal-magenta"] ?? "#b499cd",
+    cyan: colors?.["terminal-cyan"] ?? "#8eafb5",
+    white: colors?.["terminal-white"] ?? "#ddd9e4",
+    brightBlack: colors?.["terminal-bright-black"] ?? "#797480",
+    brightRed: colors?.["terminal-bright-red"] ?? "#e4a1a1",
+    brightGreen: colors?.["terminal-bright-green"] ?? "#b0c8a5",
+    brightYellow: colors?.["terminal-bright-yellow"] ?? "#ddc79a",
+    brightBlue: colors?.["terminal-bright-blue"] ?? "#a8c0dd",
+    brightMagenta: colors?.["terminal-bright-magenta"] ?? "#cab1df",
+    brightCyan: colors?.["terminal-bright-cyan"] ?? "#a3c5cb",
+    brightWhite: colors?.["terminal-bright-white"] ?? "#ffffff",
   };
 }

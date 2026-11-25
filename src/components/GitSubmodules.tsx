@@ -19,7 +19,6 @@ import {
   Check,
   ChevronDown,
   FolderGit2,
-  LoaderCircle,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -151,16 +150,13 @@ export default function GitSubmodules({
                   <button
                     className="icon-button"
                     aria-label={`Initialize submodule ${item.path}`}
+                    aria-busy={busy}
                     disabled={busy || item.conflict}
                     onClick={() => {
                       void onAction("update", item.path);
                     }}
                   >
-                    {busy ? (
-                      <LoaderCircle size={13} className="spin" />
-                    ) : (
-                      <RefreshCw size={13} />
-                    )}
+                    <RefreshCw size={13} />
                   </button>
                 )}
                 <button

@@ -268,15 +268,12 @@ export default function AIModelPicker({
                     onChange={(e) => setQuery(e.target.value)}
                   />
                   <button
+                    aria-busy={busy}
                     aria-label="Refresh models"
                     onClick={() => void refresh(true)}
                     disabled={busy}
                   >
-                    {busy ? (
-                      <LoaderCircle size={13} className="spinning" />
-                    ) : (
-                      <RefreshCw size={13} />
-                    )}
+                    <RefreshCw size={13} />
                   </button>
                 </div>
                 <div
