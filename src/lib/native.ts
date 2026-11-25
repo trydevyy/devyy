@@ -20,6 +20,8 @@ import { activateExtensionLanguage } from "./extensionHost";
 import type { Position, LspDiagnostic } from "./types";
 import { embeddedThemePreview } from "./previewMode";
 export const native = !embeddedThemePreview && isTauri();
+export const nativeLinux =
+  native && globalThis.document?.documentElement.dataset.platform === "linux";
 export const invoke: typeof invokeNative = embeddedThemePreview
   ? () => Promise.reject(Error("This action is unavailable in the preview."))
   : invokeNative;

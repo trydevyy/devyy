@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { invoke, native } from "./native";
+import { invoke, native, nativeLinux } from "./native";
 import type { Settings } from "./types";
 import { useExtensions } from "./extensions";
 import { accentColor, onAccent } from "./palette";
@@ -33,6 +33,8 @@ function mediaPreference(query: string) {
 }
 const transparency = mediaPreference("(prefers-reduced-transparency: reduce)");
 const motion = mediaPreference("(prefers-reduced-motion: reduce)");
+
+export const supportsWindowVibrancy = !nativeLinux;
 
 export function useAppearance(
   settings: Settings,
@@ -54,7 +56,8 @@ export function useAppearance(
   const reducedMotion = useSyncExternalStore(motion.subscribe, motion.snapshot);
   const callback = useRef(onError);
   callback.current = onError;
-  const vibrancy = settings.vibrancy && !reducedTransparency;
+  const vibrancy =
+    supportsWindowVibrancy && settings.vibrancy && !reducedTransparency;
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--ui-text-scale", String(settings.uiTextSize / 13));
@@ -78,11 +81,6 @@ export function useAppearance(
   useEffect(() => {
     const root = document.documentElement;
     const color = accentColor(settings, settings.theme !== "paper");
-    root.dataset.platform = /Mac/.test(navigator.platform)
-      ? "macos"
-      : /Win/.test(navigator.platform)
-        ? "windows"
-        : "linux";
     root.style.setProperty("--accent", color);
     root.style.setProperty("--accent-line", color);
     root.style.setProperty(

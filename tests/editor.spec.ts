@@ -202,6 +202,77 @@ test("vibrancy and motion preferences persist, and the workspace fits compact wi
   expect(main?.width).toBeGreaterThan(600);
 });
 
+test("the Linux desktop uses opaque surfaces with saved vibrancy enabled", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { value: "Linux x86_64" });
+    localStorage.setItem(
+      "devyy.settings",
+      JSON.stringify({
+        vibrancy: true,
+        windowTransparency: 90,
+        editorTransparency: 90,
+      }),
+    );
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_INTERNALS__: {
+        metadata: {
+          currentWindow: { label: "main" },
+          currentWebview: { label: "main" },
+        },
+        transformCallback: () => 1,
+        invoke: async (cmd: string, args?: { vibrancy?: boolean }) =>
+          cmd === "set_appearance"
+            ? { material: args?.vibrancy ? "translucent" : "solid" }
+            : null,
+      },
+    });
+  });
+  await page.goto("/?playground=1");
+  await expect(page.locator("html")).toHaveAttribute("data-vibrancy", "off");
+  await expect(page.locator("html")).toHaveAttribute("data-material", "solid");
+  await expect(page.locator(".editor-surface")).toHaveCSS(
+    "background-color",
+    "rgb(34, 35, 37)",
+  );
+  await expect(page.locator(".devyy")).toHaveCSS(
+    "background-color",
+    "rgb(27, 28, 30)",
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator(".devyy")
+        .evaluate((element) => getComputedStyle(element, "::before").display),
+    )
+    .toBe("none");
+
+  await expect(
+    page.getByRole("button", { name: "Toggle vibrancy" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await expect(page.locator(".preferences-backdrop")).toHaveCSS(
+    "backdrop-filter",
+    "none",
+  );
+  const vibrancy = page.getByRole("switch", {
+    name: "Window vibrancy",
+    exact: true,
+  });
+  await expect(vibrancy).toBeDisabled();
+  await expect(vibrancy).not.toBeChecked();
+  await expect(
+    page.getByRole("slider", { name: "Window transparency" }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Editor", exact: true }).click();
+  await expect(page.locator(".settings-inner").last()).toHaveCSS(
+    "filter",
+    "none",
+  );
+});
+
 test("system accessibility preferences override decorative effects", async ({
   page,
   context,

@@ -85,36 +85,18 @@ pub fn set_appearance(
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        #[cfg(target_os = "linux")]
-        let transparent = {
-            use gtk::prelude::WidgetExt;
-
-            vibrancy
-                && window
-                    .gtk_window()
-                    .ok()
-                    .and_then(|gtk| WidgetExt::screen(&gtk))
-                    .is_some_and(|screen| screen.is_composited() && screen.rgba_visual().is_some())
-                && window
-                    .set_background_color(Some(tauri::window::Color(0, 0, 0, 0)))
-                    .is_ok()
-        };
-        #[cfg(not(target_os = "linux"))]
-        let transparent = false;
-        if !transparent {
-            window
-                .set_background_color(Some(if is_monochrome {
-                    tauri::window::Color(0, 0, 0, 255)
-                } else if theme == Theme::Dark {
-                    tauri::window::Color(27, 28, 30, 255)
-                } else {
-                    tauri::window::Color(237, 237, 238, 255)
-                }))
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(Appearance {
-            material: if transparent { "translucent" } else { "solid" },
-        })
+        // Transparent WebKitGTK surfaces can flicker on compositor damage.
+        let _ = vibrancy;
+        window
+            .set_background_color(Some(if is_monochrome {
+                tauri::window::Color(0, 0, 0, 255)
+            } else if theme == Theme::Dark {
+                tauri::window::Color(27, 28, 30, 255)
+            } else {
+                tauri::window::Color(237, 237, 238, 255)
+            }))
+            .map_err(|e| e.to_string())?;
+        Ok(Appearance { material: "solid" })
     }
 }
 

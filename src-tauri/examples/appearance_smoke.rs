@@ -15,6 +15,7 @@
 
 #[path = "../src/appearance.rs"]
 mod appearance;
+#[cfg(target_os = "macos")]
 #[path = "../src/menus.rs"]
 mod menus;
 use tauri::Manager;
@@ -53,33 +54,47 @@ fn check_window_controls(window: &tauri::WebviewWindow) -> Result<(), Box<dyn st
 }
 
 fn main() {
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "linux")]
+    let context = {
+        let mut context = context;
+        let window = &mut context.config_mut().app.windows[0];
+        assert!(
+            !window.transparent,
+            "Linux must start with an opaque window"
+        );
+        // Exercise the native window without fetching the development frontend.
+        window.url = tauri::WebviewUrl::External("about:blank".parse().unwrap());
+        context
+    };
     let app = tauri::Builder::default()
         .setup(|app| {
-            menus::install(app.handle())?;
-            let entries = app.menu().unwrap().items()?;
-            assert_eq!(
-                entries.len(),
-                8,
-                "Expected devyy, File, Edit, Selection, View, Go, Terminal and Window menus"
-            );
-            menus::set_menu_shortcuts(
-                app.handle().clone(),
-                [
-                    ("settings", "Mod+,"),
-                    ("files", "Mod+P"),
-                    ("sidebar", "Mod+B"),
-                    ("split", "Mod+\\"),
-                    ("new-terminal", "Ctrl+Shift+`"),
-                    ("next-terminal", "Mod+Alt+]"),
-                    ("previous-terminal", "Mod+Alt+["),
-                ]
-                .into_iter()
-                .map(|(id, key)| (id.to_owned(), key.to_owned()))
-                .collect(),
-            )?;
-            println!(
-                "NATIVE_MENUS_OK: all menu groups installed; customizable accelerators accepted"
-            );
+            #[cfg(target_os = "macos")]
+            {
+                menus::install(app.handle())?;
+                let entries = app.menu().unwrap().items()?;
+                assert_eq!(
+                    entries.len(),
+                    8,
+                    "Expected devyy, File, Edit, Selection, View, Go, Terminal and Window menus"
+                );
+                menus::set_menu_shortcuts(
+                    app.handle().clone(),
+                    [
+                        ("settings", "Mod+,"),
+                        ("files", "Mod+P"),
+                        ("sidebar", "Mod+B"),
+                        ("split", "Mod+\\"),
+                        ("new-terminal", "Ctrl+Shift+`"),
+                        ("next-terminal", "Mod+Alt+]"),
+                        ("previous-terminal", "Mod+Alt+["),
+                    ]
+                    .into_iter()
+                    .map(|(id, key)| (id.to_owned(), key.to_owned()))
+                    .collect(),
+                )?;
+                println!("NATIVE_MENUS_OK: menu groups and accelerator updates verified");
+            }
             let window = app
                 .get_webview_window("main")
                 .ok_or("Main window missing")?;
@@ -88,10 +103,13 @@ fn main() {
                 ("midnight", true),
                 ("paper", true),
                 ("paper", false),
+                ("monochrome", true),
                 ("midnight", true),
                 ("midnight", false),
             ] {
                 let result = appearance::set_appearance(window.clone(), theme.into(), vibrancy)?;
+                #[cfg(target_os = "linux")]
+                assert_eq!(serde_json::to_value(&result)?["material"], "solid");
                 println!(
                     "APPEARANCE_OK {}",
                     serde_json::json!({"theme":theme,"enabled":vibrancy,"result":result})
@@ -100,7 +118,7 @@ fn main() {
             assert!(appearance::set_appearance(window.clone(), "invalid".into(), true).is_err());
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Native appearance smoke test failed");
     app.run(|handle, event| {
         if let tauri::RunEvent::Ready = event {

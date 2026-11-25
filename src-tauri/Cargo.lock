@@ -1373,7 +1373,6 @@ version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
- "gtk",
  "hit",
  "ignore",
  "image",

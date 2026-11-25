@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import AIProviders from "./AIProviders";
 import { activateStoreTheme, defaultStoreThemes } from "../lib/store";
+import { supportsWindowVibrancy } from "../lib/appearance";
 import type { Settings } from "../lib/types";
 import AccentPicker from "./AccentPicker";
 import EditorPreview from "./EditorPreview";
@@ -211,21 +212,23 @@ export default function Setup({
                   </span>
                   <AccentPicker settings={settings} onChange={onChange} />
                 </div>
-                <div className="setup-option">
-                  <span>
-                    <strong>Window vibrancy</strong>
-                    <small>Native glass where supported.</small>
-                  </span>
-                  <button
-                    role="switch"
-                    aria-label="Setup window vibrancy"
-                    aria-checked={settings.vibrancy}
-                    className={`switch ${settings.vibrancy ? "on" : ""}`}
-                    onClick={() => onChange({ vibrancy: !settings.vibrancy })}
-                  >
-                    <span />
-                  </button>
-                </div>
+                {supportsWindowVibrancy && (
+                  <div className="setup-option">
+                    <span>
+                      <strong>Window vibrancy</strong>
+                      <small>Native glass where supported.</small>
+                    </span>
+                    <button
+                      role="switch"
+                      aria-label="Setup window vibrancy"
+                      aria-checked={settings.vibrancy}
+                      className={`switch ${settings.vibrancy ? "on" : ""}`}
+                      onClick={() => onChange({ vibrancy: !settings.vibrancy })}
+                    >
+                      <span />
+                    </button>
+                  </div>
+                )}
               </>
             )}
             {current === "Editor" && (

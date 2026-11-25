@@ -93,7 +93,7 @@ import {
 } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import PortsPanel from "./components/PortsPanel";
-import { useAppearance } from "./lib/appearance";
+import { supportsWindowVibrancy, useAppearance } from "./lib/appearance";
 import {
   activateStoreTheme,
   restoreStoreTheme,
@@ -649,6 +649,7 @@ export default function App() {
     return () => window.removeEventListener("resize", resize);
   }, []);
   const updateChrome = useCallback(() => {
+    if (!supportsWindowVibrancy) return;
     const shell = document.querySelector<HTMLElement>(".devyy"),
       surface = document.querySelector<HTMLElement>(".editor-surface");
     if (!shell || !surface) return;
@@ -674,6 +675,7 @@ export default function App() {
     tabs.length,
   ]);
   useEffect(() => {
+    if (!supportsWindowVibrancy) return;
     const observer = new ResizeObserver(updateChrome);
     document
       .querySelectorAll(".devyy,.sidebar,.editor-surface,.settings-modal")
@@ -4862,16 +4864,18 @@ export default function App() {
           >
             <PanelsTopLeft size={16} />
           </button>
-          <button
-            aria-label="Toggle vibrancy"
-            aria-pressed={settings.vibrancy}
-            title="Toggle window vibrancy"
-            onClick={() =>
-              setSettings((s) => ({ ...s, vibrancy: !s.vibrancy }))
-            }
-          >
-            <Blend size={16} />
-          </button>
+          {supportsWindowVibrancy && (
+            <button
+              aria-label="Toggle vibrancy"
+              aria-pressed={settings.vibrancy}
+              title="Toggle window vibrancy"
+              onClick={() =>
+                setSettings((s) => ({ ...s, vibrancy: !s.vibrancy }))
+              }
+            >
+              <Blend size={16} />
+            </button>
+          )}
           {updateStatus?.status === "available" && (
             <button
               className="titlebar-update-button"

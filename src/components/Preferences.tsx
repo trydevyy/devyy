@@ -46,7 +46,8 @@ import {
   refreshTerminalProfiles,
 } from "../lib/terminalProfiles";
 import { version } from "../../package.json";
-import { native } from "../lib/native";
+import { native, nativeLinux } from "../lib/native";
+import { supportsWindowVibrancy } from "../lib/appearance";
 import EditorPreview from "./EditorPreview";
 import About from "./About";
 import Credits from "./Credits";
@@ -101,6 +102,7 @@ export default function Preferences({
   const present = useIsPresent();
   const installed = useExtensions();
   const { transition, instant } = useSurfaceMotion();
+  const blurPages = !nativeLinux && !instant;
   const [query, setQuery] = useState(initialQuery);
   useEffect(() => {
     if (present) setQuery(initialQuery);
@@ -113,17 +115,18 @@ export default function Preferences({
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean),
     searching = terms.length > 0;
   const selected = categories.find((c) => c.id === category)!;
-  const matches = controls.filter((c) =>
-    searching
+  const matches = controls.filter((c) => {
+    if (!supportsWindowVibrancy && c.section === "Glass") return false;
+    return searching
       ? terms.every((t) =>
           `${c.label} ${c.description} ${c.keywords} ${c.category}`
             .toLowerCase()
             .includes(t),
         )
       : c.category === category &&
-        c.key !== "vcsProvider" &&
-        c.type !== "theme-store",
-  );
+          c.key !== "vcsProvider" &&
+          c.type !== "theme-store";
+  });
   const keys = commandInfo.filter(([, label, group]) =>
     searching
       ? terms.every((t) =>
@@ -303,13 +306,16 @@ export default function Preferences({
           </button>
         </div>
       );
+    const unavailable = key === "vibrancy" && !supportsWindowVibrancy;
+    const checked = !unavailable && Boolean(value);
     return (
       <button
         role="switch"
         aria-label={item.label}
         aria-describedby={`setting-${key}-description`}
-        aria-checked={Boolean(value)}
-        className={`switch ${value ? "on" : ""}`}
+        aria-checked={checked}
+        className={`switch ${checked ? "on" : ""}`}
+        disabled={unavailable}
         onClick={() => update(key, !value)}
       >
         <span />
@@ -424,12 +430,12 @@ export default function Preferences({
               initial={{
                 opacity: 0,
                 y: instant ? 0 : direction * 24,
-                filter: instant ? "none" : "blur(5px)",
+                filter: blurPages ? "blur(5px)" : "none",
               }}
               animate={{
                 opacity: 1,
                 y: 0,
-                filter: "blur(0px)",
+                filter: blurPages ? "blur(0px)" : "none",
                 transition: {
                   type: "tween",
                   duration: instant ? 0 : 0.3,
@@ -440,7 +446,7 @@ export default function Preferences({
                 leave: (d: number) => ({
                   opacity: 0,
                   y: instant ? 0 : -d * 20,
-                  filter: instant ? "none" : "blur(4px)",
+                  filter: blurPages ? "blur(4px)" : "none",
                   transition: {
                     type: "tween",
                     duration: instant ? 0 : 0.2,
@@ -594,7 +600,9 @@ export default function Preferences({
                     <span>
                       <strong>{item.label}</strong>
                       <small id={`setting-${item.key}-description`}>
-                        {item.description}
+                        {item.key === "vibrancy" && !supportsWindowVibrancy
+                          ? "Window vibrancy is unavailable on Linux."
+                          : item.description}
                       </small>
                     </span>
                     {control(item)}

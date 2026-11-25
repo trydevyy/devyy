@@ -10,6 +10,7 @@
         "minWidth": 860,
         "minHeight": 600,
         "decorations": false,
+        "transparent": false,
         "backgroundColor": "#1b1c1eff",
         "theme": "Dark",
         "dragDropEnabled": false
