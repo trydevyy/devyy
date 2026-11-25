@@ -37,7 +37,7 @@ interface Progress {
   detail: string;
   percent: number;
 }
-type Step = "configure" | "remove" | "working" | "done";
+type Step = "configure" | "remove" | "features" | "working" | "done";
 function App() {
   const native = isTauri(),
     reduced = useReducedMotion();
@@ -199,7 +199,23 @@ function App() {
         duration: 0.3,
         ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       };
-  const stage = step === "done" ? 3 : busy ? 2 : 1;
+  const stage = step === "done" || busy ? 3 : step === "features" ? 2 : 1;
+
+  async function continueSetup() {
+    if (!info || validating) return;
+    setError("");
+    setValidating(true);
+    try {
+      if (!info.uninstall)
+        await invoke("installer_validate_directory", { directory });
+      setDirection(1);
+      setStep("features");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setValidating(false);
+    }
+  }
   async function browse() {
     try {
       const path = await open({
@@ -215,55 +231,56 @@ function App() {
   }
   const actions = (
     <div className="footer-actions">
-      {busy || !info ? null : step === "done" ? (
+      {busy || !info ? null : step === "done" && !info.uninstall ? (
+        <button className="primary" onClick={close}>
+          Close setup
+        </button>
+      ) : step === "done" ? (
         <>
           <button className="secondary" onClick={close}>
-            {info?.uninstall ? "Skip feedback" : "Done"}
+            Skip feedback
           </button>
-          {(!info?.uninstall || info.feedbackAvailable) && (
+          {info.feedbackAvailable && (
             <button
               className="primary"
-              disabled={
-                info?.uninstall &&
-                (sendingFeedback || (!reason && !feedback.trim()))
-              }
+              disabled={sendingFeedback || (!reason && !feedback.trim())}
               onClick={() => {
-                if (info?.uninstall) {
-                  setSendingFeedback(true);
-                  setError("");
-                  void invoke("installer_send_feedback", {
-                    reason,
-                    feedback,
-                  })
-                    .then(close)
-                    .catch((error) => setError(String(error)))
-                    .finally(() => setSendingFeedback(false));
-                } else
-                  void invoke("installer_launch")
-                    .then(close)
-                    .catch((error) => setError(String(error)));
+                setSendingFeedback(true);
+                setError("");
+                void invoke("installer_send_feedback", { reason, feedback })
+                  .then(close)
+                  .catch((error) => setError(String(error)))
+                  .finally(() => setSendingFeedback(false));
               }}
             >
-              {info?.uninstall
-                ? sendingFeedback
-                  ? "Sending..."
-                  : "Send feedback"
-                : "Launch Devyy"}
+              {sendingFeedback ? "Sending..." : "Send feedback"}
               <ArrowRight size={15} />
             </button>
           )}
         </>
-      ) : step === "remove" ? (
+      ) : step === "features" ? (
         <>
-          <button className="secondary" onClick={close}>
-            Cancel
+          <button
+            className="secondary"
+            disabled={validating}
+            onClick={() => {
+              setDirection(-1);
+              setError("");
+              setStep(info.uninstall ? "remove" : "configure");
+            }}
+          >
+            Back
           </button>
           <button
             className="primary"
-            disabled={!info?.installed}
+            disabled={validating}
             onClick={() => void operate()}
           >
-            Uninstall
+            {info.uninstall
+              ? "Uninstall Devyy"
+              : info.installed
+                ? "Update Devyy"
+                : "Install Devyy"}
             <ArrowRight size={15} />
           </button>
         </>
@@ -296,12 +313,16 @@ function App() {
           <button
             className="primary"
             disabled={
-              !native || !info.hasPayload || validating || !directory.trim()
+              !native ||
+              validating ||
+              (info.uninstall
+                ? !info.installed
+                : !info.hasPayload || !directory.trim())
             }
-            onClick={() => void operate()}
+            onClick={() => void continueSetup()}
           >
             {validating ? <LoaderCircle className="spin" size={14} /> : null}
-            {info.installed ? "Update Devyy" : "Install Devyy"}
+            Continue
             <ArrowRight size={15} />
           </button>
         </>
@@ -404,9 +425,7 @@ function App() {
                 <>
                   <div className="page-heading">
                     <h1>{info.installed ? "Update Devyy" : "Install Devyy"}</h1>
-                    <p>
-                      Choose an installation folder and where Devyy appears.
-                    </p>
+                    <p>Choose an installation folder.</p>
                   </div>
                   <label className="path-label" htmlFor="installation-path">
                     Installation folder
@@ -459,65 +478,87 @@ function App() {
                       This will update your existing Devyy installation.
                     </p>
                   )}
-                  <div
-                    className="shortcut-options"
-                    role="group"
-                    aria-label="Shortcuts"
-                  >
-                    <label>
-                      <span>
-                        <strong>Desktop shortcut</strong>
-                        <small>Add Devyy to your desktop</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        role="switch"
-                        checked={desktop}
-                        onChange={(event) => setDesktop(event.target.checked)}
-                      />
-                    </label>
-                    <label>
-                      <span>
-                        <strong>
-                          {info.platform === "windows"
-                            ? "Start menu"
-                            : "Application menu"}
-                        </strong>
-                        <small>Find Devyy in your app list</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        role="switch"
-                        checked={menu}
-                        onChange={(event) => setMenu(event.target.checked)}
-                      />
-                    </label>
-                    {info.platform === "windows" && (
+                </>
+              ) : step === "features" ? (
+                <>
+                  <div className="page-heading">
+                    <h1>
+                      {info.uninstall ? "Review removal" : "Choose features"}
+                    </h1>
+                    <p>
+                      {info.uninstall
+                        ? "Devyy will remove the application, its shortcuts, and its system integrations. Your settings will stay on this computer."
+                        : "Choose where Devyy appears on this computer."}
+                    </p>
+                  </div>
+                  {info.uninstall ? (
+                    <ul className="removal-options">
+                      <li>Devyy application files</li>
+                      <li>Desktop and app menu shortcuts added by Setup</li>
+                      {info.platform === "windows" && (
+                        <li>File Explorer integration added by Setup</li>
+                      )}
+                    </ul>
+                  ) : (
+                    <div
+                      className="shortcut-options"
+                      role="group"
+                      aria-label="Shortcuts"
+                    >
                       <label>
                         <span>
-                          <strong>Open in Devyy</strong>
-                          <small>Show in the File Explorer context menu</small>
+                          <strong>Desktop shortcut</strong>
+                          <small>Add Devyy to your desktop</small>
                         </span>
                         <input
                           type="checkbox"
                           role="switch"
-                          checked={explorerContextMenu}
-                          onChange={(event) =>
-                            setExplorerContextMenu(event.target.checked)
-                          }
+                          checked={desktop}
+                          onChange={(event) => setDesktop(event.target.checked)}
                         />
                       </label>
-                    )}
-                  </div>
+                      <label>
+                        <span>
+                          <strong>
+                            {info.platform === "windows"
+                              ? "Start menu"
+                              : "Application menu"}
+                          </strong>
+                          <small>Find Devyy in your app list</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          checked={menu}
+                          onChange={(event) => setMenu(event.target.checked)}
+                        />
+                      </label>
+                      {info.platform === "windows" && (
+                        <label>
+                          <span>
+                            <strong>Open in Devyy</strong>
+                            <small>
+                              Show in the File Explorer context menu
+                            </small>
+                          </span>
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            checked={explorerContextMenu}
+                            onChange={(event) =>
+                              setExplorerContextMenu(event.target.checked)
+                            }
+                          />
+                        </label>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : step === "remove" ? (
                 <>
                   <div className="page-heading">
-                    <h1>Ready to remove Devyy?</h1>
-                    <p>
-                      Remove the application and its shortcuts. Your settings
-                      stay available for a future install.
-                    </p>
+                    <h1>Installation to remove</h1>
+                    <p>Review the location of the Devyy installation.</p>
                   </div>
                   <p className="install-destination" title={directory}>
                     {directory}
@@ -602,16 +643,8 @@ function App() {
                 </>
               ) : (
                 <div className="done">
-                  <div className="page-heading">
-                    <h1>Devyy is installed</h1>
-                    <p>Open Devyy to start using your workspace.</p>
-                  </div>
-                  <p className="completion-note">
-                    <Check size={15} />
-                    <span title={isMac ? "/Applications/Devyy.app" : directory}>
-                      Devyy {info.version}
-                    </span>
-                  </p>
+                  <Mark className="progress-mark" />
+                  <h1>Devyy is installed</h1>
                 </div>
               )}
               {error && (
