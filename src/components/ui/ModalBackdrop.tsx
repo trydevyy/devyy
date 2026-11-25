@@ -22,6 +22,7 @@ export default function ModalBackdrop(props: HTMLMotionProps<"div">) {
   return (
     <motion.div
       {...props}
+      data-motion-backdrop
       data-closing={!present || undefined}
       inert={!present || undefined}
       initial={{ opacity: 0 }}

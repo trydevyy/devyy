@@ -113,10 +113,9 @@ export default function Palette({
       onMouseDown={onClose}
     >
       <motion.div
-        layout="position"
         transition={transition}
-        initial={{ opacity: 0, y: instant ? 0 : -8 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={{ y: instant ? 0 : -8 }}
+        animate={{ y: 0 }}
         className="palette"
         role="dialog"
         aria-label={mode === "files" ? "Go to file" : "Command palette"}

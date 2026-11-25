@@ -54,10 +54,17 @@ test("settings pages reverse direction with progressive blur and modals animate 
     await page.evaluate(() => {
       const w = window as any;
       const previous = document.querySelector(".settings-inner");
-      const values = { exit: [] as number[], enter: [] as number[] };
+      const values = {
+        exit: [] as number[],
+        enter: [] as number[],
+        coverage: [] as number[],
+        blur: [] as string[],
+      };
       w.settingsFrames = values;
       const observer = new MutationObserver(() => {
-        const entering = document.querySelector<HTMLElement>(".settings-inner");
+        const entering = document.querySelector<HTMLElement>(
+          ".settings-inner:not([inert])",
+        );
         // Record the entrance start position even if the browser skips painted frames.
         if (entering && entering !== previous && entering.style.transform) {
           values.enter.push(new DOMMatrix(entering.style.transform).m42);
@@ -73,11 +80,16 @@ test("settings pages reverse direction with progressive blur and modals animate 
       };
       function sample() {
         if (!running) return;
-        const current = document.querySelector(".settings-inner");
-        if (current)
+        let coverage = 0;
+        for (const current of document.querySelectorAll(".settings-inner")) {
+          const style = getComputedStyle(current);
           (current === previous ? values.exit : values.enter).push(
-            new DOMMatrix(getComputedStyle(current).transform).m42,
+            new DOMMatrix(style.transform).m42,
           );
+          coverage += Number(style.opacity);
+          if (current !== previous) values.blur.push(style.filter);
+        }
+        values.coverage.push(coverage);
         requestAnimationFrame(sample);
       }
       requestAnimationFrame(sample);
@@ -94,15 +106,24 @@ test("settings pages reverse direction with progressive blur and modals animate 
     await expect
       .poll(() =>
         modal
-          .locator(".settings-inner")
+          .locator(".settings-inner:not([inert])")
           .evaluate((el) => getComputedStyle(el).opacity),
       )
       .toBe("1");
     const frames = await page.evaluate(() => {
       const w = window as any;
       w.stopSettingsFrames();
-      return w.settingsFrames as { exit: number[]; enter: number[] };
+      return w.settingsFrames as {
+        exit: number[];
+        enter: number[];
+        coverage: number[];
+        blur: string[];
+      };
     });
+    expect(Math.min(...frames.coverage)).toBeGreaterThan(0.75);
+    expect(frames.blur.some((filter) => /^blur\([1-5]/.test(filter))).toBe(
+      true,
+    );
     expect(
       frames.exit.some((y) => (category === "Editor" ? y < 0 : y > 0)),
     ).toBe(true);

@@ -16,7 +16,12 @@
 import AccountSettings from "./AccountSettings";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
-import { AnimatePresence, motion, useIsPresent } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useIsPresent,
+  type HTMLMotionProps,
+} from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import {
   useEffect,
@@ -46,7 +51,7 @@ import {
   refreshTerminalProfiles,
 } from "../lib/terminalProfiles";
 import { version } from "../../package.json";
-import { native, nativeLinux } from "../lib/native";
+import { native } from "../lib/native";
 import { supportsWindowVibrancy } from "../lib/appearance";
 import EditorPreview from "./EditorPreview";
 import About from "./About";
@@ -76,6 +81,11 @@ import {
   type CommandId,
 } from "../lib/shortcuts";
 
+function SettingsPage(props: HTMLMotionProps<"div">) {
+  const present = useIsPresent();
+  return <motion.div {...props} inert={!present || undefined} />;
+}
+
 export default function Preferences({
   settings,
   onChange,
@@ -102,7 +112,12 @@ export default function Preferences({
   const present = useIsPresent();
   const installed = useExtensions();
   const { transition, instant } = useSurfaceMotion();
-  const blurPages = !nativeLinux && !instant;
+  const pageTransition = {
+    type: "tween",
+    duration: instant ? 0 : 0.24,
+    ease: [0.16, 1, 0.3, 1],
+    opacity: { duration: instant ? 0 : 0.24, ease: "linear" },
+  } as const;
   const [query, setQuery] = useState(initialQuery);
   useEffect(() => {
     if (present) setQuery(initialQuery);
@@ -424,34 +439,27 @@ export default function Preferences({
           </button>
         </header>
         <div className="settings-scroll" ref={scrollRef}>
-          <AnimatePresence mode="wait" initial={false} custom={direction}>
-            <motion.div
+          <AnimatePresence initial={false} custom={direction}>
+            <SettingsPage
               className="settings-inner"
               initial={{
                 opacity: 0,
                 y: instant ? 0 : direction * 24,
-                filter: blurPages ? "blur(5px)" : "none",
+                filter: instant ? "none" : "blur(5px)",
               }}
               animate={{
                 opacity: 1,
                 y: 0,
-                filter: blurPages ? "blur(0px)" : "none",
-                transition: {
-                  type: "tween",
-                  duration: instant ? 0 : 0.3,
-                  ease: [0.16, 1, 0.3, 1],
-                },
+                filter: instant ? "none" : "blur(0px)",
+                transition: pageTransition,
+                transitionEnd: { filter: "none" },
               }}
               variants={{
                 leave: (d: number) => ({
                   opacity: 0,
                   y: instant ? 0 : -d * 20,
-                  filter: blurPages ? "blur(4px)" : "none",
-                  transition: {
-                    type: "tween",
-                    duration: instant ? 0 : 0.2,
-                    ease: "easeOut",
-                  },
+                  filter: instant ? "none" : "blur(4px)",
+                  transition: pageTransition,
                 }),
               }}
               key={searching ? "search" : category}
@@ -742,7 +750,7 @@ export default function Preferences({
                     </button>
                   </div>
                 )}
-            </motion.div>
+            </SettingsPage>
           </AnimatePresence>
         </div>
         <footer className="settings-footer">
@@ -783,11 +791,10 @@ export default function Preferences({
       onMouseDown={onClose}
     >
       <motion.section
-        layout
         transition={transition}
-        initial={{ opacity: 0, scale: instant ? 1 : 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: instant ? 1 : 0.98, y: instant ? 0 : 6 }}
+        initial={{ scale: instant ? 1 : 0.98 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: instant ? 1 : 0.98, y: instant ? 0 : 6 }}
         className={`settings-modal ${category === "ai" && !searching ? "settings-ai" : ""}`}
         role="dialog"
         aria-modal="true"

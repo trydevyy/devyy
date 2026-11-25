@@ -4202,10 +4202,6 @@ a {
   backdrop-filter: blur(var(--glass-blur, 24px)) saturate(150%);
   -webkit-backdrop-filter: blur(var(--glass-blur, 24px)) saturate(150%);
 }
-:root[data-runtime="native"][data-platform="linux"] .preferences-backdrop {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
 .settings-modal {
   width: min(1240px, calc(100vw - 56px));
   height: min(900px, calc(100dvh - 88px));
@@ -4258,8 +4254,12 @@ a {
 .settings-scroll {
   padding: 32px clamp(24px, 3.5vw, 56px) 30px;
   overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
 }
 .settings-inner {
+  grid-area: 1 / 1;
+  width: 100%;
   max-width: 780px;
 }
 .settings-section-heading {
@@ -8810,7 +8810,8 @@ body {
 .settings-ai .settings-scroll {
   padding: 16px 20px 20px;
   overflow: hidden;
-  display: flex;
+  align-content: stretch;
+  grid-template-rows: minmax(0, 1fr);
 }
 .settings-ai .settings-inner {
   max-width: none;
@@ -12260,6 +12261,14 @@ input[type="checkbox"]:disabled {
   height: 100%;
 }
 /* Every floating surface has a matching exit and follows reduced motion. */
+:root [data-motion-backdrop],
+:root [data-motion-backdrop] > [role="dialog"] {
+  animation: none;
+}
+:root[data-runtime="native"][data-platform="linux"] [data-motion-backdrop] {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .modal-backdrop[data-closing],
 .ai-modal-backdrop[data-closing],
 .setup-backdrop[data-closing] {
