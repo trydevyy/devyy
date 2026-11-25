@@ -340,7 +340,11 @@ fn installer_appearance(app: tauri::AppHandle, theme: String) -> Result<(), Stri
             .map_err(|e| e.to_string())?;
         window
             .set_background_color(Some(if dark {
-                tauri::window::Color(25, 25, 25, 255)
+                if cfg!(target_os = "macos") {
+                    tauri::window::Color(25, 25, 25, 255)
+                } else {
+                    tauri::window::Color(0, 0, 0, 255)
+                }
             } else {
                 tauri::window::Color(250, 250, 250, 255)
             }))

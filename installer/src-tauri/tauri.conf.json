@@ -21,7 +21,7 @@
         "minHeight": 560,
         "resizable": true,
         "decorations": false,
-        "backgroundColor": "#171819"
+        "backgroundColor": "#000000"
       }
     ],
     "security": {

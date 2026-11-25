@@ -1,8 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 async function fixture(page: Page, uninstall = false, platform = "windows") {
   await page.addInitScript(
-    ({ uninstall, platform }) => {
+    ({ uninstall, platform, version }) => {
       const handlers = new Map<string, Set<number>>(),
         callbacks = new Map<number, (event: unknown) => void>();
       let serial = 0;
@@ -41,7 +46,7 @@ async function fixture(page: Page, uninstall = false, platform = "windows") {
                   platform === "macos"
                     ? "/Volumes/Devyy/.payload/Devyy.app"
                     : undefined,
-                version: "0.1.0",
+                version,
                 directory:
                   platform === "linux"
                     ? "/home/alex/.local/opt/devyy"
@@ -78,7 +83,7 @@ async function fixture(page: Page, uninstall = false, platform = "windows") {
         __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
       });
     },
-    { uninstall, platform },
+    { uninstall, platform, version },
   );
   await page.goto("/");
 }
@@ -93,41 +98,11 @@ test("installer passes location and shortcut choices, shows real progress and la
   await expect(
     page.getByRole("textbox", { name: "Installation folder" }),
   ).toHaveValue("D:\\Apps\\Devyy");
-  await page.screenshot({
-    path: fileURLToPath(
-      new URL(
-        "../../artifacts/devyy-installer-windows-location.png",
-        import.meta.url,
-      ),
-    ),
-  });
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Shortcuts" })).toBeVisible();
-  await page.getByRole("checkbox", { name: /Desktop shortcut/ }).uncheck();
-  const explorer = page.getByRole("checkbox", { name: /Open in Devyy/ });
+  await page.getByRole("switch", { name: /Desktop shortcut/ }).uncheck();
+  const explorer = page.getByRole("switch", { name: /Open in Devyy/ });
   await expect(explorer).toBeChecked();
   await explorer.uncheck();
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Install Devyy" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "Installation folder" }),
-  ).toHaveValue("D:\\Apps\\Devyy");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(
-    page.getByRole("checkbox", { name: /Desktop shortcut/ }),
-  ).not.toBeChecked();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Licenses" })).toBeVisible();
-  await expect(page.locator(".wizard-licenses")).toContainText(
-    "GNU GENERAL PUBLIC LICENSE",
-  );
-  await page.screenshot({
-    path: fileURLToPath(
-      new URL("../../artifacts/devyy-installer.png", import.meta.url),
-    ),
-  });
+  await expect(page.getByText("Licenses", { exact: true })).toHaveCount(0);
   await page
     .getByRole("button", { name: "Install Devyy", exact: true })
     .click();
@@ -172,7 +147,7 @@ test("uninstall sends optional feedback only after an explicit request", async (
   ).toHaveAttribute("value", "38");
   await page.evaluate(() => (window as any).installerFixture.finish());
   await expect(
-    page.getByRole("heading", { name: /Thanks for giving/ }),
+    page.getByRole("heading", { name: "Devyy was removed" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Send feedback", exact: true }),
@@ -210,10 +185,10 @@ test("uninstall sends optional feedback only after an explicit request", async (
       feedback: "Faster indexing would help.",
     });
 });
-test("license dialog restores focus and handles keyboard dismissal", async ({
+test("macOS license dialog restores focus and handles keyboard dismissal", async ({
   page,
 }) => {
-  await fixture(page);
+  await fixture(page, false, "macos");
   await page.getByRole("button", { name: "Licenses", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Devyy license" });
   await expect(dialog).toContainText("GNU GENERAL PUBLIC LICENSE");
@@ -285,23 +260,31 @@ test("macOS follows system appearance and supports dragging the bare mark to App
     page.getByRole("button", { name: "Launch Devyy", exact: true }),
   ).toBeVisible();
 });
-test("Linux shows application-menu options and validates the folder before continuing", async ({
+test("Linux collects its choices on one page and validates before installing", async ({
   page,
 }) => {
   await fixture(page, false, "linux");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
-    page.getByRole("checkbox", { name: /Application menu/ }),
+    page.getByRole("switch", { name: /Application menu/ }),
   ).toBeVisible();
-  expect(
-    await page.evaluate(() =>
-      (window as any).installerFixture.calls.some(
-        (c: any) => c.command === "installer_validate_directory",
-      ),
-    ),
-  ).toBe(true);
+  await expect(page.getByRole("switch", { name: /Open in Devyy/ })).toHaveCount(
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Install Devyy", exact: true })
+    .click();
+  await expect(
+    page.getByRole("progressbar", { name: "Install progress" }),
+  ).toBeVisible();
+  const commands = await page.evaluate(() =>
+    (window as any).installerFixture.calls.map((call: any) => call.command),
+  );
+  expect(commands.indexOf("installer_validate_directory")).toBeGreaterThan(-1);
+  expect(commands.indexOf("installer_validate_directory")).toBeLessThan(
+    commands.indexOf("installer_install"),
+  );
+  await page.evaluate(() => (window as any).installerFixture.finish());
 });
-
 test("invalid destinations stay on the location page without starting installation", async ({
   page,
 }) => {
@@ -310,7 +293,11 @@ test("invalid destinations stay on the location page without starting installati
     (window as any).installerFixture.validationError =
       "This folder contains other files. Choose an empty folder.";
   });
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  const install = page.getByRole("button", {
+    name: "Install Devyy",
+    exact: true,
+  });
+  await install.click();
   await expect(page.getByRole("alert")).toContainText(
     "This folder contains other files",
   );
@@ -327,54 +314,64 @@ test("invalid destinations stay on the location page without starting installati
   await page.evaluate(() => {
     (window as any).installerFixture.validationError = undefined;
   });
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Shortcuts" })).toBeVisible();
+  await install.click();
+  await expect(
+    page.getByRole("progressbar", { name: "Install progress" }),
+  ).toBeVisible();
+  await page.evaluate(() => (window as any).installerFixture.finish());
 });
 
 for (const platform of ["windows", "linux"]) {
-  for (const theme of ["light", "dark"] as const) {
-    test(`${platform} ${theme} setup gallery`, async ({ page }) => {
+  for (const uninstall of [false, true]) {
+    const flow = uninstall ? "uninstall" : "install";
+    test(`${platform} ${flow} gallery`, async ({ page }) => {
       await page.setViewportSize({ width: 760, height: 580 });
-      await page.emulateMedia({ colorScheme: theme });
-      await fixture(page, false, platform);
-      await expect(
-        page.getByRole("heading", { name: "Install Devyy" }),
-      ).toBeVisible();
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await page.emulateMedia({
+        colorScheme: "light",
+        reducedMotion: "reduce",
+      });
+      await fixture(page, uninstall, platform);
       const save = (step: string) =>
         page.screenshot({
           path: fileURLToPath(
             new URL(
-              `../../artifacts/devyy-installer-${platform}-${theme}-${step}.png`,
+              `../../artifacts/installer-review/${platform}-${flow}-${step}.png`,
               import.meta.url,
             ),
           ),
         });
-      await save("location");
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
-      await expect(
-        page.getByRole("heading", { name: "Shortcuts", exact: true }),
-      ).toBeVisible();
-      await page.locator("main").evaluate(async (e) => {
-        await Promise.all(
-          e
-            .getAnimations({ subtree: true })
-            .map((a) => a.finished.catch(() => {})),
-        );
+      const progress = page.getByRole("progressbar", {
+        name: uninstall ? "Removal steps" : "Setup steps",
       });
-      await save("shortcuts");
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      const heading = (name: string) =>
+        page.getByRole("heading", { name, exact: true });
       await expect(
-        page.getByRole("heading", { name: "Licenses", exact: true }),
+        heading(uninstall ? "Ready to remove Devyy?" : "Install Devyy"),
       ).toBeVisible();
-      await page.locator("main").evaluate(async (e) => {
-        await Promise.all(
-          e
-            .getAnimations({ subtree: true })
-            .map((a) => a.finished.catch(() => {})),
-        );
-      });
-      await save("licenses");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      await expect(page.locator(".installer")).toHaveCSS(
+        "background-color",
+        "rgb(0, 0, 0)",
+      );
+      await expect(progress).toHaveAttribute("aria-valuenow", "1");
+      await save("options");
+      await page
+        .getByRole("button", {
+          name: uninstall ? "Uninstall" : "Install Devyy",
+          exact: true,
+        })
+        .click();
+      await expect(
+        heading(uninstall ? "Removing Devyy" : "Installing Devyy"),
+      ).toBeVisible();
+      await expect(progress).toHaveAttribute("aria-valuenow", "2");
+      await save("progress");
+      await page.evaluate(() => (window as any).installerFixture.finish());
+      await expect(
+        heading(uninstall ? "Devyy was removed" : "Devyy is installed"),
+      ).toBeVisible();
+      await expect(progress).toHaveAttribute("aria-valuenow", "3");
+      await save("done");
     });
   }
 }
