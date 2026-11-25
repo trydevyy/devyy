@@ -175,6 +175,27 @@ test("download progress stays on its row, updates smoothly, survives Settings cl
   await expect(bar).toHaveAttribute("aria-valuenow", "25");
   await expect(row).toContainText("25 MiB / 100 MiB");
   await expect(row.locator(".extension-progress-percent")).toHaveText("25%");
+  const geometry = () =>
+    row.evaluate((element) => {
+      const card = element.getBoundingClientRect();
+      const track = element
+        .querySelector(".extension-progress-track")!
+        .getBoundingClientRect();
+      return {
+        height: card.height,
+        leftInset: track.left - card.left,
+        rightInset: card.right - track.right,
+        bottomInset: card.bottom - track.bottom,
+      };
+    });
+  const before = await geometry();
+  expect(
+    Math.min(before.leftInset, before.rightInset, before.bottomInset),
+  ).toBeGreaterThan(0);
+  await controls(page, "progress", ["downloading", 59.5 * mib, 100 * mib]);
+  await expect(bar).toHaveAttribute("aria-valuenow", "59");
+  expect(await geometry()).toEqual(before);
+
   expect(
     await row
       .locator(".extension-progress-fill")

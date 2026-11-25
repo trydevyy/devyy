@@ -43,7 +43,9 @@ export function InstallProgress({
         <span role="status">{status}</span>
         {detail && (
           <span>
-            {detail}
+            <span className="extension-progress-bytes" title={detail}>
+              {detail}
+            </span>
             {percent !== undefined && (
               <span className="extension-progress-percent">{percent}%</span>
             )}

@@ -6650,10 +6650,27 @@ body {
   color: var(--muted);
   text-align: right;
 }
+.extension-progress-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.extension-progress-label > span + span {
+  display: flex;
+  align-items: baseline;
+  max-width: 76%;
+}
+.extension-progress-bytes {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .extension-progress-percent {
   display: inline-block;
-  min-width: 30px;
-  margin-left: 9px;
+  flex-shrink: 0;
+  min-width: 4ch;
+  margin-left: 6px;
   color: var(--secondary);
 }
 .extension-progress-track {
@@ -15181,15 +15198,6 @@ button[aria-busy="true"]::after {
 }
 
 :is(
-  .extension-row,
-  .desktop-store-card,
-  .desktop-theme-preview-details,
-  .ai-runtime-install
-):has(> .card-install-progress) {
-  position: relative;
-  padding-bottom: 20px;
-}
-:is(
     .extension-row,
     .desktop-store-card,
     .desktop-theme-preview-details,
@@ -15202,19 +15210,6 @@ button[aria-busy="true"]::after {
 }
 .card-install-progress {
   width: 100%;
-}
-:is(
-    .extension-row,
-    .desktop-store-card,
-    .desktop-theme-preview-details,
-    .ai-runtime-install
-  )
-  > .card-install-progress
-  .extension-progress-track {
-  position: absolute;
-  inset: auto 0 0;
-  height: 3px;
-  border-radius: 0 0 var(--store-radius, 12px) var(--store-radius, 12px);
 }
 .ai-runtime-install:has(> .card-install-progress) {
   flex-wrap: wrap;
