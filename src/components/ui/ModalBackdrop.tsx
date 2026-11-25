@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { motion, useIsPresent, type HTMLMotionProps } from "motion/react";
-import { useSurfaceMotion } from "../../lib/motion";
+import { modalFrameUpdate, useSurfaceMotion } from "../../lib/motion";
 
 export default function ModalBackdrop(props: HTMLMotionProps<"div">) {
   const { instant } = useSurfaceMotion();
@@ -22,6 +22,7 @@ export default function ModalBackdrop(props: HTMLMotionProps<"div">) {
   return (
     <motion.div
       {...props}
+      onUpdate={modalFrameUpdate ?? props.onUpdate}
       data-motion-backdrop
       data-closing={!present || undefined}
       inert={!present || undefined}

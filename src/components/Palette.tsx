@@ -15,7 +15,7 @@
 
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { motion, useIsPresent } from "motion/react";
-import { useSurfaceMotion } from "../lib/motion";
+import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
@@ -113,6 +113,7 @@ export default function Palette({
       onMouseDown={onClose}
     >
       <motion.div
+        onUpdate={modalFrameUpdate}
         transition={transition}
         initial={{ y: instant ? 0 : -8 }}
         animate={{ y: 0 }}

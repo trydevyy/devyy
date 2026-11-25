@@ -266,11 +266,23 @@ test("the Linux desktop uses opaque surfaces with saved vibrancy enabled", async
   await expect(
     page.getByRole("slider", { name: "Window transparency" }),
   ).toHaveCount(0);
-  await page.getByRole("tab", { name: "Editor", exact: true }).click();
-  await expect(page.locator(".settings-inner").last()).toHaveCSS(
-    "filter",
-    "none",
-  );
+  const transition = await page.evaluate(async () => {
+    document.getElementById("settings-tab-editor")!.click();
+    const end = performance.now() + 400;
+    let blurred = false;
+    let browserAnimations = false;
+    while (performance.now() < end) {
+      await new Promise(requestAnimationFrame);
+      for (const panel of document.querySelectorAll(".settings-inner")) {
+        const blur = Number.parseFloat(getComputedStyle(panel).filter.slice(5));
+        blurred ||= blur > 0;
+        browserAnimations ||= panel.getAnimations().length > 0;
+      }
+    }
+    return { blurred, browserAnimations };
+  });
+  expect(transition).toEqual({ blurred: true, browserAnimations: false });
+  await expect(page.locator(".settings-inner")).toHaveCSS("filter", "none");
 });
 
 test("system accessibility preferences override decorative effects", async ({

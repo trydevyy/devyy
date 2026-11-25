@@ -15,6 +15,11 @@
 
 import { useSyncExternalStore } from "react";
 import { useReducedMotion, type Transition } from "motion/react";
+import { nativeLinux } from "./native";
+
+// Motion uses its JS frame loop when onUpdate is supplied. Keep related
+// modal animations on that clock to avoid WebKit compositor handoffs.
+export const modalFrameUpdate = nativeLinux ? () => {} : undefined;
 
 function subscribe(listener: () => void) {
   const observer = new MutationObserver(listener);

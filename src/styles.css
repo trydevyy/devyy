@@ -12268,6 +12268,11 @@ input[type="checkbox"]:disabled {
 :root[data-runtime="native"][data-platform="linux"] [data-motion-backdrop] {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  will-change: opacity;
+}
+:root[data-runtime="native"][data-platform="linux"]
+  :is(.settings-inner, .settings-modal, .palette) {
+  will-change: opacity, transform;
 }
 .modal-backdrop[data-closing],
 .ai-modal-backdrop[data-closing],

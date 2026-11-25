@@ -22,7 +22,7 @@ import {
   useIsPresent,
   type HTMLMotionProps,
 } from "motion/react";
-import { useSurfaceMotion } from "../lib/motion";
+import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
 import {
   useEffect,
   useRef,
@@ -83,7 +83,13 @@ import {
 
 function SettingsPage(props: HTMLMotionProps<"div">) {
   const present = useIsPresent();
-  return <motion.div {...props} inert={!present || undefined} />;
+  return (
+    <motion.div
+      {...props}
+      onUpdate={modalFrameUpdate}
+      inert={!present || undefined}
+    />
+  );
 }
 
 export default function Preferences({
@@ -791,6 +797,7 @@ export default function Preferences({
       onMouseDown={onClose}
     >
       <motion.section
+        onUpdate={modalFrameUpdate}
         transition={transition}
         initial={{ scale: instant ? 1 : 0.98 }}
         animate={{ scale: 1, y: 0 }}
