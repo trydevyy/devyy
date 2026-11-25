@@ -20,19 +20,13 @@ use ring::{
 };
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
-    sync::Mutex,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 use tauri::{Emitter, Manager};
 #[derive(Default)]
 pub struct Accounts {
-    pending: Mutex<HashMap<String, Pending>>,
-}
-struct Pending {
-    server: String,
-    verifier: String,
-    started: Instant,
+    attempt: AtomicU64,
 }
 fn random() -> String {
     let mut value = [0; 32];
@@ -40,7 +34,23 @@ fn random() -> String {
     URL_SAFE_NO_PAD.encode(value)
 }
 pub const ACCOUNT_ORIGIN: &str = "https://api.devyy.dev";
-const WEBSITE_ORIGIN: &str = "https://www.devyy.dev";
+const AUTH_ORIGIN: &str = "https://auth.devyy.dev";
+
+#[tauri::command]
+pub fn account_origin() -> &'static str {
+    #[cfg(debug_assertions)]
+    if std::env::var("DEVYY_LOCAL_ACCOUNT").as_deref() == Ok("1") {
+        return "http://localhost:8787";
+    }
+    ACCOUNT_ORIGIN
+}
+
+fn auth_origin() -> &'static str {
+    if account_origin() != ACCOUNT_ORIGIN {
+        return "http://localhost:3001";
+    }
+    AUTH_ORIGIN
+}
 
 #[cfg(test)]
 fn server(value: &str) -> Result<String, String> {
@@ -64,14 +74,87 @@ fn server(value: &str) -> Result<String, String> {
     }
     Ok(value.trim_end_matches('/').into())
 }
-fn entry(server: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new("Devyy Account", server).map_err(|e| e.to_string())
+fn entry(server: &str) -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new("Devyy Account", server)
 }
-pub fn token(server: &str) -> Result<String, String> {
-    entry(server)?
-        .get_password()
+
+#[cfg(target_os = "linux")]
+fn credential_path(app: &tauri::AppHandle, server: &str) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join(if server == ACCOUNT_ORIGIN {
+            "account-token"
+        } else {
+            "account-token-local"
+        }))
+}
+
+pub fn token(_app: &tauri::AppHandle, server: &str) -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    if let Ok(token) = credential_path(_app, server).and_then(|path| {
+        let metadata = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        use std::os::unix::fs::PermissionsExt;
+        if !metadata.is_file()
+            || metadata.permissions().mode() & 0o077 != 0
+            || metadata.len() > 4096
+        {
+            return Err("Invalid account credential file".into());
+        }
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    }) {
+        return if token.is_empty() {
+            Err("Sign in to your Devyy account first".into())
+        } else {
+            Ok(token)
+        };
+    }
+    entry(server)
+        .and_then(|entry| entry.get_password())
         .map_err(|_| "Sign in to your Devyy account first".into())
 }
+
+fn save_token(_app: &tauri::AppHandle, server: &str, token: &str) -> Result<(), String> {
+    let result = entry(server)
+        .and_then(|entry| entry.set_password(token))
+        .map_err(|e| e.to_string());
+    #[cfg(target_os = "linux")]
+    {
+        let path = credential_path(_app, server)?;
+        if result.is_ok() {
+            remove_credential_file(&path)?;
+            return Ok(());
+        }
+        // Keep a private local credential when Linux has no Secret Service.
+        write_credential_file(&path, token)
+    }
+    #[cfg(not(target_os = "linux"))]
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn write_credential_file(path: &std::path::Path, token: &str) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("Missing credential directory")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    staged
+        .write_all(token.as_bytes())
+        .map_err(|e| e.to_string())?;
+    staged.persist(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remove_credential_file(path: &std::path::Path) -> Result<bool, String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 pub fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -80,6 +163,11 @@ pub fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
+    let limit = if response.url().path() == "/api/sync" {
+        8 * 1024 * 1024 + 4096
+    } else {
+        2 * 1024 * 1024
+    };
     let status = response.status();
     let mut bytes = Vec::new();
     while let Some(chunk) = response
@@ -87,8 +175,8 @@ async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
         .await
         .map_err(|_| "The server response was interrupted")?
     {
-        if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-            return Err("The account response exceeded 2 MiB".into());
+        if bytes.len() + chunk.len() > limit {
+            return Err("The account response exceeded its size limit".into());
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -103,77 +191,84 @@ async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
     Ok(value)
 }
 #[tauri::command]
-pub fn account_begin(state: tauri::State<'_, Accounts>) -> Result<Value, String> {
-    let server = ACCOUNT_ORIGIN.to_owned();
+pub fn account_begin(app: tauri::AppHandle) -> Result<Value, String> {
     let verifier = random();
     let nonce = random();
     let challenge =
         URL_SAFE_NO_PAD.encode(digest::digest(&digest::SHA256, verifier.as_bytes()).as_ref());
-    let mut pending = state.pending.lock().unwrap();
-    pending.retain(|_, p| p.started.elapsed() < Duration::from_secs(600));
-    if pending.len() > 4 {
-        pending.clear();
-    }
-    pending.insert(
-        nonce.clone(),
-        Pending {
-            server: server.clone(),
-            verifier,
-            started: Instant::now(),
-        },
-    );
-    let mut url = reqwest::Url::parse(&format!("{WEBSITE_ORIGIN}/authorize/")).unwrap();
+    let attempt = app
+        .state::<Accounts>()
+        .attempt
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let mut url = reqwest::Url::parse(&format!("{}/authorize/", auth_origin())).unwrap();
     url.query_pairs_mut()
         .append_pair("state", &nonce)
         .append_pair("challenge", &challenge)
-        .append_pair("device", &format!("Devyy on {}", std::env::consts::OS));
+        .append_pair("device", &format!("Devyy on {}", std::env::consts::OS))
+        .append_pair("poll", "1");
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = poll(&app, attempt, &nonce, &verifier).await {
+            if app.state::<Accounts>().attempt.load(Ordering::SeqCst) == attempt {
+                let _ = app.emit("devyy-account-error", error);
+            }
+        }
+    });
     Ok(json!({"url":url.as_str()}))
 }
-#[tauri::command]
-pub async fn account_finish(url: String, app: tauri::AppHandle) -> Result<Value, String> {
-    let url = reqwest::Url::parse(&url).map_err(|_| "Invalid account callback")?;
-    if url.scheme() != "devyy" || url.host_str() != Some("account") || url.path() != "/callback" {
-        return Err("Unknown account callback".into());
-    }
-    let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
-    let nonce = query.get("state").ok_or("Missing sign-in state")?;
-    let code = query.get("code").ok_or("Missing authorization code")?;
-    let pending = app
-        .state::<Accounts>()
-        .pending
-        .lock()
-        .unwrap()
-        .remove(nonce)
-        .ok_or("Start sign-in from Devyy again")?;
-    if pending.started.elapsed() > Duration::from_secs(600) {
-        return Err("Sign-in expired. Start again.".into());
-    }
-    let value = decode(
-        client()?
-            .post(format!("{}/api/desktop/token", pending.server))
-            .json(&json!({"code":code,"verifier":pending.verifier}))
+
+async fn poll(
+    app: &tauri::AppHandle,
+    attempt: u64,
+    nonce: &str,
+    verifier: &str,
+) -> Result<(), String> {
+    let client = client()?;
+    let started = Instant::now();
+    let current = || app.state::<Accounts>().attempt.load(Ordering::SeqCst) == attempt;
+    while started.elapsed() < Duration::from_secs(600) && current() {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        if !current() {
+            return Ok(());
+        }
+        let response = client
+            .post(format!("{}/api/desktop/poll", account_origin()))
+            .json(&json!({"state":nonce,"verifier":verifier}))
             .send()
-            .await
-            .map_err(|_| "Could not reach the account server")?,
-    )
-    .await?;
-    let token = value["token"].as_str().ok_or("Missing device credential")?;
-    if token.len() > 4096 {
-        return Err("Invalid device credential".into());
+            .await;
+        let Ok(response) = response else { continue };
+        if response.status() == reqwest::StatusCode::NO_CONTENT
+            || response.status().is_server_error()
+        {
+            continue;
+        }
+        let value = decode(response).await?;
+        let token = value["token"]
+            .as_str()
+            .filter(|token| token.len() <= 4096)
+            .ok_or("Missing or invalid device credential")?;
+        if current() {
+            save_token(app, account_origin(), token)
+                .map_err(|error| format!("Could not save the device credential: {error}"))?;
+            let _ = app.emit("devyy-account-changed", account_origin());
+        }
+        return Ok(());
     }
-    entry(&pending.server)?
-        .set_password(token)
-        .map_err(|e| format!("Could not save the device credential: {e}"))?;
-    let _ = app.emit("devyy-account-changed", pending.server.clone());
-    Ok(json!({"server":pending.server,"connected":true}))
+    if current() {
+        Err("Sign-in expired. Start again from Devyy.".into())
+    } else {
+        Ok(())
+    }
 }
+
 #[tauri::command]
 pub async fn account_request(
+    app: tauri::AppHandle,
     path: String,
     method: String,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    let server = ACCOUNT_ORIGIN.to_owned();
+    let server = account_origin().to_owned();
     let allowed = matches!(
         path.as_str(),
         "/me" | "/sync" | "/sessions" | "/logout" | "/tunnels"
@@ -188,14 +283,19 @@ pub async fn account_request(
     if !allowed || !["GET", "PUT", "POST", "PATCH", "DELETE"].contains(&method.as_str()) {
         return Err("Unsupported account operation".into());
     }
-    let token = token(&server)?;
+    let token = token(&app, &server)?;
     let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut request = client()?
         .request(method, format!("{server}/api{path}"))
         .bearer_auth(token);
     if let Some(body) = body {
-        if body.to_string().len() > 1024 * 1024 {
-            return Err("Sync payload exceeds 1 MiB".into());
+        let limit = if path == "/sync" {
+            8 * 1024 * 1024
+        } else {
+            1024 * 1024
+        };
+        if body.to_string().len() > limit {
+            return Err("The account request exceeds its size limit".into());
         }
         request = request.json(&body);
     }
@@ -208,18 +308,34 @@ pub async fn account_request(
     .await
 }
 #[tauri::command]
-pub async fn account_disconnect() -> Result<(), String> {
-    let server = ACCOUNT_ORIGIN.to_owned();
-    if let Ok(token) = token(&server) {
+pub async fn account_disconnect(app: tauri::AppHandle) -> Result<(), String> {
+    app.state::<Accounts>()
+        .attempt
+        .fetch_add(1, Ordering::SeqCst);
+    let server = account_origin().to_owned();
+    if let Ok(token) = token(&app, &server) {
         let _ = client()?
             .post(format!("{server}/api/logout"))
             .bearer_auth(token)
             .send()
             .await;
     }
-    match entry(&server)?.delete_credential() {
+    let deletion = entry(&server).and_then(|entry| entry.delete_credential());
+    #[cfg(target_os = "linux")]
+    {
+        let path = credential_path(&app, &server)?;
+        if matches!(deletion, Ok(()) | Err(keyring::Error::NoEntry)) {
+            remove_credential_file(&path)?;
+        } else {
+            // Suppress any stale keyring entry if the service comes back later.
+            write_credential_file(&path, "")?;
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    match deletion {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(error) => Err(error.to_string()),
     }
 }
 #[cfg(test)]

@@ -29,11 +29,31 @@ import {
 } from "./extensions";
 import allowed from "./accountSyncKeys.json";
 import { toast } from "sonner";
+import {
+  defaultStoreThemes,
+  installedThemes,
+  installStoreLanguage,
+  languageCatalog,
+  restoreSyncedThemes,
+  type StoreTheme,
+} from "./store";
+import { refreshLanguageServers } from "./languageServers";
 export const ACCOUNT_ORIGIN = "https://api.devyy.dev";
+let origin: Promise<string> | undefined;
+export function accountOrigin() {
+  return (origin ??= native
+    ? invoke<string>("account_origin").then(
+        (value) => value || ACCOUNT_ORIGIN,
+        () => ACCOUNT_ORIGIN,
+      )
+    : Promise.resolve(ACCOUNT_ORIGIN));
+}
 export interface SyncOptions {
   enabled: boolean;
   settings: boolean;
   extensions: boolean;
+  themes: boolean;
+  languageServers: boolean;
   excluded: string[];
   installExtensions: boolean;
 }
@@ -41,6 +61,8 @@ const defaults: SyncOptions = {
   enabled: false,
   settings: true,
   extensions: true,
+  themes: false,
+  languageServers: false,
   excluded: [],
   installExtensions: false,
 };
@@ -81,6 +103,8 @@ export interface Cloud {
   data: {
     settings: Record<string, unknown>;
     extensions: { id: string; enabled: boolean }[];
+    themes?: { entries: StoreTheme[]; activeId: string | null };
+    languageServers?: string[];
   };
 }
 export function accountRequest<T = any>(
@@ -90,18 +114,20 @@ export function accountRequest<T = any>(
 ): Promise<T> {
   return invoke("account_request", { path, method, body: body ?? null });
 }
-function metadata() {
+async function metadata() {
+  const server = await accountOrigin();
   try {
     return JSON.parse(
-      localStorage.getItem("devyy.sync.meta:" + ACCOUNT_ORIGIN) ?? "null",
+      localStorage.getItem("devyy.sync.meta:" + server) ?? "null",
     ) as { revision: number; signature: string } | null;
   } catch {
     return null;
   }
 }
-function mark(revision: number, signature: string) {
+async function mark(revision: number, signature: string) {
+  const server = await accountOrigin();
   localStorage.setItem(
-    "devyy.sync.meta:" + ACCOUNT_ORIGIN,
+    "devyy.sync.meta:" + server,
     JSON.stringify({ revision, signature }),
   );
   window.dispatchEvent(
@@ -126,12 +152,76 @@ export function syncSelection(
       : [],
   };
 }
+async function localStoreSync(options: SyncOptions, settings: Settings) {
+  const [entries, servers] = await Promise.all([
+    options.themes ? installedThemes() : undefined,
+    options.languageServers ? refreshLanguageServers() : undefined,
+  ]);
+  const old = servers?.filter(
+    (server) => !server.storeId && server.source?.startsWith("Store: "),
+  );
+  const catalog = old?.length ? await languageCatalog() : [];
+  const legacyIds = new Map(
+    catalog.map((listing) => [`Store: ${listing.name}`, listing.id]),
+  );
+  const activeId = localStorage.getItem("devyy.store.theme");
+  const custom = entries?.find((entry) => entry.id === activeId);
+  const bundled =
+    entries &&
+    !custom &&
+    !settings.followSystemTheme &&
+    !settings.extensionTheme
+      ? defaultStoreThemes.find(
+          (theme) => theme.manifest.base === settings.theme,
+        )
+      : undefined;
+  return {
+    themes: entries && {
+      entries,
+      activeId: custom?.id ?? bundled?.id ?? null,
+    },
+    languageServers:
+      servers &&
+      [
+        ...new Set(
+          servers.flatMap((server) => {
+            const id = server.storeId ?? legacyIds.get(server.source ?? "");
+            return id ? [id] : [];
+          }),
+        ),
+      ].sort(),
+  };
+}
+
+async function signature(data: unknown) {
+  const bytes = new TextEncoder().encode(
+    typeof data === "string" ? data : JSON.stringify(data),
+  );
+  // Some desktop webviews do not expose Web Crypto on the app's custom origin.
+  if (!globalThis.crypto?.subtle) {
+    let first = 0x811c9dc5;
+    let second = 0;
+    for (const byte of bytes) {
+      first = Math.imul(first ^ byte, 0x01000193);
+      second = (Math.imul(second, 31) + byte) | 0;
+    }
+    return [first, second]
+      .map((word) => (word >>> 0).toString(16).padStart(8, "0"))
+      .join("");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export async function pullCloud(
   cloud: Cloud,
   settings: Settings,
   setSettings: Dispatch<SetStateAction<Settings>>,
   extensions: InstalledExtension[],
   options: SyncOptions,
+  installLanguages = false,
 ) {
   const patch = Object.fromEntries(
     Object.entries(cloud.data.settings ?? {}).filter(
@@ -141,7 +231,7 @@ export async function pullCloud(
         !options.excluded.includes(key),
     ),
   );
-  const next = normalizeSettings({ ...settings, ...patch });
+  let next = normalizeSettings({ ...settings, ...patch });
   setSettings(next);
   if (options.extensions) {
     for (const extension of cloud.data.extensions ?? []) {
@@ -159,15 +249,48 @@ export async function pullCloud(
     }
     await refreshExtensions();
   }
-  mark(
+  if (options.themes && cloud.data.themes) {
+    const base = await restoreSyncedThemes(
+      cloud.data.themes.entries,
+      cloud.data.themes.activeId,
+    );
+    if (base) {
+      next = {
+        ...next,
+        theme: base,
+        followSystemTheme: false,
+        extensionTheme: "",
+      };
+      setSettings(next);
+    }
+  }
+  if (
+    options.languageServers &&
+    installLanguages &&
+    cloud.data.languageServers?.length
+  ) {
+    const local =
+      (await localStoreSync({ ...options, themes: false }, next))
+        .languageServers ?? [];
+    const wanted = new Set(
+      cloud.data.languageServers.filter((id) => !local.includes(id)),
+    );
+    if (wanted.size) {
+      for (const listing of await languageCatalog()) {
+        if (wanted.has(listing.id)) await installStoreLanguage(listing);
+      }
+    }
+  }
+  await mark(
     cloud.revision,
-    JSON.stringify(
-      syncSelection(
+    await signature({
+      ...syncSelection(
         next,
         await invoke<InstalledExtension[]>("list_extensions"),
         options,
       ),
-    ),
+      ...(await localStoreSync(options, next)),
+    }),
   );
 }
 export async function pushCloud(
@@ -176,7 +299,10 @@ export async function pushCloud(
   options: SyncOptions,
 ) {
   const cloud = await accountRequest<Cloud>("/sync");
-  const selected = syncSelection(settings, extensions, options);
+  const selected = {
+    ...syncSelection(settings, extensions, options),
+    ...(await localStoreSync(options, settings)),
+  };
   const remoteExtensions = new Map(
     (cloud.data.extensions ?? []).map((e) => [e.id, e]),
   );
@@ -185,12 +311,34 @@ export async function pushCloud(
   const data = {
     settings: { ...(cloud.data.settings ?? {}), ...selected.settings },
     extensions: Array.from(remoteExtensions.values()),
+    themes: selected.themes && {
+      entries: Array.from(
+        new Map(
+          [
+            ...(cloud.data.themes?.entries ?? []).filter(
+              (theme) =>
+                !defaultStoreThemes.some((entry) => entry.id === theme.id),
+            ),
+            ...selected.themes.entries,
+          ].map((theme) => [theme.id, theme]),
+        ).values(),
+      ),
+      activeId: selected.themes.activeId,
+    },
+    languageServers:
+      selected.languageServers &&
+      [
+        ...new Set([
+          ...(cloud.data.languageServers ?? []),
+          ...selected.languageServers,
+        ]),
+      ].sort(),
   };
   const result = await accountRequest<{ revision: number }>("/sync", "PUT", {
     revision: cloud.revision,
     data,
   });
-  mark(result.revision, JSON.stringify(selected));
+  await mark(result.revision, await signature(selected));
 }
 export function useAccountSync(
   settings: Settings,
@@ -203,25 +351,19 @@ export function useAccountSync(
   latest.current = { settings, extensions };
   useEffect(() => {
     if (!native) return;
-    let stop: (() => void) | undefined;
-    let disposed = false;
-    void listen<string>("devyy-account-callback", (event) => {
-      void invoke("account_finish", { url: event.payload })
-        .then(() => {
-          saveSyncOptions({ ...syncOptions(), enabled: false });
-          toast.success(
-            "Signed in to Devyy. Choose what to synchronize in Account & sync.",
-          );
-          window.dispatchEvent(new Event("devyy-account-changed"));
-        })
-        .catch((error) => toast.error(String(error)));
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else stop = unlisten;
-    });
+    const subscriptions = [
+      listen("devyy-account-changed", () => {
+        saveSyncOptions({ ...syncOptions(), enabled: false });
+        toast.success("Signed in to Devyy.");
+        window.dispatchEvent(new Event("devyy-account-changed"));
+      }),
+      listen<string>("devyy-account-error", (event) =>
+        toast.error(event.payload),
+      ),
+    ];
     return () => {
-      disposed = true;
-      stop?.();
+      for (const subscription of subscriptions)
+        void subscription.then((stop) => stop());
     };
   }, []);
   useEffect(() => {
@@ -232,20 +374,22 @@ export function useAccountSync(
       busy.current = true;
       try {
         const current = latest.current;
-        const selected = syncSelection(
-            current.settings,
-            current.extensions,
-            options,
-          ),
-          signature = JSON.stringify(selected),
-          meta = metadata();
+        const selected = {
+          ...syncSelection(current.settings, current.extensions, options),
+          ...(await localStoreSync(options, current.settings)),
+        };
+        const localSignature = await signature(selected);
+        const meta = await metadata();
+        const previous = meta?.signature.startsWith("{")
+          ? await signature(meta.signature)
+          : meta?.signature;
         const cloud = await accountRequest<Cloud>("/sync");
         if (!meta) {
           throw Error(
             "Choose Upload or Download in Account & sync before enabling automatic sync.",
           );
         }
-        if (meta.revision !== cloud.revision && meta.signature !== signature) {
+        if (meta.revision !== cloud.revision && previous !== localSignature) {
           throw Error(
             "Sync conflict: account and device both changed. Choose Upload or Download in Account & sync.",
           );
@@ -258,7 +402,7 @@ export function useAccountSync(
             current.extensions,
             options,
           );
-        } else if (meta.signature !== signature) {
+        } else if (previous !== localSignature) {
           await pushCloud(current.settings, current.extensions, options);
         }
       } catch (error) {

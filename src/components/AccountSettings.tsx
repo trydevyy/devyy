@@ -27,6 +27,16 @@ const choices = [
   ],
   ["extensions", "Extensions", "Installed extensions and their enabled state."],
   [
+    "themes",
+    "Themes",
+    "Installed and imported themes, including the active theme.",
+  ],
+  [
+    "languageServers",
+    "Language servers",
+    "Store installs only. Confirm missing installs when applying account settings.",
+  ],
+  [
     "installExtensions",
     "Install missing extensions",
     "Install extensions when applying settings from your account.",
@@ -211,7 +221,15 @@ export default function AccountSettings({
             <footer className="workbench-actions">
               <button
                 className="setting-action"
-                disabled={busy || !(options.settings || options.extensions)}
+                disabled={
+                  busy ||
+                  !(
+                    options.settings ||
+                    options.extensions ||
+                    options.themes ||
+                    options.languageServers
+                  )
+                }
                 onClick={() =>
                   void perform(async () => {
                     await pushCloud(settings, extensions, options);
@@ -226,7 +244,15 @@ export default function AccountSettings({
               </button>
               <button
                 className="setting-action"
-                disabled={busy || !(options.settings || options.extensions)}
+                disabled={
+                  busy ||
+                  !(
+                    options.settings ||
+                    options.extensions ||
+                    options.themes ||
+                    options.languageServers
+                  )
+                }
                 onClick={() =>
                   void perform(async () => {
                     const cloud = await accountRequest<Cloud>("/sync");
@@ -236,6 +262,7 @@ export default function AccountSettings({
                       onChange,
                       extensions,
                       options,
+                      true,
                     );
                     update({ enabled: true });
                     toast.success(

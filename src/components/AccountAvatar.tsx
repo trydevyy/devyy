@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AtSign } from "lucide-react";
-import { accountRequest, ACCOUNT_ORIGIN } from "../lib/account";
+import { accountRequest, accountOrigin } from "../lib/account";
 import { native } from "../lib/native";
 
 export default function AccountAvatar({ large = false }: { large?: boolean }) {
@@ -8,6 +8,7 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
     id: string;
     name: string;
     avatar: boolean;
+    origin: string;
   }>();
   const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
@@ -17,10 +18,13 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
     function refresh() {
       const request = ++revision;
 
-      void accountRequest<{ id: string; name: string; avatar: boolean }>("/me")
-        .then((user) => {
+      void Promise.all([
+        accountRequest<{ id: string; name: string; avatar: boolean }>("/me"),
+        accountOrigin(),
+      ])
+        .then(([user, origin]) => {
           if (request !== revision) return;
-          setProfile(user);
+          setProfile({ ...user, origin });
           setFailed(false);
           setVersion(Date.now());
         })
@@ -48,7 +52,7 @@ export default function AccountAvatar({ large = false }: { large?: boolean }) {
         <img
           alt=""
           src={
-            ACCOUNT_ORIGIN +
+            profile.origin +
             "/api/avatar/" +
             encodeURIComponent(profile.id) +
             "?v=" +
