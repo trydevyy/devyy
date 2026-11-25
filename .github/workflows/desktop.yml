@@ -110,8 +110,8 @@ jobs:
         run: |
           args=()
           if [[ -n "$DEVYY_RUST_TARGET" ]]; then args+=(--target "$DEVYY_RUST_TARGET"); fi
-          cargo test --locked --manifest-path src-tauri/Cargo.toml "${args[@]}"
-          cargo test --locked --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
+          cargo test --manifest-path src-tauri/Cargo.toml "${args[@]}"
+          cargo test --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
       - run: bun install --frozen-lockfile
         if: inputs.release_build
       - name: Build editor

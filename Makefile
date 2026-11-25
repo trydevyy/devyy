@@ -6,15 +6,15 @@ BUN := bun
 CARGO := cargo
 
 ifeq ($(OS),Windows_NT)
-  NATIVE_TEST = $(CARGO) test --locked --manifest-path $1
+  NATIVE_TEST = $(CARGO) test --manifest-path $1
 else ifeq ($(shell uname -s),Linux)
   ifneq ($(shell command -v xvfb-run 2>/dev/null),)
-  NATIVE_TEST = xvfb-run -a $(CARGO) test --locked --manifest-path $1
+  NATIVE_TEST = xvfb-run -a $(CARGO) test --manifest-path $1
   else
-  NATIVE_TEST = $(CARGO) test --locked --manifest-path $1
+  NATIVE_TEST = $(CARGO) test --manifest-path $1
   endif
 else
-  NATIVE_TEST = $(CARGO) test --locked --manifest-path $1
+  NATIVE_TEST = $(CARGO) test --manifest-path $1
 endif
 
 .PHONY: help setup assets playwright-install format format-js format-rust format-check format-check-js format-check-rust check lint lint-js lint-rust test test-js test-rust test-e2e test-e2e-installer build build-installer package verify clean
@@ -52,7 +52,7 @@ format-check-rust: ## Check Rust formatting without modifying files.
 
 check: ## Type-check the web app and compile-check the editor and installer.
 	$(BUN) run check
-	$(CARGO) check --locked --manifest-path installer/src-tauri/Cargo.toml
+	$(CARGO) check --manifest-path installer/src-tauri/Cargo.toml
 
 lint: lint-js lint-rust ## Run static analysis for JavaScript/TypeScript and Rust.
 
@@ -60,8 +60,8 @@ lint-js: ## Run the TypeScript compiler.
 	$(BUN) run check
 
 lint-rust: ## Run Clippy for the editor and installer Rust crates.
-	$(CARGO) clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets
-	$(CARGO) clippy --locked --manifest-path installer/src-tauri/Cargo.toml --all-targets
+	$(CARGO) clippy --manifest-path src-tauri/Cargo.toml --all-targets
+	$(CARGO) clippy --manifest-path installer/src-tauri/Cargo.toml --all-targets
 
 test: test-js test-rust ## Run unit, extension-host, and native test suites.
 

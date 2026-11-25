@@ -17,7 +17,6 @@ const metadata = JSON.parse(
       "metadata",
       "--format-version",
       "1",
-      "--locked",
       "--manifest-path",
       path.join(root, "installer/src-tauri/Cargo.toml"),
     ],

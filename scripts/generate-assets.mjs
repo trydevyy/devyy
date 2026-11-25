@@ -113,7 +113,6 @@ if (includeRust) {
         path.join(root, "src-tauri/Cargo.toml"),
         "--format-version",
         "1",
-        "--locked",
         "--filter-platform",
         rustHost,
       ],
