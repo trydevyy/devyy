@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./components/ui/Skeleton";
 import { readClipboardText, writeClipboardText } from "./lib/clipboard";
 import {
   DesktopMenuBar,
@@ -4507,7 +4508,11 @@ export default function App() {
   function renderMarkdownPreview(t: Tab) {
     return (
       <Suspense
-        fallback={<div className="preview-loading">Loading preview…</div>}
+        fallback={
+          <div className="preview-loading">
+            <Skeleton label="Loading preview" />
+          </div>
+        }
       >
         <MarkdownPreview
           path={t.path}

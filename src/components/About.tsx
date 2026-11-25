@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
@@ -84,7 +85,14 @@ export default function About({
         <Asterisk size={36} />
         <div>
           <h3>devyy</h3>
-          <span>{info?.version ?? "Loading…"}</span>
+          <span>
+            {info?.version ??
+              (error ? (
+                "Unavailable"
+              ) : (
+                <Skeleton variant="inline" label="Loading version" />
+              ))}
+          </span>
         </div>
       </div>
       {error ? (

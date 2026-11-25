@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
@@ -139,7 +140,7 @@ export default function Credits() {
             ))}
         </>
       ) : (
-        !error && <p role="status">Loading licenses…</p>
+        !error && <Skeleton label="Loading licenses" />
       )}
     </section>
   );

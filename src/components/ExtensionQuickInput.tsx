@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import {
@@ -533,11 +534,12 @@ function QuickInput({ input }: { input: QuickInputState }) {
                   </div>
                 ),
               )}
-              {!choices.length && (
-                <p className="muted">
-                  {input.busy ? "Loading…" : "No matching items"}
-                </p>
-              )}
+              {!choices.length &&
+                (input.busy ? (
+                  <Skeleton label="Loading choices" />
+                ) : (
+                  <p className="muted">No matching items</p>
+                ))}
             </div>
           )}
           <div className="dialog-actions">

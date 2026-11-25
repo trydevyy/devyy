@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { InstallProgress } from "./ExtensionProgress";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import ErrorToast from "./ui/ErrorToast";
@@ -787,17 +788,15 @@ export default function AIProviderDetail({
                   !state.models[provider.id]?.some(
                     (model) => model.id === form.model,
                   ) && <option value={form.model}>{form.model}</option>}
-                {busy === "catalog" && (
-                  <option value="__loading" disabled>
-                    Loading models...
-                  </option>
-                )}
                 {(state.models[provider.id] ?? []).map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name || model.id}
                   </option>
                 ))}
               </Select>
+            )}
+            {busy === "catalog" && (
+              <Skeleton variant="inline" label="Loading models" />
             )}
             <button
               type="button"

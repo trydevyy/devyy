@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { writeClipboardText } from "../lib/clipboard";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -306,11 +307,13 @@ export default function PortsPanel({
           <Radio size={19} />
           <div>
             <strong>
-              {loading
-                ? "Loading ports"
-                : native && !signedIn
-                  ? "Sign in to forward a port"
-                  : "No forwarded ports"}
+              {loading ? (
+                <Skeleton variant="inline" label="Loading ports" />
+              ) : native && !signedIn ? (
+                "Sign in to forward a port"
+              ) : (
+                "No forwarded ports"
+              )}
             </strong>
             <p>
               {native && !signedIn

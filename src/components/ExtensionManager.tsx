@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useRef, useState } from "react";
@@ -242,6 +243,9 @@ export default function ExtensionManager({
           className={`extensions-list extension-catalog ${loading ? "is-loading" : ""}`}
           aria-busy={loading}
         >
+          {loading && !results.length && (
+            <Skeleton variant="cards" label="Loading extensions" />
+          )}
           {results.map((extension) => {
             const id = `${extension.namespace}.${extension.name}`;
             const local = installed.find(

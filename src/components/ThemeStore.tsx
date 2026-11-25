@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Skeleton from "./ui/Skeleton";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -238,6 +239,9 @@ export default function ThemeStore({
         className="extensions-list extension-catalog"
         aria-busy={loading && tab === "browse"}
       >
+        {loading && tab === "browse" && !themes.length && (
+          <Skeleton variant="cards" label="Loading themes" />
+        )}
         {themes.map((entry) => {
           const local = localTheme(entry.id);
           const applied = selected === entry.id;

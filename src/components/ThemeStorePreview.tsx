@@ -1,4 +1,5 @@
 import { InstallProgress } from "./ExtensionProgress";
+import Skeleton from "./ui/Skeleton";
 import { useEffect, useRef, useState } from "react";
 import { BadgeCheck, Copyright, Download, X } from "lucide-react";
 import { matchesPreviewOrigin, previewTargetOrigin } from "../lib/previewMode";
@@ -104,7 +105,7 @@ export default function ThemeStorePreview({
       <div className="desktop-theme-preview-layout">
         <div className="desktop-theme-preview-editor">
           {(!theme || !ready) && !error && (
-            <p role="status">Loading Devyy preview…</p>
+            <Skeleton variant="workbench" label="Loading the theme preview" />
           )}
           {theme && (
             <iframe

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import ErrorToast from "./ui/ErrorToast";
 import {
   effortLabel,
@@ -24,7 +25,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
-  LoaderCircle,
   RefreshCw,
   Search,
   Settings2,
@@ -408,8 +408,7 @@ export default function AIModelPicker({
                   ))}
                   {busy && !options.length && (
                     <div className="ai-picker-status">
-                      <LoaderCircle className="spinning" size={14} /> Loading
-                      models
+                      <Skeleton label="Loading models" />
                     </div>
                   )}
                   {error && <ErrorToast message={error} />}

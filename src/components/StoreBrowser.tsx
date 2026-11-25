@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import Skeleton from "./ui/Skeleton";
 import { ArrowUpRight, Download, Search, Plug } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -133,9 +134,7 @@ export default function StoreBrowser({
             </button>
           )}
           {loading ? (
-            <p className="settings-note" role="status">
-              Loading catalog…
-            </p>
+            <Skeleton variant="cards" label="Loading language servers" />
           ) : (
             <ul className="settings-store-list">
               {matching

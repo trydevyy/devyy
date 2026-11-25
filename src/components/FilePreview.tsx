@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import ErrorToast from "./ui/ErrorToast";
 import { useEffect, useState } from "react";
 import { Code, ImageOff, Maximize, Minus, Plus } from "lucide-react";
@@ -119,7 +120,7 @@ export default function FilePreview({
             <ErrorToast message={error} />
           </div>
         ) : !url ? (
-          <p role="status">Loading preview…</p>
+          <Skeleton label="Loading file preview" />
         ) : kind === "image" ? (
           <img
             src={url}
