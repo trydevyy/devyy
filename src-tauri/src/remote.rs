@@ -146,7 +146,7 @@ pub async fn port_forward(
     }
     let is_https = protocol.as_deref() == Some("https");
     let server = account::ACCOUNT_ORIGIN;
-    let token = account::token(server)?;
+    let token = account::token(&app, server)?;
     let url = format!(
         "{}/api/tunnels/{tunnel_id}/connect",
         server

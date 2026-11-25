@@ -203,10 +203,20 @@ const themeProperties = [
   "--editor-foreground",
 ];
 let themeRevision = 0;
-export async function applyExtensionTheme(settings: Settings) {
+export async function applyExtensionTheme(
+  settings: Settings,
+  storeColors?: Record<string, string>,
+) {
   const revision = ++themeRevision;
   const root = document.documentElement;
   themeProperties.forEach((p) => root.style.removeProperty(p));
+  if (storeColors) {
+    for (const property of themeProperties) {
+      const color = storeColors[property.slice(2)];
+      if (color) root.style.setProperty(property, color);
+    }
+    return;
+  }
   if (!settings.extensionTheme) return;
   const theme = await readExtensionTheme(settings.extensionTheme);
   if (!theme || revision !== themeRevision) return;

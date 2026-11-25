@@ -69,6 +69,14 @@ npm run dev
 
 The browser workspace requires Node.js 22 or later. Native development also requires access to the private HIT submodule. The [contributor guide](CONTRIBUTING.md) covers native setup, testing, packaging, and the release workflow. For installer development and removal, see the [installer guide](installer/README.md).
 
+For end-to-end Store development, start the local API and web Store, then run a
+debug desktop build with `DEVYY_LOCAL_STORE=1`. On macOS, build the `.app`
+with `npm run tauri -- build --debug --bundles app` so Launch Services can register
+`devyy://` URLs. Quit other Devyy instances, then launch the bundle with
+`open --env DEVYY_LOCAL_STORE=1 src-tauri/target/debug/bundle/macos/Devyy.app`.
+Add `--env DEVYY_LOCAL_ACCOUNT=1` to sign in to the local demo account and
+test synchronization. Release builds always use the production services.
+
 [Report a bug or suggest a feature](https://github.com/trydevyy/devyy/issues/new/choose) · [Report a security issue privately](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 Devyy is licensed under [GPL-3.0-only](LICENSE). The HIT submodule currently requires repository access for native source builds. **Settings → Credits & licenses** lists bundled dependency and asset notices.

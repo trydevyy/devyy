@@ -207,7 +207,7 @@ fn register_linux(extension: &str) -> Result<(), String> {
         include_bytes!("../icons/128x128.png"),
     )
     .map_err(|e| e.to_string())?;
-    std::fs::write(applications.join("devyy.desktop"),format!("[Desktop Entry]\nType=Application\nName=Devyy\nExec=\"{exec}\" %F\nIcon=devyy\nTerminal=false\nCategories=Development;IDE;\nMimeType={mime_types};\n")).map_err(|e|e.to_string())?;
+    std::fs::write(applications.join("devyy.desktop"),format!("[Desktop Entry]\nType=Application\nName=Devyy\nExec=\"{exec}\" %U\nIcon=devyy\nTerminal=false\nCategories=Development;IDE;\nMimeType={mime_types};x-scheme-handler/devyy;\n")).map_err(|e|e.to_string())?;
     let mime_root = data.join("mime");
     let packages = mime_root.join("packages");
     std::fs::create_dir_all(&packages).map_err(|e| e.to_string())?;
@@ -336,8 +336,24 @@ pub fn launch_paths(
         .into_iter()
         .map(Into::into)
         .filter(|argument| !argument.is_empty() && !argument.to_string_lossy().starts_with('-'))
-        .map(|argument| {
-            let path = std::path::PathBuf::from(argument);
+        .filter_map(|argument| {
+            let path = if let Some(uri) = argument
+                .to_str()
+                .and_then(|arg| tauri::Url::parse(arg).ok())
+            {
+                if uri.scheme() == "file" {
+                    uri.to_file_path().ok()?
+                } else if uri.scheme() == "devyy" {
+                    return None;
+                } else {
+                    std::path::PathBuf::from(argument)
+                }
+            } else {
+                std::path::PathBuf::from(argument)
+            };
+            Some(path)
+        })
+        .map(|path| {
             if path.is_absolute() {
                 path
             } else {

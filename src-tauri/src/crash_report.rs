@@ -1,5 +1,6 @@
+use crate::process::{bounded, DIAGNOSTIC_LIMIT};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -7,6 +8,26 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 static PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
+
+fn add_diagnostics(mut report: String, title: &str, details: &str) -> String {
+    if !details.trim().is_empty() {
+        report.push_str(&format!(
+            "\n{title}\n{}\n",
+            bounded(details, DIAGNOSTIC_LIMIT)
+        ));
+    }
+    report
+}
+
+fn write_report(path: &Path, report: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let directory = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+    std::fs::create_dir_all(directory)?;
+    let mut file = tempfile::NamedTempFile::new_in(directory)?;
+    file.write_all(report.as_bytes())?;
+    file.persist(path)?;
+    Ok(())
+}
 
 fn report(kind: &str, location: &str) -> String {
     format!(
@@ -18,9 +39,6 @@ fn report(kind: &str, location: &str) -> String {
 }
 
 pub fn install(app: &AppHandle) {
-    if crate::webhook::url().is_none() {
-        return;
-    }
     let Ok(cache) = app.path().app_cache_dir() else {
         return;
     };
@@ -29,7 +47,12 @@ pub fn install(app: &AppHandle) {
     }
     let path = cache.join("pending-crash.txt");
     if let Ok(previous) = std::fs::read_to_string(&path) {
-        offer(app, previous, Some(path.clone()));
+        let summary = previous
+            .split("\n\n")
+            .next()
+            .unwrap_or(&previous)
+            .to_owned();
+        offer(app, summary, previous, Some(path.clone()), &path);
     }
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -44,24 +67,39 @@ pub fn install(app: &AppHandle) {
                 format!("{file}:{}", source.line())
             })
             .unwrap_or_else(|| "unknown".into());
-        if let Ok(mut file) = tempfile::NamedTempFile::new_in(&cache) {
-            use std::io::Write;
-            if file
-                .write_all(report("Native Rust panic", &location).as_bytes())
-                .is_ok()
-            {
-                let _ = file.persist(&path);
-            }
-        }
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("Non-string panic payload");
+        let report = add_diagnostics(report("Native Rust panic", &location), "Error", message);
+        let report = add_diagnostics(
+            report,
+            "Rust backtrace",
+            &std::backtrace::Backtrace::force_capture().to_string(),
+        );
+        let _ = write_report(&path, &report);
         original(info);
     }));
 }
 
 pub fn extension_failure(app: &AppHandle, failure: crate::extension_host::ExtensionFailure) {
     use crate::extension_host::ExtensionFailure;
-    let (kind, id) = match failure {
-        ExtensionFailure::Exited => ("Extension host exited unexpectedly", None),
-        ExtensionFailure::Execution { id } => ("Extension execution failed", id),
+    let (kind, id, error, stack, logs) = match failure {
+        ExtensionFailure::Exited { status, logs } => (
+            "Extension host exited unexpectedly",
+            None,
+            status,
+            String::new(),
+            logs,
+        ),
+        ExtensionFailure::Execution {
+            id,
+            error,
+            stack,
+            logs,
+        } => ("Extension execution failed", id, error, stack, logs),
     };
     let location = id
         .as_deref()
@@ -73,11 +111,21 @@ pub fn extension_failure(app: &AppHandle, failure: crate::extension_host::Extens
                     .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
         })
         .unwrap_or("Extension host process");
-    offer(app, report(kind, location), None);
+    let summary = report(kind, location);
+    let details = add_diagnostics(summary.clone(), "Error", &error);
+    let details = add_diagnostics(details, "Extension stack trace", &stack);
+    let details = add_diagnostics(details, "Recent extension host output", &logs);
+    save_and_offer(app, summary, details);
 }
 
 #[tauri::command]
-pub fn report_frontend_crash(window: tauri::WebviewWindow, kind: String, line: u32) {
+pub fn report_frontend_crash(
+    window: tauri::WebviewWindow,
+    kind: String,
+    line: u32,
+    error: Option<String>,
+    stack: Option<String>,
+) {
     if window.label() != "main" {
         return;
     }
@@ -86,23 +134,41 @@ pub fn report_frontend_crash(window: tauri::WebviewWindow, kind: String, line: u
         "rejection" => "Unhandled webview promise rejection",
         _ => return,
     };
-    offer(
-        window.app_handle(),
-        report(kind, &format!("Webview line {line}")),
-        None,
+    let summary = report(kind, &format!("Webview line {line}"));
+    let details = add_diagnostics(summary.clone(), "Error", error.as_deref().unwrap_or(""));
+    let details = add_diagnostics(
+        details,
+        "Webview stack trace",
+        stack.as_deref().unwrap_or(""),
     );
+    save_and_offer(window.app_handle(), summary, details);
 }
 
-fn offer(app: &AppHandle, report: String, pending: Option<PathBuf>) {
-    let Some(url) = crate::webhook::url() else {
+fn save_and_offer(app: &AppHandle, summary: String, report: String) {
+    let Ok(cache) = app.path().app_cache_dir() else {
         return;
     };
-    if PROMPT_OPEN.swap(true, Ordering::AcqRel) {
+    let path = cache.join("last-crash.txt");
+    offer(app, summary, report, None, &path);
+}
+
+fn offer(app: &AppHandle, summary: String, report: String, pending: Option<PathBuf>, path: &Path) {
+    let url = crate::webhook::url();
+    if url.is_some() && PROMPT_OPEN.swap(true, Ordering::AcqRel) {
         return;
     }
+    let saved = pending.is_some() || write_report(path, &report).is_ok();
+    let Some(url) = url else {
+        return;
+    };
+    let review = if saved {
+        format!(" You can review it at {}.", path.display())
+    } else {
+        String::new()
+    };
     let handle = app.clone();
     app.dialog()
-        .message(format!("Send this crash report to the Devyy team?\n\n{report}"))
+        .message(format!("Send this crash report to the Devyy team?\n\n{summary}\nThe attachment includes available logs and stack traces.{review}"))
         .title("Devyy crash report")
         .buttons(MessageDialogButtons::OkCancelCustom("Send report".into(), "Discard".into()))
         .show(move |approved| {
