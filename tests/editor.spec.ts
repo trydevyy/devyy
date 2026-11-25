@@ -88,9 +88,21 @@ test("file palette, workspace search, split, preferences and keyboard flow", asy
   await expect(page.locator(".editors")).toHaveClass(/split/);
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("tab", { name: "Themes", exact: true }).click();
-  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("button", { name: "Preview Light", exact: true }),
+    })
+    .getByRole("button", { name: "Apply", exact: true })
+    .click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
-  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("button", { name: "Preview Dark", exact: true }),
+    })
+    .getByRole("button", { name: "Apply", exact: true })
+    .click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
   await page.getByRole("tab", { name: "Editor", exact: true }).click();
   await page.getByRole("switch", { name: "Wrap long lines" }).click();
@@ -163,7 +175,13 @@ test("vibrancy and motion preferences persist, and the workspace fits compact wi
     .click();
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
   await page.getByRole("tab", { name: "Themes", exact: true }).click();
-  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("button", { name: "Preview Light", exact: true }),
+    })
+    .getByRole("button", { name: "Apply", exact: true })
+    .click();
   await page.keyboard.press("Escape");
   await expect(page.locator(".terminal-welcome strong")).toBeVisible();
   await expect

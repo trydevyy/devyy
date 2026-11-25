@@ -13,8 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { readFileSync } from "node:fs";
 import { chooseOption } from "./controls";
 import { test, expect } from "@playwright/test";
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 test("glass overlays share transparency, blur and solid accessibility fallbacks", async ({
@@ -207,7 +211,7 @@ test("About devyy is available from Settings and commands with usable details", 
     .getByRole("button", { name: "Copy app details", exact: true })
     .click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-    "devyy 0.1.0",
+    `devyy ${version}`,
   );
   await expect(page.locator("[data-sonner-toast]")).toContainText(
     "App details copied",
