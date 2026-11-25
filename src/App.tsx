@@ -1228,18 +1228,21 @@ export default function App() {
                   },
                 );
         if (root !== wsRef.current.root) return;
-        existing = {
-          path,
-          previewKind,
-          readOnly: previewKind && !/\.svg$/i.test(path) ? true : undefined,
-          content: doc.content,
-          saved: doc.content,
-          modified: doc.modified,
-        };
-        setTabs((old) =>
-          old.some((t) => t.path === path) ? old : [...old, existing!],
-        );
-        tabsRef.current = [...tabsRef.current, existing];
+        existing = tabsRef.current.find((tab) => tab.path === path);
+        if (!existing) {
+          existing = {
+            path,
+            previewKind,
+            readOnly: previewKind && !/\.svg$/i.test(path) ? true : undefined,
+            content: doc.content,
+            saved: doc.content,
+            modified: doc.modified,
+          };
+          setTabs((old) =>
+            old.some((t) => t.path === path) ? old : [...old, existing!],
+          );
+          tabsRef.current = [...tabsRef.current, existing];
+        }
       }
       setActive(path);
       activeRef.current = path;
@@ -1588,7 +1591,16 @@ export default function App() {
     markdownModes,
   ]);
   useEffect(() => {
-    const update = () => publishExtensionState.current();
+    let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      clearTimeout(viewportTimer);
+      publishExtensionState.current();
+    };
+    const updateViewport = () => {
+      clearTimeout(viewportTimer);
+      viewportTimer = setTimeout(update, 80);
+    };
+    window.addEventListener("devyy-editor-viewport", updateViewport);
     window.addEventListener("focus", update);
     window.addEventListener("blur", update);
     window.addEventListener("devyy-editor-selection", update);
@@ -1596,6 +1608,8 @@ export default function App() {
       window.removeEventListener("focus", update);
       window.removeEventListener("blur", update);
       window.removeEventListener("devyy-editor-selection", update);
+      window.removeEventListener("devyy-editor-viewport", updateViewport);
+      clearTimeout(viewportTimer);
     };
   }, []);
   async function extensionWorkbenchRequest(request: WorkbenchRequest) {
@@ -5030,14 +5044,14 @@ export default function App() {
                     void invoke<Workspace["files"]>("list_directory", { path })
                       .then((children) => {
                         if (wsRef.current.root !== root) return;
+                        const childPaths = new Set(
+                          children.map((child) => child.path),
+                        );
                         setWorkspace((old) => ({
                           ...old,
                           files: [
                             ...old.files.filter(
-                              (entry) =>
-                                !children.some(
-                                  (child) => child.path === entry.path,
-                                ),
+                              (entry) => !childPaths.has(entry.path),
                             ),
                             ...children,
                           ],

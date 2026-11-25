@@ -567,12 +567,7 @@ export default function Preferences({
                           document
                             .getElementById(`settings-section-${section}`)
                             ?.scrollIntoView({
-                              behavior:
-                                document.documentElement.dataset.motion ===
-                                  "reduced" ||
-                                settings.animationSpeed === "instant"
-                                  ? "instant"
-                                  : "smooth",
+                              behavior: "instant",
                               block: "start",
                             })
                         }

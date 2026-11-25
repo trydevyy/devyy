@@ -703,6 +703,7 @@ a {
 }
 
 .tree-row {
+  content-visibility: auto;
   height: 30px;
   display: flex;
   align-items: center;

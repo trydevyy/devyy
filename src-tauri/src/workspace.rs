@@ -98,7 +98,9 @@ pub fn resolve(base: &Path, relative: &str, create: bool) -> Result<PathBuf, Str
     Ok(joined)
 }
 fn stamp(path: &Path) -> Result<String, String> {
-    let m = fs::metadata(path).map_err(|e| e.to_string())?;
+    stamp_metadata(&fs::metadata(path).map_err(|e| e.to_string())?)
+}
+fn stamp_metadata(m: &fs::Metadata) -> Result<String, String> {
     let modified = m
         .modified()
         .map_err(|e| e.to_string())?
@@ -414,21 +416,35 @@ pub async fn read_file(path: String, state: State<'_, Workspace>) -> Result<Docu
     if let Some(ssh) = crate::ssh::workspace(&base) {
         return ssh.read(&path).await;
     }
-    read_document(&base, &path)
+    background(move || read_document(&base, &path)).await?
 }
 fn read_document(base: &Path, path: &str) -> Result<Document, String> {
+    const MAX_BYTES: u64 = 5_000_000;
     let full = resolve(base, path, false)?;
-    if fs::metadata(&full).map_err(|e| e.to_string())?.len() > 5_000_000 {
+    let mut file = fs::File::open(&full).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
+        return Err("Only regular files can be opened in the text editor".into());
+    }
+    if metadata.len() > MAX_BYTES {
         return Err("This file exceeds the 5 MB editing limit".into());
     }
-    let content = fs::read_to_string(&full).map_err(|e| e.to_string())?;
+    let mut content = String::with_capacity(metadata.len() as usize);
+    (&mut file)
+        .take(MAX_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|e| e.to_string())?;
+    if content.len() as u64 > MAX_BYTES {
+        return Err("This file exceeds the 5 MB editing limit".into());
+    }
     if content.contains('\0') {
         return Err("Binary files cannot be opened in the text editor".into());
     }
-    Ok(Document {
-        content,
-        modified: stamp(&full)?,
-    })
+    let modified = stamp_metadata(&metadata)?;
+    if modified != stamp_metadata(&file.metadata().map_err(|e| e.to_string())?)? {
+        return Err("The file changed while opening it. Try again.".into());
+    }
+    Ok(Document { content, modified })
 }
 #[tauri::command]
 pub async fn write_file(

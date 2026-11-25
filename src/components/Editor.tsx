@@ -695,7 +695,7 @@ function Editor(props: EditorProps) {
               !update.selectionSet &&
               !update.docChanged
             )
-              window.dispatchEvent(new Event("devyy-editor-selection"));
+              window.dispatchEvent(new Event("devyy-editor-viewport"));
             if (update.selectionSet || update.docChanged) {
               window.dispatchEvent(new Event("devyy-editor-selection"));
               const line = update.state.doc.lineAt(
