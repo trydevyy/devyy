@@ -484,7 +484,7 @@ fn owned_write(path: &Path, content: &str, marker: &str) -> Result<(), String> {
 fn linux_entries(environment: &Environment, manifest: &Manifest) -> Vec<(PathBuf, String)> {
     let root = &manifest.directory;
     let identity = marker(root);
-    let desktop=format!("[Desktop Entry]\nType=Application\nName=Devyy\nComment=A focused development environment\nExec={} %F\nIcon={}\nTerminal=false\nCategories=Development;IDE;\nMimeType=text/plain;x-scheme-handler/devyy;\nNoDisplay={}\n{}\n",quoted(&root.join("devyy")),root.join("devyy.png").display(),!manifest.menu,identity);
+    let desktop=format!("[Desktop Entry]\nType=Application\nName=Devyy\nComment=A focused development environment\nExec={} %U\nIcon={}\nTerminal=false\nCategories=Development;IDE;\nMimeType=text/plain;x-scheme-handler/devyy;\nNoDisplay={}\n{}\n",quoted(&root.join("devyy")),root.join("devyy.png").display(),!manifest.menu,identity);
     let remove=format!("[Desktop Entry]\nType=Application\nName=Uninstall Devyy\nExec={}\nIcon={}\nTerminal=false\nCategories=Utility;\nNoDisplay={}\n{}\n",quoted(&root.join("uninstall.sh")),root.join("devyy.png").display(),!manifest.menu,identity);
     let launcher = format!(
         "#!/bin/sh\n# {identity}\nexec {} \"$@\"\n",

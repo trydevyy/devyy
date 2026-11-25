@@ -16,6 +16,19 @@ on:
       DEVYY_FEEDBACK_WEBHOOK_URL:
         required: false
 
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
 permissions:
   contents: read
 
@@ -153,6 +166,85 @@ jobs:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
           path: release-assets/
+
+  macos:
+    if: inputs.release_build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            artifact: macos-arm64
+          - os: macos-15-intel
+            artifact: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env:
+      DEVYY_PLATFORM: ${{ matrix.artifact }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Fetch pinned documentation
+        run: git submodule update --init --checkout -- docs
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Fetch pinned HIT source
+        shell: bash
+        env:
+          HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
+        run: |
+          if [[ -z "$HIT_READ_PAT" ]]; then
+            echo "::error::Set HIT_READ_PAT to a token with read access to hit-scm/hit."
+            exit 1
+          fi
+          auth="$(printf 'x-access-token:%s' "$HIT_READ_PAT" | base64 | tr -d '\r\n')"
+          echo "::add-mask::$auth"
+          git submodule sync -- third_party/hit
+          GIT_TERMINAL_PROMPT=0 git -c url.https://github.com/hit-scm/hit.git.insteadOf=git@github.com:hit-scm/hit.git \
+            -c "http.https://github.com/hit-scm/hit.git.extraHeader=Authorization: Basic $auth" \
+            submodule update --init --checkout -- third_party/hit
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY}"
+          : "${APPLE_ID:?Set APPLE_ID}"
+          : "${APPLE_PASSWORD:?Set APPLE_PASSWORD}"
+          : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
+          : "${APPLE_CERTIFICATE:?Set APPLE_CERTIFICATE}"
+          : "${APPLE_CERTIFICATE_PASSWORD:?Set APPLE_CERTIFICATE_PASSWORD}"
+          keychain="$RUNNER_TEMP/devyy-signing.keychain-db"
+          password="$(openssl rand -hex 32)"
+          certificate="$RUNNER_TEMP/devyy-signing.p12"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 4500 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+      - name: Build, notarize, and stage macOS release
+        shell: bash
+        env:
+          DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
+        run: bash scripts/build-local-release.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: devyy-package-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: release-assets/v*/${{ matrix.artifact }}/
 
   interface:
     runs-on: ubuntu-24.04

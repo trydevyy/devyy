@@ -58,7 +58,12 @@ unset DEVYY_RUST_TARGET DEVYY_DMG_PATH
 
 npm ci
 if [[ "$platform" == macos-* ]]; then
-  npm run desktop:build
+  : "${APPLE_SIGNING_IDENTITY:?Set the Developer ID Application signing identity}"
+  : "${APPLE_ID:?Set the Apple account for notarization}"
+  : "${APPLE_PASSWORD:?Set the Apple app-specific password for notarization}"
+  : "${APPLE_TEAM_ID:?Set the Apple Developer Team ID}"
+  macos_config="$(node -p 'JSON.stringify({bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}})')"
+  npm run desktop:build -- --config "$macos_config"
   app=src-tauri/target/release/bundle/macos/Devyy.app
   arch="$(lipo -archs "$app/Contents/MacOS/Devyy")"
   if [[ "$platform:$arch" != macos-arm64:arm64 && "$platform:$arch" != macos-x64:x86_64 ]]; then

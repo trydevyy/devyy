@@ -63,6 +63,12 @@ jobs:
       HIT_READ_PAT: ${{ secrets.HIT_READ_PAT }}
       DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
       DEVYY_FEEDBACK_WEBHOOK_URL: ${{ secrets.DEVYY_FEEDBACK_WEBHOOK_URL }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   publish:
     needs: build
@@ -104,6 +110,10 @@ jobs:
             stage "$platform" "Devyy-$version-$platform.AppImage"
             stage "$platform" "Devyy-$version-$platform.deb"
             stage "$platform" "Devyy-$version-$platform"
+          done
+          for platform in macos-arm64 macos-x64; do
+            stage "$platform" "Devyy-Setup-$version-$platform.dmg"
+            stage "$platform" "Devyy-$version-$platform.app.zip"
           done
           (cd release && sha256sum -- * > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - name: Upload to a draft, then publish

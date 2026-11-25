@@ -45,6 +45,19 @@ pinned DMG build tools into the ignored `installer/.dmg-tools` environment. It d
 not change the system Python. Build-tool licenses are separate from the GPLv3 app
 license. Frontend and Rust dependency notices are bundled in the installer.
 
+Downloadable macOS builds require a Developer ID Application certificate.
+Install that certificate locally and set `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_TEAM_ID`, and `APPLE_PASSWORD` (an Apple app-specific password), then run
+`bash scripts/build-local-release.sh`. GitHub release builds also need the
+base64-encoded PKCS#12 as `APPLE_CERTIFICATE` and its password as
+`APPLE_CERTIFICATE_PASSWORD`. The release script verifies the app signature
+inside the mounted DMG and validates notarization tickets before publishing
+either artifact.
+
+For a DMG used only on the build machine, build Devyy and run
+`npm run release:installer -- --skip-editor-build --local-only`. That path
+checks the app's ad hoc signature for packaging tests.
+
 ## Setup interface
 
 Windows and Linux use four steps: location, shortcuts, licenses, then installation.
