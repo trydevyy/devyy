@@ -21,7 +21,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     process::{Child, ChildStdin, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::Duration,
@@ -47,6 +47,8 @@ struct Client {
     next: AtomicU64,
     server_key: String,
     initialize_result: Value,
+    connected: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
 }
 impl Client {
     fn send(&self, message: Value) -> Result<(), String> {
@@ -55,10 +57,13 @@ impl Client {
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
-        self.pending
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert(id, tx);
+        {
+            let mut pending = self.pending.lock().map_err(|e| e.to_string())?;
+            if !self.connected.load(Ordering::Acquire) {
+                return Err(format!("Language server exited before {method}"));
+            }
+            pending.insert(id, tx);
+        }
         if let Err(error) =
             self.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
         {
@@ -71,7 +76,12 @@ impl Client {
             30
         }));
         let _ = self.pending.lock().map(|mut p| p.remove(&id));
-        let response = result.map_err(|_| format!("Language server timed out: {method}"))?;
+        let response = result.map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => format!("Language server timed out: {method}"),
+            mpsc::RecvTimeoutError::Disconnected => {
+                format!("Language server exited during {method}")
+            }
+        })?;
         if let Some(error) = response.get("error") {
             return Err(error.to_string());
         }
@@ -126,7 +136,7 @@ pub async fn lsp_start<R: tauri::Runtime>(
         let mut clients = state.0.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = clients
             .values()
-            .find(|c| c.server_key == server_key)
+            .find(|c| c.server_key == server_key && c.connected.load(Ordering::Acquire))
             .cloned()
         {
             let result = existing.initialize_result.clone();
@@ -134,6 +144,9 @@ pub async fn lsp_start<R: tauri::Runtime>(
             return Ok(result);
         }
     }
+    let can_fallback = !config.custom
+        && config.client_id.is_none()
+        && config.source.as_deref() == Some("rust-lang.rust-analyzer");
     let binary = config.command;
     let cwd = config
         .cwd
@@ -148,17 +161,44 @@ pub async fn lsp_start<R: tauri::Runtime>(
     let lang = language.clone();
     let writers = state.3.clone();
     let client = tauri::async_runtime::spawn_blocking(move || {
-        let mut child = crate::process::command(&binary).args(args).current_dir(&cwd).envs(environment).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("Install {binary} to enable language intelligence: {e}"))?;
+        let start = |binary: &str| -> Result<Arc<Client>, String> {
+        let output = |level: &str, text: &str| {
+            let _ = app.emit("lsp-output", json!({"language":lang,"text":text,"level":level}));
+        };
+        output("info", &format!("Starting {binary}"));
+        let mut command = crate::process::command(binary);
+        crate::process::with_tool_path(&mut command);
+        if lang == "rust" && std::env::var_os("RUST_BACKTRACE").is_none() {
+            command.env("RUST_BACKTRACE", "1");
+        }
+        let mut child = command.args(&args).current_dir(&cwd).envs(&environment)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
+            .map_err(|error| format!("Could not start {binary}: {error}"))?;
         if let Some(stderr) = child.stderr.take() {
             let app = app.clone(); let language = lang.clone();
-            std::thread::spawn(move || { let mut reader=BufReader::new(stderr); loop { let mut line=String::new(); match reader.by_ref().take(65536).read_line(&mut line) { Ok(0)|Err(_)=>break, _=>{ let _=app.emit("lsp-output", json!({"language":language,"text":line})); } } } });
+            std::thread::spawn(move || {
+                crate::process::read_process_logs(stderr, |line| {
+                    let _ = app.emit("lsp-output", json!({"language":language,"text":line,"level":"warn"}));
+                });
+            });
         }
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("Language server stdin unavailable")?));
         writers.lock().map_err(|e|e.to_string())?.insert(lang.clone(),stdin.clone());
         let stdout = child.stdout.take().ok_or("Language server stdout unavailable")?;
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let responses = pending.clone(); let writer = stdin.clone();
+        let connected = Arc::new(AtomicBool::new(true));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let reader_connected = connected.clone();
+        let reader_stopping = stopping.clone();
+        let reader_app = app.clone();
+        let reader_lang = lang.clone();
+        let reader_writers = writers.clone();
+        let configuration = configuration.clone();
         std::thread::spawn(move || {
+            let app = reader_app;
+            let lang = reader_lang;
+            let read_messages = || {
             let mut reader = BufReader::new(stdout);
             loop {
                 let mut size = 0usize;
@@ -185,11 +225,27 @@ pub async fn lsp_start<R: tauri::Runtime>(
                 } else if message["method"] == "textDocument/publishDiagnostics" {
                     let _ = app.emit("lsp-diagnostics", LspEvent { language: lang.clone(), params: message["params"].clone() });
                 } else if message.get("method").is_some() {
+                    if message["method"] == "window/logMessage" {
+                        if let Some(text) = message["params"]["message"].as_str() {
+                            let level = match message["params"]["type"].as_u64() { Some(1) => "error", Some(2) => "warn", Some(4) => "debug", _ => "info" };
+                            let _ = app.emit("lsp-output", json!({"language":lang,"text":text,"level":level}));
+                        }
+                    }
                     let _ = app.emit("lsp-server-message", json!({"language":lang,"method":message["method"],"params":message["params"]}));
                 }
             }
+            };
+            read_messages();
+            reader_connected.store(false, Ordering::Release);
+            if let Ok(mut pending) = responses.lock() { pending.clear(); }
+            if let Ok(mut writers) = reader_writers.lock() {
+                if writers.get(&lang).is_some_and(|current| Arc::ptr_eq(current, &writer)) { writers.remove(&lang); }
+            }
+            if !reader_stopping.load(Ordering::Acquire) {
+                let _ = app.emit("lsp-output", json!({"language":lang,"text":"Language server connection closed.","level":"error"}));
+            }
         });
-        let mut client = Client { child, stdin, pending, next: AtomicU64::new(1), server_key, initialize_result: Value::Null };
+        let mut client = Client { child, stdin, pending, next: AtomicU64::new(1), server_key: server_key.clone(), initialize_result: Value::Null, connected, stopping };
         let uri = workspace_root.as_ref().and_then(|base|tauri::Url::from_directory_path(base).ok()).map(|u|u.to_string());
         let folders = uri.as_ref().map(|uri|json!([{"uri":uri,"name":base.file_name().unwrap_or_default().to_string_lossy()}]));
         let mut capabilities=json!({"window":{"workDoneProgress":true},"workspace":{"configuration":true,"workspaceFolders":true},"textDocument":{"completion":{"completionItem":{"snippetSupport":true,"insertReplaceSupport":true},"completionList":{"itemDefaults":["editRange","insertTextFormat"]}},"publishDiagnostics":{"relatedInformation":true}},"general":{"positionEncodings":["utf-16"]}});
@@ -204,12 +260,26 @@ pub async fn lsp_start<R: tauri::Runtime>(
                 "formats": ["relative"], "overlappingTokenSupport": false, "multilineTokenSupport": false
             }
         }}));
-        merge_json(&mut capabilities, client_capabilities);
+        merge_json(&mut capabilities, client_capabilities.clone());
         let initialized = client.request("initialize", json!({"processId":std::process::id(),"initializationOptions":initialization_options,"rootUri":uri,"workspaceFolders":folders,"capabilities":capabilities}));
-        client.initialize_result = match initialized {Ok(result)=>result,Err(error)=>{let _=client.child.kill();let _=client.child.wait();return Err(error);}};
+        client.initialize_result = initialized?;
         client.send(json!({"jsonrpc":"2.0","method":"initialized","params":{}}))?;
         client.send(json!({"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":initial_configuration}}))?;
         Ok(Arc::new(client))
+        };
+        match start(&binary) {
+            Ok(client) => Ok(client),
+            Err(error) => {
+                let _ = app.emit("lsp-output", json!({"language":lang,"text":error,"level":"error"}));
+                if !can_fallback || crate::process::executable("rust-analyzer").is_none() {
+                    return Err(error);
+                }
+                let _ = app.emit("lsp-output", json!({"language":lang,"text":"Trying the system rust-analyzer after the bundled server failed.","level":"warn"}));
+                start("rust-analyzer").inspect_err(|error| {
+                    let _ = app.emit("lsp-output", json!({"language":lang,"text":error,"level":"error"}));
+                })
+            }
+        }
     }).await.map_err(|e| e.to_string())??;
     if generation != state.1.load(Ordering::SeqCst) {
         return Err("Workspace changed while starting the language server".into());
@@ -305,15 +375,13 @@ pub async fn lsp_stop(state: State<'_, LanguageServers>) -> Result<(), String> {
     state.3.lock().map_err(|e| e.to_string())?.clear();
     let mut clients = state.0.lock().map_err(|e| e.to_string())?;
     for (_, client) in clients.drain() {
-        if let Ok(mut client) = Arc::try_unwrap(client) {
-            let _ = client.child.kill();
-            let _ = client.child.wait();
-        }
+        client.stopping.store(true, Ordering::Release);
     }
     Ok(())
 }
 impl Drop for Client {
     fn drop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

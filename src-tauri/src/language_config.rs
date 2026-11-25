@@ -42,6 +42,8 @@ pub struct ServerConfig {
     pub custom: bool,
     #[serde(default)]
     pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_id: Option<String>,
 }
 fn enabled() -> bool {
     true
@@ -90,6 +92,7 @@ pub fn defaults() -> Vec<ServerConfig> {
         enabled: true,
         custom: false,
         source: None,
+        store_id: None,
     })
     .collect()
 }
@@ -165,6 +168,43 @@ pub async fn list_language_servers(app: AppHandle) -> Result<Vec<ServerConfig>, 
         .await
         .map_err(|e| e.to_string())?
 }
+static CONFIG_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn write_custom(
+    app: &AppHandle,
+    configurations: Vec<ServerConfig>,
+    removed: Option<&str>,
+    replace: bool,
+) -> Result<(), String> {
+    use std::io::Write;
+    let _lock = CONFIG_WRITE.lock().map_err(|e| e.to_string())?;
+    let mut custom: BTreeMap<_, _> = configs(app)?
+        .into_iter()
+        .filter(|s| s.custom)
+        .map(|s| (s.language.clone(), s))
+        .collect();
+    if let Some(language) = removed {
+        custom.remove(language);
+    }
+    for mut server in configurations {
+        if !replace && custom.contains_key(&server.language) {
+            return Err("Another server was configured while this one was installing".into());
+        }
+        validate(&server)?;
+        server.custom = true;
+        custom.insert(server.language.clone(), server);
+    }
+    let path = path(app)?;
+    let parent = path.parent().ok_or("Invalid configuration path")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(&custom.into_values().collect::<Vec<_>>())
+        .map_err(|e| e.to_string())?;
+    temp.write_all(&bytes).map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn save_language_server(
     config: Option<ServerConfig>,
@@ -172,27 +212,13 @@ pub async fn save_language_server(
     app: AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut all = configs(&app)?;
-        all.retain(|s| s.language != language);
-        if let Some(mut server) = config {
-            validate(&server)?;
-            if server.language != language {
-                return Err("Language identifier does not match".into());
-            }
-            server.custom = true;
-            all.push(server);
+        if config
+            .as_ref()
+            .is_some_and(|server| server.language != language)
+        {
+            return Err("Language identifier does not match".into());
         }
-        let custom: Vec<_> = all.into_iter().filter(|s| s.custom).collect();
-        let path = path(&app)?;
-        fs::create_dir_all(path.parent().ok_or("Invalid configuration path")?)
-            .map_err(|e| e.to_string())?;
-        let temp = path.with_extension("json.tmp");
-        fs::write(
-            &temp,
-            serde_json::to_vec_pretty(&custom).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        fs::rename(temp, path).map_err(|e| e.to_string())
+        write_custom(&app, config.into_iter().collect(), Some(&language), true)
     })
     .await
     .map_err(|e| e.to_string())?

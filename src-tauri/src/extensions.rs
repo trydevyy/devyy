@@ -474,6 +474,7 @@ fn platform() -> &'static str {
         ("macos", "aarch64") => "darwin-arm64",
         ("macos", _) => "darwin-x64",
         ("windows", "aarch64") => "win32-arm64",
+        ("windows", "x86") => "win32-ia32",
         ("windows", _) => "win32-x64",
         ("linux", "aarch64") => "linux-arm64",
         _ => "linux-x64",

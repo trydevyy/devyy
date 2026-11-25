@@ -15,6 +15,7 @@
 
 use crate::{
     language_config::ServerConfig,
+    process::{read_process_logs, RecentLogs},
     workspace::{root, Workspace},
 };
 use serde_json::{json, Value};
@@ -38,8 +39,16 @@ struct ResourceGrant {
     roots: Vec<PathBuf>,
 }
 pub enum ExtensionFailure {
-    Exited,
-    Execution { id: Option<String> },
+    Exited {
+        status: String,
+        logs: String,
+    },
+    Execution {
+        id: Option<String>,
+        error: String,
+        stack: String,
+        logs: String,
+    },
 }
 
 #[derive(Default)]
@@ -52,12 +61,13 @@ pub struct ExtensionHost {
     resources: Arc<Mutex<HashMap<String, ResourceGrant>>>,
 }
 struct Client {
-    child: Mutex<Child>,
+    child: Arc<Mutex<Child>>,
     stdin: Mutex<ChildStdin>,
     pending: Pending,
     next: AtomicU64,
     root: Option<String>,
     stopped: AtomicBool,
+    ended: Arc<AtomicBool>,
     initialized: Mutex<bool>,
 }
 impl Client {
@@ -83,10 +93,13 @@ impl Client {
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
-        self.pending
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert(id, tx);
+        {
+            let mut pending = self.pending.lock().map_err(|e| e.to_string())?;
+            if self.ended.load(Ordering::Acquire) {
+                return Err("Extension host exited. See Output: Extension Host.".into());
+            }
+            pending.insert(id, tx);
+        }
         let sent = (|| {
             let mut stdin = self.stdin.lock().map_err(|e| e.to_string())?;
             writeln!(
@@ -171,11 +184,12 @@ fn start(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    crate::process::with_tool_path(&mut command);
     let mut child = command
         .arg(script)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
     let stdin = child
@@ -186,6 +200,28 @@ fn start(
         .stdout
         .take()
         .ok_or("Extension host stdout unavailable")?;
+    let logs = Arc::new(RecentLogs::default());
+    let (drained, drain_finished) = mpsc::channel();
+    if let Some(stderr) = child.stderr.take() {
+        let logs = logs.clone();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            read_process_logs(stderr, |line| {
+                logs.push("stderr", line);
+                let _ = app.emit(
+                    "extension-host",
+                    json!({"event":"output","payload":{
+                        "name":"Extension Host","text":line,"level":"warn"
+                    }}),
+                );
+            });
+            let _ = drained.send(());
+        });
+    }
+    let child = Arc::new(Mutex::new(child));
+    let process = child.clone();
+    let ended = Arc::new(AtomicBool::new(false));
+    let reader_ended = ended.clone();
     let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
     let responses = pending.clone();
     let handle = app.clone();
@@ -211,6 +247,7 @@ fn start(
                 break;
             }
             let Ok(message) = serde_json::from_slice::<Value>(&bytes) else {
+                logs.push("stdout", &String::from_utf8_lossy(&bytes));
                 continue;
             };
             if epoch.load(Ordering::SeqCst) != generation {
@@ -223,12 +260,35 @@ fn start(
                     }
                 }
             } else if let Some(event) = message["event"].as_str() {
+                let payload = &message["payload"];
+                if matches!(event, "output" | "outputReplace") {
+                    if let Some(text) = payload["text"].as_str() {
+                        logs.push(payload["name"].as_str().unwrap_or("Extension Host"), text);
+                    }
+                }
                 if event == "hostError"
                     || (event == "extensionStatus" && message["payload"]["status"] == "error")
                 {
                     if let Some(report) = on_failure {
-                        let id = message["payload"]["id"].as_str().map(str::to_owned);
-                        report(&handle, ExtensionFailure::Execution { id });
+                        report(
+                            &handle,
+                            ExtensionFailure::Execution {
+                                id: payload["id"].as_str().map(str::to_owned),
+                                error: payload["error"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .chars()
+                                    .take(4096)
+                                    .collect(),
+                                stack: payload["stack"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .chars()
+                                    .take(8192)
+                                    .collect(),
+                                logs: logs.snapshot(),
+                            },
+                        );
                     }
                 }
                 if event == "languageServer" {
@@ -275,24 +335,53 @@ fn start(
                 let _ = handle.emit("extension-host", &message);
             }
         }
-        if epoch.load(Ordering::SeqCst) == generation {
-            if let Some(report) = on_failure {
-                report(&handle, ExtensionFailure::Exited);
-            }
-        }
+        let unexpected = epoch.load(Ordering::SeqCst) == generation;
+        reader_ended.store(true, Ordering::Release);
         if let Ok(mut map) = responses.lock() {
             for (id, tx) in map.drain() {
-                let _ = tx.send(json!({"id":id,"error":"Extension host exited"}));
+                let _ = tx.send(
+                    json!({"id":id,"error":"Extension host exited. See Output: Extension Host."}),
+                );
+            }
+        }
+        if unexpected {
+            let _ = drain_finished.recv_timeout(Duration::from_millis(300));
+            let status = process
+                .lock()
+                .ok()
+                .and_then(|mut child| child.try_wait().ok().flatten())
+                .map(|status| format!("Extension host ended with {status}"))
+                .unwrap_or_else(|| {
+                    "Extension host output closed before an exit status was available.".into()
+                });
+            if let Ok(mut servers) = servers.lock() {
+                if epoch.load(Ordering::SeqCst) == generation {
+                    servers.clear();
+                    let _ = handle.emit(
+                        "extension-host",
+                        json!({"event":"hostExit","payload":{"error":status}}),
+                    );
+                }
+            }
+            if let Some(report) = on_failure {
+                report(
+                    &handle,
+                    ExtensionFailure::Exited {
+                        status,
+                        logs: logs.snapshot(),
+                    },
+                );
             }
         }
     });
     let client = Arc::new(Client {
-        child: Mutex::new(child),
+        child,
         stdin: Mutex::new(stdin),
         pending,
         next: AtomicU64::new(1),
         root: workspace_root.clone(),
         stopped: AtomicBool::new(false),
+        ended,
         initialized: Mutex::new(false),
     });
     Ok(client)
@@ -342,7 +431,7 @@ pub async fn extension_host_request(
         let client = {
             let mut slot = state.client.lock().map_err(|e| e.to_string())?;
             let dead = slot.as_ref().is_some_and(|c| {
-                c.child
+                c.ended.load(Ordering::Acquire) || c.child
                     .lock()
                     .map(|mut child| child.try_wait().ok().flatten().is_some())
                     .unwrap_or(true)

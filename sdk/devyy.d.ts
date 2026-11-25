@@ -14,7 +14,29 @@ declare module "devyy" {
         args?: unknown[];
       }
     | { type: "stack"; children: Node[] };
+  export interface SpriteOptions {
+    /** A path relative to the extension, or a PNG, JPEG, GIF or WebP data URL. */
+    image: string;
+    /** Center of the sprite relative to the workbench. */
+    x?: number;
+    y?: number;
+    width?: number;
+    unit?: "%" | "px";
+    opacity?: number;
+    rotation?: number;
+    layer?: "behind" | "above";
+    /** Optional animation using an image of equally sized horizontal frames. */
+    animation?: { frames: number; fps: number; aspectRatio: number } | null;
+  }
+
+  export interface WorkbenchSprite extends Disposable {
+    update(options: Partial<SpriteOptions>): void;
+    show(): void;
+    hide(): void;
+  }
+
   export const ui: {
+    createSprite(options: SpriteOptions): WorkbenchSprite;
     /** Registers native React controls. Extension HTML never enters the editor DOM. */
     registerView(
       id: string,

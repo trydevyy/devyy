@@ -23,6 +23,7 @@ export interface ServerConfig {
   enabled: boolean;
   custom: boolean;
   source?: string;
+  storeId?: string;
 }
 export let serverLanguages = new Set([
   "rust",

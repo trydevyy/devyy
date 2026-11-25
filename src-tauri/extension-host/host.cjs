@@ -42,7 +42,11 @@ const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
 const emit = (type, payload) => send({ event: type, payload });
 for (const key of ["log", "info", "warn", "error", "debug"])
   console[key] = (...args) =>
-    emit("output", { text: args.map(String).join(" ") });
+    emit("output", {
+      name: scope.getStore()?.id || "Extension Host",
+      text: util.format(...args),
+      level: key === "log" ? "info" : key,
+    });
 class Disposable {
   constructor(fn = () => {}) {
     this.dispose = fn;
@@ -985,9 +989,14 @@ const api = {
             ? `Could not activate command ${id}: ${errors.join("; ")}`
             : `No extension registered command: ${id}`,
         );
-      const result = await command.fn(...args);
-      await Promise.all(command.ext.pendingStarts || []);
-      return result;
+      try {
+        const result = await command.fn(...args);
+        await Promise.all(command.ext.pendingStarts || []);
+        return result;
+      } catch (error) {
+        reportHostError(error, command.ext.id);
+        throw error;
+      }
     },
     getCommands: async () => [...commands.keys()],
   },
@@ -1130,6 +1139,9 @@ const api = {
   },
   devyy: {
     ui: {
+      createSprite(options) {
+        return createWorkbenchSprite(own(), options);
+      },
       registerView(id, definition) {
         const ext = own();
         emit("nativeView", {
@@ -1153,6 +1165,147 @@ const api = {
   },
 };
 require("./types.cjs")(api);
+const sprites = new Map();
+let spriteSerial = 0;
+function imageSource(ext, source) {
+  let bytes;
+  if (typeof source !== "string") throw new Error("A sprite requires an image");
+  if (source.startsWith("data:")) {
+    const match =
+      /^data:image\/(png|jpeg|gif|webp);base64,([a-z0-9+/=]+)$/i.exec(source);
+    if (!match || match[2].length > 768 * 1024)
+      throw new Error("Invalid sprite image data");
+    bytes = Buffer.from(match[2], "base64");
+  } else {
+    const root = fs.realpathSync(ext.path);
+    const file = fs.realpathSync(path.resolve(root, source));
+    const relative = path.relative(root, file);
+    if (
+      relative.startsWith(".." + path.sep) ||
+      relative === ".." ||
+      path.isAbsolute(relative)
+    )
+      throw new Error("Sprite files must be inside the extension");
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size > 576 * 1024)
+      throw new Error("Sprite file exceeds 576 KiB");
+    bytes = fs.readFileSync(file);
+  }
+  const mime = bytes
+    .subarray(0, 8)
+    .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    ? "png"
+    : bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))
+      ? "jpeg"
+      : /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6))
+        ? "gif"
+        : bytes.toString("ascii", 0, 4) === "RIFF" &&
+            bytes.toString("ascii", 8, 12) === "WEBP"
+          ? "webp"
+          : null;
+  if (!mime) throw new Error("Sprites support PNG, JPEG, GIF and WebP");
+  return `data:image/${mime};base64,${bytes.toString("base64")}`;
+}
+function bounded(value, minimum, maximum, name) {
+  if (!Number.isFinite(value) || value < minimum || value > maximum)
+    throw new Error(`Sprite ${name} must be between ${minimum} and ${maximum}`);
+  return value;
+}
+function createWorkbenchSprite(ext, options) {
+  if (
+    sprites.size >= 128 ||
+    [...sprites.values()].filter((owner) => owner === ext.id).length >= 24
+  )
+    throw new Error("Too many sprites are registered");
+  const key = `${ext.id}:${++spriteSerial}`;
+  let settings = {
+    x: 50,
+    y: 50,
+    width: 20,
+    opacity: 1,
+    rotation: 0,
+    layer: "above",
+    unit: "%",
+  };
+  let sprite;
+  let visible = false;
+  let source;
+  let image;
+  function update(patch) {
+    if (!sprites.has(key)) return;
+    const next = { ...settings, ...patch };
+    if (
+      !["px", "%"].includes(next.unit) ||
+      !["behind", "above"].includes(next.layer)
+    )
+      throw new Error("Invalid sprite unit or layer");
+    const maximum = next.unit === "px" ? 16384 : 100;
+    const minimum = next.unit === "px" ? -maximum : 0;
+    const animation =
+      next.animation == null
+        ? undefined
+        : {
+            frames: bounded(
+              Math.trunc(next.animation.frames),
+              2,
+              64,
+              "frame count",
+            ),
+            fps: bounded(next.animation.fps, 1, 60, "frame rate"),
+            aspectRatio: bounded(
+              next.animation.aspectRatio,
+              0.05,
+              20,
+              "frame aspect ratio",
+            ),
+          };
+    const rendered = {
+      x: bounded(next.x, minimum, maximum, "x"),
+      y: bounded(next.y, minimum, maximum, "y"),
+      width: bounded(next.width, 1, maximum, "width"),
+      opacity: bounded(next.opacity, 0, 1, "opacity"),
+      rotation: bounded(next.rotation, -360, 360, "rotation"),
+      unit: next.unit,
+      layer: next.layer,
+      animation,
+    };
+    if (next.image !== source) {
+      image = imageSource(ext, next.image);
+      source = next.image;
+    }
+    settings = next;
+    sprite = { ...rendered, image };
+    if (visible) emit("workbenchSprite", { key, sprite });
+  }
+  const handle = {
+    update,
+    show() {
+      if (!sprites.has(key) || visible) return;
+      visible = true;
+      emit("workbenchSprite", { key, sprite });
+    },
+    hide() {
+      if (!sprites.has(key) || !visible) return;
+      visible = false;
+      emit("workbenchSprite", { key });
+    },
+    dispose() {
+      handle.hide();
+      sprites.delete(key);
+    },
+  };
+  sprites.set(key, ext.id);
+  try {
+    update(options);
+    ext.context?.subscriptions.push(handle);
+    handle.show();
+    return handle;
+  } catch (error) {
+    handle.dispose();
+    throw error;
+  }
+}
+
 const runtime = require("./runtime.cjs")(api, {
   emit,
   own,
@@ -1235,18 +1388,29 @@ async function activate(ext, chain = new Set()) {
         secrets: runtime.secrets(ext),
       };
       ext.context = context;
+      emit("output", {
+        name: ext.id,
+        text: `Activating ${ext.id}`,
+        level: "debug",
+      });
       ext.module = require(file);
       ext.exports = await ext.module.activate?.(context);
       await Promise.all(ext.pendingStarts || []);
       ext.active = true;
       emit("extensionStatus", { id: ext.id, status: "active" });
     } catch (error) {
-      ext.error = String(error.message || error);
-      emit("output", { name: ext.id, text: error.stack || ext.error });
+      ext.error = String(error?.message ?? error);
+      for (const [key, owner] of sprites) {
+        if (owner !== ext.id) continue;
+        sprites.delete(key);
+        emit("workbenchSprite", { key });
+      }
+      emit("output", { name: ext.id, text: error?.stack || ext.error });
       emit("extensionStatus", {
         id: ext.id,
         status: "error",
         error: ext.error,
+        stack: error?.stack,
       });
       throw error;
     }
@@ -1507,9 +1671,18 @@ readline
     }
   })
   .on("close", () => process.exit(0));
-process.on("uncaughtException", (error) =>
-  emit("hostError", { error: error.message }),
-);
-process.on("unhandledRejection", (error) =>
-  emit("hostError", { error: String(error) }),
-);
+function reportHostError(error, id = scope.getStore()?.id) {
+  const failure = {
+    id,
+    error: String(error?.message ?? error),
+    stack: error?.stack,
+  };
+  emit("output", {
+    name: failure.id || "Extension Host",
+    text: failure.stack || failure.error,
+    level: "error",
+  });
+  emit("hostError", failure);
+}
+process.on("uncaughtException", (error) => reportHostError(error));
+process.on("unhandledRejection", (error) => reportHostError(error));

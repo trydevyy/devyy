@@ -2477,3 +2477,54 @@ test(
     assert.notEqual(refreshed[0].key, roots[0].key);
   },
 );
+
+test(
+  "workbench sprites emit bounded assets, updates, and cleanup",
+  { timeout: 15000 },
+  async (t) => {
+    const f = await fixture(t);
+    const ext = await f.extension(
+      "sprite",
+      { activationEvents: ["onStartupFinished"] },
+      `
+    const { ui } = require("devyy");
+    exports.activate = () => {
+      const sprite = ui.createSprite({image: "sprite.gif", x: 25, y: 40});
+      sprite.update({ x: 72, opacity: 0.5, animation: {frames: 6, fps: 10, aspectRatio: 1} });
+      sprite.hide();
+      sprite.show();
+      let blocked = false;
+      try { ui.createSprite({image: "../outside.gif"}); } catch { blocked = true; }
+      if (!blocked) throw Error("Sprites accepted a path outside the extension");
+      sprite.dispose();
+    };
+  `,
+    );
+    const gif = Buffer.from(
+      "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+      "base64",
+    );
+    await writeFile(path.join(ext.installPath, "sprite.gif"), gif);
+    await writeFile(path.join(f.root, "outside.gif"), gif);
+    const status = await f.request("initialize", {
+      extensions: [ext],
+      storageRoot: f.root,
+    });
+    assert.equal(status[0].status, "active");
+    const updates = f.events
+      .filter(({ event }) => event === "workbenchSprite")
+      .map(({ payload }) => payload);
+    assert.equal(updates.length, 5);
+    assert.equal(updates[0].sprite.x, 25);
+    assert.match(updates[0].sprite.image, /^data:image\/gif;base64,/);
+    assert.equal(updates[1].sprite.x, 72);
+    assert.deepEqual(updates[1].sprite.animation, {
+      frames: 6,
+      fps: 10,
+      aspectRatio: 1,
+    });
+    assert.equal(updates[2].sprite, undefined);
+    assert.equal(updates[3].sprite.x, 72);
+    assert.equal(updates[4].sprite, undefined);
+  },
+);

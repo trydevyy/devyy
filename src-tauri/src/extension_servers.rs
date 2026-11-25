@@ -43,6 +43,7 @@ fn config(
         enabled: true,
         custom: false,
         source: Some(ext.id.clone()),
+        store_id: None,
     }
 }
 pub fn discover(extensions: &[InstalledExtension]) -> Vec<ServerConfig> {

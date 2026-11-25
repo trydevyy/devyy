@@ -235,21 +235,52 @@ async function subscribe() {
           });
       },
     ),
-    listen<{ language: string; text: string }>("lsp-output", ({ payload: p }) =>
-      window.dispatchEvent(
-        new CustomEvent("devyy-extension-event", {
-          detail: {
-            event: "output",
-            payload: { name: p.language, text: p.text },
-          },
-        }),
-      ),
+    listen<{ language: string; text: string; level?: string }>(
+      "lsp-output",
+      ({ payload: p }) =>
+        window.dispatchEvent(
+          new CustomEvent("devyy-extension-event", {
+            detail: {
+              event: "output",
+              payload: {
+                name: p.language === "rust" ? "rust-analyzer" : p.language,
+                text: p.text,
+                level: p.level,
+              },
+            },
+          }),
+        ),
     ),
   ]).then(() => {}));
   await (subscribed ??= listen<HostEvent>(
     "extension-host",
     ({ payload: message }) => {
       const p = message.payload;
+      if (message.event === "hostExit") {
+        started = false;
+        languages.clear();
+        snapshot.statuses = allExtensions()
+          .filter((entry) => entry.hasRuntime)
+          .map((entry) => ({
+            id: entry.id,
+            status: "error",
+            error: String(p.error),
+          }));
+        publish();
+        window.dispatchEvent(
+          new CustomEvent("devyy-extension-event", {
+            detail: {
+              event: "output",
+              payload: {
+                name: "Extension Host",
+                text: String(p.error),
+                level: "error",
+              },
+            },
+          }),
+        );
+        return;
+      }
       if (message.event === "extensionStatus") {
         snapshot.statuses = [
           ...snapshot.statuses.filter((s) => s.id !== p.id),

@@ -27,3 +27,30 @@ bundled server. No manual language-server settings are needed.
 `require('vscode')` provides Devyy's supported compatibility API.
 `require('devyy')` provides native controls and direct server registration.
 See `sdk/devyy.d.ts` and the main README for the API boundary and limits.
+
+## Workbench sprites
+
+Use `devyy.ui.createSprite` to show a PNG, JPEG, GIF or WebP from your extension.
+Positions refer to the center of the image. Values are percentages of the
+workbench by default. Set `unit: "px"` to use pixels instead.
+
+```js
+const { ui } = require("devyy");
+
+exports.activate = (context) => {
+  const sprite = ui.createSprite({
+    image: "assets/mascot.gif",
+    x: 92,
+    y: 88,
+    width: 12,
+    opacity: 0.8,
+  });
+  sprite.update({ y: 80 });
+  context.subscriptions.push(sprite);
+};
+```
+
+The handle supports `show()`, `hide()`, `update(options)`, and `dispose()`.
+For a horizontal sprite sheet, set `animation: { frames: 8, fps: 12, aspectRatio: 1 }`.
+Images never intercept mouse or keyboard input. GIF and WebP animations are hidden
+when reduced motion is enabled. Sprite sheets display their first frame.
