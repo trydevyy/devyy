@@ -1566,15 +1566,10 @@ a {
   display: none;
   min-height: 0;
   flex: 1;
-  background: var(--surface);
 }
 
 .panel-view.visible {
   display: block;
-}
-
-.panel-view.visible[id="panel-terminal"] {
-  background: var(--terminal);
 }
 
 .terminal-content {
@@ -12787,7 +12782,6 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--surface);
   color: var(--ink);
   font-size: calc(11px * var(--ui-text-scale, 1));
 }

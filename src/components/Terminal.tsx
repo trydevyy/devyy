@@ -382,7 +382,7 @@ export function terminalTheme(
   return {
     background:
       colors?.["terminal"] ??
-      (light ? "#f0eff3" : oled ? "#0a0a0a" : "#2a2b2e"),
+      (light ? "#f5f4f7" : oled ? "#000000" : "#1e1e21"),
     foreground:
       colors?.["terminal-foreground"] ??
       (light ? "#494453" : oled ? "#eaeaea" : "#d7d3de"),

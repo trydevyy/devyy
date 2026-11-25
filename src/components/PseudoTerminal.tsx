@@ -35,14 +35,19 @@ import type { Settings } from "../lib/types";
 
 export default forwardRef<
   TerminalHandle,
-  { id: string; settings: Settings; onError: (error: unknown) => void }
->(function PseudoTerminal({ id, settings, onError }, ref) {
+  {
+    id: string;
+    settings: Settings;
+    colors?: Record<string, string>;
+    onError: (error: unknown) => void;
+  }
+>(function PseudoTerminal({ id, settings, colors, onError }, ref) {
   const reducedMotion = useSyncExternalStore(subscribeMotion, motionSnapshot);
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<XTerminal | null>(null);
   const fit = useRef<() => void>(() => {});
-  const current = useRef({ settings, onError });
-  current.current = { settings, onError };
+  const current = useRef({ settings, colors, onError });
+  current.current = { settings, colors, onError };
   useImperativeHandle(
     ref,
     () => ({
@@ -69,7 +74,7 @@ export default forwardRef<
         preferences.cursorBlink &&
         !preferences.reduceMotion &&
         !motionSnapshot(),
-      theme: terminalTheme(preferences.theme),
+      theme: terminalTheme(preferences.theme, current.current.colors),
       allowProposedApi: false,
     });
     const addon = new FitAddon();
@@ -152,7 +157,7 @@ export default forwardRef<
     term.options.cursorStyle = settings.terminalCursorStyle;
     term.options.cursorBlink =
       settings.cursorBlink && !settings.reduceMotion && !reducedMotion;
-    term.options.theme = terminalTheme(settings.theme);
+    term.options.theme = terminalTheme(settings.theme, colors);
     fit.current();
   }, [
     settings.terminalFontSize,
@@ -162,6 +167,7 @@ export default forwardRef<
     settings.cursorBlink,
     settings.reduceMotion,
     settings.theme,
+    colors,
     reducedMotion,
   ]);
   return (

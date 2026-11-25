@@ -868,3 +868,39 @@ test("forwarded port status refreshes automatically and its menu does not resize
   await row.getByRole("button", { name: "Actions for port 3000" }).click();
   await expect(page.getByRole("button", { name: "Reconnect" })).toBeVisible();
 });
+
+test("developer panel uses one background for all tabs and bundled themes", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const theme = new URLSearchParams(location.search).get("theme");
+    localStorage.setItem("devyy.settings", JSON.stringify({ theme }));
+  });
+  for (const [theme, color] of [
+    ["midnight", "rgb(30, 30, 33)"],
+    ["paper", "rgb(245, 244, 247)"],
+    ["monochrome", "rgb(0, 0, 0)"],
+  ]) {
+    await page.goto(`/?playground=1&showcase=theme&theme=${theme}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const panel = page.locator(".bottom-panel");
+    await expect(panel).toHaveCSS("background-color", color);
+    await expect(panel.locator(".xterm-host").first()).toHaveCSS(
+      "background-color",
+      color,
+    );
+    await expect(
+      panel.locator(".xterm .xterm-scrollable-element").first(),
+    ).toHaveCSS("background-color", color);
+    for (const name of ["problems", "output", "ports"]) {
+      await page.locator(`#panel-tab-${name}`).click();
+      const view = page.locator(`#panel-${name}`);
+      await expect(view).toBeVisible();
+      await expect(view).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    }
+    await expect(panel.locator(".ports-panel")).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+  }
+});

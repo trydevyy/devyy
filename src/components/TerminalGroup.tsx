@@ -670,6 +670,7 @@ export default forwardRef<
                 }}
                 id={s.extensionId}
                 settings={settings}
+                colors={themeColors}
                 onError={onError}
               />
             ) : (
