@@ -1,6 +1,6 @@
 [package]
 name = "devyy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Devyy, a modern developer editor and IDE"
 authors = ["Devyy contributors"]
 homepage = "https://www.devyy.dev"
