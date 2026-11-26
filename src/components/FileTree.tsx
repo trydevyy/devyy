@@ -35,6 +35,7 @@ interface Props {
   active: string;
   dirty: Set<string>;
   changes: GitChange[];
+  ignored: ReadonlyMap<string, string[]>;
   expanded?: Set<string>;
   onExpandedChange?: (expanded: Set<string>) => void;
   onOpen: (path: string) => void;
@@ -49,8 +50,9 @@ interface Props {
   onMove: (path: string, destination: string) => Promise<void>;
 }
 const treeRowHeight = 30;
-const overscan = 24;
-const bufferGuard = 8;
+const overscan = 34;
+const bufferGuard = 15;
+const collator = new Intl.Collator();
 const FILE_MOVE_MIME = "application/x-devyy-file-move";
 export default function FileTree(p: Props) {
   const [internalExpanded, setInternalExpanded] = useState<Set<string>>(
@@ -157,7 +159,7 @@ export default function FileTree(p: Props) {
       siblings.sort(
         (a, b) =>
           Number(b.directory) - Number(a.directory) ||
-          a.name.localeCompare(b.name),
+          collator.compare(a.name, b.name),
       );
     return groups;
   }, [p.files]);
@@ -172,6 +174,17 @@ export default function FileTree(p: Props) {
     () => new Map(p.changes.map((c) => [c.path, c])),
     [p.changes],
   );
+  const ignored = useMemo(
+    () => new Set(Array.from(p.ignored.values()).flat()),
+    [p.ignored],
+  );
+  function isIgnored(path: string) {
+    while (path) {
+      if (ignored.has(path)) return true;
+      path = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+    }
+    return false;
+  }
   const rows = useMemo(() => {
     const list: { file: FileEntry; depth: number }[] = [];
     const walk = (parent: string, depth: number) => {
@@ -186,7 +199,7 @@ export default function FileTree(p: Props) {
   }, [children, expanded]);
   const paths = useMemo(() => rows.map(({ file }) => file.path), [rows]);
   const viewport = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState({ start: 0, end: 64 });
+  const [range, setRange] = useState({ start: 0, end: 96 });
   const rendered = useRef(range);
   rendered.current = range;
   const viewportHeight = useRef(0);
@@ -210,9 +223,8 @@ export default function FileTree(p: Props) {
     const end = Math.min(rows.length, start + count + 2 * overscan);
     if (start === previous.start && end === previous.end) return;
     const next = { start, end };
-    // Large trackpad jumps can skip the existing buffer in one frame.
-    if (urgent && (first < previous.start || last > previous.end))
-      flushSync(() => setRange(next));
+    // Refill the window before the webview paints another scroll frame.
+    if (urgent) flushSync(() => setRange(next));
     else setRange(next);
   }
 
@@ -266,6 +278,7 @@ export default function FileTree(p: Props) {
         <div
           className={`tree-row ${isSelected ? "selected" : ""} ${dropTarget === file.path ? "tree-drop-target" : ""} ${dragging === file.path ? "tree-dragging" : ""}`}
           data-folder={file.directory || undefined}
+          data-ignored={isIgnored(file.path) || undefined}
           data-current={p.active === file.path || undefined}
           data-multi-selected={(isSelected && selected.size > 1) || undefined}
           style={{ paddingLeft: 14 + depth * 16 }}

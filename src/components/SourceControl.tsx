@@ -15,16 +15,16 @@
 
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
-import RepositorySections from "./RepositorySections";
+import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
 import Select from "./ui/Select";
 import { useEffect, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpRight,
   Check,
-  ChevronDown,
   GitBranch,
   GitCommitHorizontal,
-  History,
   Minus,
   Plus,
   RefreshCw,
@@ -62,6 +62,7 @@ export default function SourceControl({
   commit,
   onCommitChange,
   onCommit,
+  onSync,
   onRefresh,
   onStage,
   onStageAll,
@@ -92,6 +93,7 @@ export default function SourceControl({
   commit: string;
   onCommitChange: (message: string) => void;
   onCommit: () => void;
+  onSync: (direction: "pull" | "push") => void;
   onRefresh: () => void;
   onStage: (path: string, staged: boolean) => void;
   onStageAll: (staged: boolean) => void;
@@ -104,7 +106,6 @@ export default function SourceControl({
   const [branches, setBranches] = useState<GitBranchInfo[]>([]),
     [modules, setModules] = useState<GitSubmodule[]>([]),
     [history, setHistory] = useState<Commit[]>([]),
-    [showHistory, setShowHistory] = useState(true),
     [page, setPage] = useState("changes"),
     [error, setError] = useState("");
   const menu = useContextMenu();
@@ -138,6 +139,18 @@ export default function SourceControl({
   const unstaged = state.changes.filter(
     (change) => change.worktree.trim() && change.worktree !== "!",
   );
+  const incoming = state.behind ?? 0;
+  const outgoing = state.ahead ?? 0;
+  const canCommit = staged.length > 0 && !!commit.trim();
+  const canPull = !!state.upstream;
+  const canPush = !!state.branch && state.branch !== "detached";
+  const primaryAction = staged.length
+    ? "commit"
+    : incoming && canPull
+      ? "pull"
+      : outgoing && canPush
+        ? "push"
+        : "commit";
   function group(changes: GitChange[], isStaged: boolean) {
     return (
       <section
@@ -145,7 +158,7 @@ export default function SourceControl({
         aria-label={isStaged ? "Staged changes" : "Working tree changes"}
       >
         <div className="section-label">
-          <span>{isStaged ? "STAGED CHANGES" : "CHANGES"}</span>
+          <span>{isStaged ? "Staged" : "Working tree"}</span>
           <span>{changes.length}</span>
           <button
             className="icon-button"
@@ -239,94 +252,99 @@ export default function SourceControl({
   }
   return (
     <div className="source-control">
-      {!!modules.length && (
-        <label className="scm-repository-picker">
-          <span>Repository</span>
+      <header className="scm-repository">
+        {modules.length ? (
+          <label className="scm-repository-picker">
+            <span>Repository</span>
+            <Select
+              aria-label="Source Control repository"
+              value={repository}
+              disabled={busy}
+              onChange={(event) => onRepository(event.target.value)}
+            >
+              <option value="">{filename(root)}</option>
+              {modules
+                .filter((item) => item.initialized && !item.conflict)
+                .map((item) => (
+                  <option key={item.path} value={item.path}>
+                    {item.path}
+                  </option>
+                ))}
+            </Select>
+          </label>
+        ) : (
+          <strong className="scm-repository-name" title={root}>
+            {filename(root)}
+          </strong>
+        )}
+        <div className="branch-card">
+          <GitBranch size={15} />
           <Select
-            aria-label="Source Control repository"
-            value={repository}
+            aria-label="Current Git branch"
+            value={state.branch}
             disabled={busy}
-            onChange={(event) => onRepository(event.target.value)}
+            onChange={(event) => onSwitch(event.target.value)}
           >
-            <option value="">{filename(root)}</option>
-            {modules
-              .filter((item) => item.initialized && !item.conflict)
-              .map((item) => (
-                <option key={item.path} value={item.path}>
-                  {item.path}
-                </option>
-              ))}
+            {!branches.some(
+              (branch) => !branch.remote && branch.name === state.branch,
+            ) && <option value={state.branch}>{state.branch}</option>}
+            <optgroup label="Local branches">
+              {branches
+                .filter((branch) => !branch.remote)
+                .map((branch) => (
+                  <option
+                    key={branch.reference}
+                    value={branch.name}
+                    disabled={!branch.current && !!branch.worktree}
+                  >
+                    {branch.name}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="Remote branches">
+              {branches
+                .filter((branch) => branch.remote)
+                .map((branch) => (
+                  <option key={branch.reference} value={branch.reference}>
+                    {branch.name}
+                  </option>
+                ))}
+            </optgroup>
           </Select>
-        </label>
-      )}
-      <RepositorySections
-        modules={modules}
-        refreshToken={state}
-        onRefresh={onRefresh}
-        onDiff={(repo, path, staged) => {
-          onRepository(repo);
-          onDiff(path, staged);
-        }}
-      />
-      <div className="branch-card">
-        <GitBranch size={15} />
-        <Select
-          aria-label="Current Git branch"
-          value={state.branch}
-          disabled={busy}
-          onChange={(event) => onSwitch(event.target.value)}
-        >
-          {!branches.some(
-            (branch) => !branch.remote && branch.name === state.branch,
-          ) && <option value={state.branch}>{state.branch}</option>}
-          <optgroup label="Local branches">
-            {branches
-              .filter((branch) => !branch.remote)
-              .map((branch) => (
-                <option
-                  key={branch.reference}
-                  value={branch.name}
-                  disabled={!branch.current && !!branch.worktree}
-                >
-                  {branch.name}
-                </option>
-              ))}
-          </optgroup>
-          <optgroup label="Remote branches">
-            {branches
-              .filter((branch) => branch.remote)
-              .map((branch) => (
-                <option key={branch.reference} value={branch.reference}>
-                  {branch.name}
-                </option>
-              ))}
-          </optgroup>
-        </Select>
-        <button
-          className="icon-button"
-          aria-label="Create Git branch"
-          disabled={busy}
-          onClick={() => onCreateBranch()}
-        >
-          <Plus size={13} />
-        </button>
-        <button
-          className="icon-button"
-          aria-label="Refresh Git status"
-          disabled={busy}
-          onClick={onRefresh}
-        >
-          <RefreshCw size={13} />
-        </button>
-      </div>
-      {state.upstream && (
-        <p className="scm-upstream" title={state.upstream}>
-          {state.upstream}
+          <button
+            className="icon-button"
+            aria-label="Create Git branch"
+            disabled={busy}
+            onClick={() => onCreateBranch()}
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Refresh Git status"
+            disabled={busy}
+            onClick={onRefresh}
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+        <div className="scm-tracking" title={state.upstream ?? undefined}>
           <span>
-            ↑ {state.ahead ?? 0}　↓ {state.behind ?? 0}
+            {state.upstream ??
+              (canPush ? "No upstream branch" : "Detached HEAD")}
           </span>
-        </p>
-      )}
+          {state.upstream && (
+            <>
+              <span aria-label={`${incoming} incoming changes`}>
+                <ArrowDown size={12} /> {incoming}
+              </span>
+              <span aria-label={`${outgoing} outgoing changes`}>
+                <ArrowUp size={12} /> {outgoing}
+              </span>
+            </>
+          )}
+        </div>
+      </header>
       <nav
         className="scm-pages"
         aria-label="Source Control sections"
@@ -349,51 +367,73 @@ export default function SourceControl({
         ))}
       </nav>
       <div hidden={page !== "changes"} role="tabpanel" aria-label="Changes">
-        <div className="scm-summary" aria-label="Change summary">
-          <strong>Commit</strong>
-          {staged.length > 0 && <span>{staged.length} staged</span>}
+        <div className="scm-composer">
+          <label htmlFor="scm-commit-message">
+            Commit message
+            {!!staged.length && <small>{staged.length} staged</small>}
+          </label>
+          <textarea
+            id="scm-commit-message"
+            aria-label="Commit message"
+            className="commit-message"
+            value={commit}
+            onChange={(event) => onCommitChange(event.target.value)}
+            placeholder="Describe your changes"
+            onKeyDown={(event) => {
+              if (
+                (event.metaKey || event.ctrlKey) &&
+                event.key === "Enter" &&
+                canCommit &&
+                !busy
+              ) {
+                event.preventDefault();
+                onCommit();
+              }
+            }}
+          />
+          <div className="scm-commit-actions">
+            <button
+              className="primary"
+              disabled={busy || (primaryAction === "commit" && !canCommit)}
+              onClick={() =>
+                primaryAction === "commit" ? onCommit() : onSync(primaryAction)
+              }
+            >
+              {primaryAction === "pull" ? (
+                <ArrowDown size={14} />
+              ) : primaryAction === "push" ? (
+                <ArrowUp size={14} />
+              ) : (
+                <Check size={14} />
+              )}
+              {primaryAction === "pull"
+                ? `Pull (${incoming})`
+                : primaryAction === "push"
+                  ? `Push (${outgoing})`
+                  : "Commit staged changes"}
+            </button>
+            <ActionMenu label="Commit and sync actions">
+              <ActionMenuItem disabled={busy || !canCommit} onClick={onCommit}>
+                <Check size={14} /> Commit staged changes
+              </ActionMenuItem>
+              <ActionMenuItem
+                disabled={busy || !canPull}
+                onClick={() => onSync("pull")}
+              >
+                <ArrowDown size={14} /> Pull changes
+              </ActionMenuItem>
+              <ActionMenuItem
+                disabled={busy || !canPush}
+                onClick={() => onSync("push")}
+              >
+                <ArrowUp size={14} />{" "}
+                {state.upstream ? "Push changes" : "Publish branch"}
+              </ActionMenuItem>
+            </ActionMenu>
+          </div>
         </div>
-        <textarea
-          className="commit-message"
-          value={commit}
-          onChange={(event) => onCommitChange(event.target.value)}
-          placeholder="Commit message"
-          aria-label="Commit message"
-          onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              event.key === "Enter" &&
-              staged.length &&
-              commit.trim() &&
-              !busy
-            ) {
-              event.preventDefault();
-              onCommit();
-            }
-          }}
-        />
-        <button
-          className="primary full"
-          disabled={
-            busy ||
-            (!(state.behind && !staged.length) &&
-              (!commit.trim() || !staged.length))
-          }
-          onClick={() => {
-            if (state.behind && !staged.length)
-              void invoke("git_pull", { repository })
-                .then(onRefresh)
-                .catch((error) => setError(String(error)));
-            else onCommit();
-          }}
-        >
-          <Check size={14} />{" "}
-          {state.behind && !staged.length
-            ? `Pull ${state.behind} incoming changes`
-            : "Commit staged changes"}
-        </button>
-        {group(staged, true)}
-        {group(unstaged, false)}
+        {!!unstaged.length && group(unstaged, false)}
+        {!!staged.length && group(staged, true)}
         {!state.changes.length && (
           <p className="scm-clean">
             <Check size={13} /> No local changes
@@ -428,50 +468,41 @@ export default function SourceControl({
           Open commit graph
           <ArrowUpRight size={13} />
         </button>
-        <button
-          className="scm-history-toggle"
-          aria-expanded={showHistory}
-          onClick={() => setShowHistory((value) => !value)}
-        >
-          <History size={13} /> Commit history <ChevronDown size={12} />
-        </button>
-        {showHistory && (
-          <section className="scm-history" aria-label="Commit history">
-            {history.map((item) => (
-              <div className="scm-commit" key={item.hash}>
-                <button
-                  className="icon-button"
-                  aria-label={`Inspect commit ${item.short}`}
-                  onClick={() => onGraph(item.hash)}
-                >
-                  <GitCommitHorizontal size={13} />
-                </button>
-                <div>
-                  <strong title={item.subject}>{item.subject}</strong>
-                  <small>
-                    {item.author}
-                    <time dateTime={item.date}>
-                      {new Date(item.date).toLocaleDateString()}
-                    </time>
-                  </small>
-                  <code title={item.hash}>{item.short}</code>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label={`Copy commit ${item.short}`}
-                  onClick={() =>
-                    void writeClipboardText(item.hash).catch(() =>
-                      toast.error("Could not copy commit hash"),
-                    )
-                  }
-                >
-                  <ArrowUpRight size={12} />
-                </button>
+        <section className="scm-history" aria-label="Commit history">
+          {history.map((item) => (
+            <div className="scm-commit" key={item.hash}>
+              <button
+                className="icon-button"
+                aria-label={`Inspect commit ${item.short}`}
+                onClick={() => onGraph(item.hash)}
+              >
+                <GitCommitHorizontal size={13} />
+              </button>
+              <div>
+                <strong title={item.subject}>{item.subject}</strong>
+                <small>
+                  {item.author}
+                  <time dateTime={item.date}>
+                    {new Date(item.date).toLocaleDateString()}
+                  </time>
+                </small>
+                <code title={item.hash}>{item.short}</code>
               </div>
-            ))}
-            {!history.length && <p className="muted">No commits yet.</p>}
-          </section>
-        )}
+              <button
+                className="icon-button"
+                aria-label={`Copy commit ${item.short}`}
+                onClick={() =>
+                  void writeClipboardText(item.hash).catch(() =>
+                    toast.error("Could not copy commit hash"),
+                  )
+                }
+              >
+                <ArrowUpRight size={12} />
+              </button>
+            </div>
+          ))}
+          {!history.length && <p className="muted">No commits yet.</p>}
+        </section>
       </div>
       {error && <ErrorToast message={error} />}
     </div>

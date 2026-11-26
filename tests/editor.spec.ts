@@ -132,14 +132,18 @@ test("create and rename files, add breakpoints, and expose desktop features hone
     .getByRole("button", { name: "New file", exact: true })
     .first()
     .click();
-  await page.getByRole("textbox", { name: "Value" }).fill("src/idea.rs");
+  await page
+    .getByRole("textbox", { name: "Value" })
+    .fill("src/app/app/idea.rs");
   await page.getByRole("button", { name: "Create file", exact: true }).click();
   await expect(page.getByRole("tab", { name: "idea.rs" })).toBeVisible();
   await page
-    .getByRole("button", { name: "Actions for src/idea.rs" })
+    .getByRole("button", { name: "Actions for src/app/app/idea.rs" })
     .click({ force: true });
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
-  await page.getByRole("textbox", { name: "Value" }).fill("src/next.rs");
+  await page
+    .getByRole("textbox", { name: "Value" })
+    .fill("src/app/app/next.rs");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(page.getByRole("tab", { name: "next.rs" })).toBeVisible();
   await page.getByRole("button", { name: "main.rs", exact: true }).click();

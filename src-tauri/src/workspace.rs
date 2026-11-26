@@ -518,7 +518,38 @@ pub async fn create_file(
     if let Some(ssh) = crate::ssh::workspace(&base) {
         return ssh.create(&path, directory).await;
     }
-    let full = resolve(&base, &path, true)?;
+    background(move || create_entry(&base, &path, directory)).await?
+}
+
+fn create_entry(base: &Path, path: &str, directory: bool) -> Result<(), String> {
+    let path = Path::new(path);
+    if path.as_os_str().is_empty()
+        || path
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return Err("Expected a relative path inside this workspace".into());
+    }
+    let mut relative = PathBuf::new();
+    let mut parts = path.components().peekable();
+    while let Some(part) = parts.next() {
+        relative.push(part.as_os_str());
+        if parts.peek().is_none() {
+            break;
+        }
+        let parent = resolve(base, relative.to_str().ok_or("Invalid folder name")?, true)?;
+        match fs::create_dir(&parent) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !resolve(base, relative.to_str().ok_or("Invalid folder name")?, false)?.is_dir()
+                {
+                    return Err(format!("{} is not a folder", relative.display()));
+                }
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    let full = resolve(base, relative.to_str().ok_or("Invalid file path")?, true)?;
     if directory {
         fs::create_dir(full).map_err(|e| e.to_string())
     } else {
@@ -729,6 +760,29 @@ pub async fn read_preview_media(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn creation_builds_missing_parents_without_overwriting_existing_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        create_entry(&base, "app/nested/deep", true).unwrap();
+        create_entry(&base, "app/nested/src/main.rs", false).unwrap();
+        let file = base.join("app/nested/src/main.rs");
+        fs::write(&file, "keep").unwrap();
+        assert!(create_entry(&base, "app/nested/deep", true).is_err());
+        assert!(create_entry(&base, "app/nested/src/main.rs", false).is_err());
+        assert!(create_entry(&base, "app/nested/src/main.rs/child", true).is_err());
+        assert!(create_entry(&base, "missing/../escape", true).is_err());
+        assert!(!base.join("missing").exists());
+        assert_eq!(fs::read_to_string(file).unwrap(), "keep");
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::os::unix::fs::symlink(outside.path(), base.join("link")).unwrap();
+            assert!(create_entry(&base, "link/deep/new.rs", false).is_err());
+            assert!(!outside.path().join("deep").exists());
+        }
+    }
+
     #[test]
     fn deleting_nonempty_folders_stays_inside_the_workspace() {
         let base = tempfile::tempdir().unwrap();

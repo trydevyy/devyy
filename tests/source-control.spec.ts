@@ -544,6 +544,11 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
       .getByRole("tabpanel", { name: "Changes" })
       .getByText("No local changes", { exact: true }),
   ).toBeVisible();
+  const sync = page.getByRole("button", { name: "Commit and sync actions" });
+  await sync.click();
+  await page.getByRole("button", { name: "Push changes", exact: true }).click();
+  await sync.click();
+  await page.getByRole("button", { name: "Pull changes", exact: true }).click();
   await chooseOption(selector, "");
   await expect(
     page.getByRole("textbox", { name: "Commit message", exact: true }),
@@ -590,6 +595,12 @@ test("submodule repositories isolate changes and commit drafts, initialize and a
         }
       ).gitCalls,
   );
+  for (const command of ["git_push", "git_pull"]) {
+    expect(calls).toContainEqual({
+      command,
+      args: { repository: "packages/shared" },
+    });
+  }
   expect(calls).toContainEqual({
     command: "git_stage",
     args: expect.objectContaining({

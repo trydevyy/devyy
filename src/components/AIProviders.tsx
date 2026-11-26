@@ -108,7 +108,13 @@ export default function AIProviders() {
           }}
         >
           <div className="dialog-heading">
-            <h2 id="provider-dialog-title">Add AI provider</h2>
+            <div className="provider-add-title">
+              <AIProviderIcon kind={draft.kind} size={20} />
+              <div>
+                <h2 id="provider-dialog-title">Add custom provider</h2>
+                <p>Connect an API endpoint or a local command.</p>
+              </div>
+            </div>
             <button
               className="icon-button"
               aria-label="Close provider form"

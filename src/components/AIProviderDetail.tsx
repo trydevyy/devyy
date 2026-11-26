@@ -408,20 +408,24 @@ export default function AIProviderDetail({
   }
   return (
     <section className="ai-provider-detail" aria-label={provider.name}>
-      <header>
-        <AIProviderIcon kind={provider.kind} size={22} />
-        <h3>{provider.name}</h3>
-        <span
-          className={
-            aiProviderReady(provider, state) ? "ai-provider-authenticated" : ""
-          }
-        >
-          {connected && <Check size={12} />} {label}
-        </span>
-      </header>
+      {!onSaved && (
+        <header>
+          <AIProviderIcon kind={provider.kind} size={22} />
+          <h3>{provider.name}</h3>
+          <span
+            className={
+              aiProviderReady(provider, state)
+                ? "ai-provider-authenticated"
+                : ""
+            }
+          >
+            {connected && <Check size={12} />} {label}
+          </span>
+        </header>
+      )}
       <div className="ai-provider-detail-scroll">
         <section className="ai-provider-section">
-          <h4>Connection</h4>
+          {!onSaved && <h4>Connection</h4>}
           {custom && (
             <div className="ai-provider-field">
               <label htmlFor={`ai-name-${provider.id}`}>Display name</label>
@@ -745,86 +749,100 @@ export default function AIProviderDetail({
             </>
           )}
         </section>
-        <section className="ai-provider-section">
-          <h4>Model</h4>
-          <p className="ai-provider-section-help">
-            {providerDefault
-              ? "Leave this blank to use the provider's default model."
-              : onSaved
-                ? "Enter a model ID now or load the available models after saving."
-                : "Load the models available from this provider, or enter a model ID."}
-          </p>
-          <div className="ai-provider-field">
-            <label htmlFor={`ai-model-${provider.id}`}>Default model</label>
-            {enterModel ? (
+        {onSaved ? (
+          <section className="ai-provider-section">
+            <div className="ai-provider-field">
+              <label htmlFor={`ai-model-${provider.id}`}>
+                Default model <small>Optional</small>
+              </label>
               <input
                 id={`ai-model-${provider.id}`}
                 aria-label="Model ID"
                 value={form.model}
                 onChange={(event) => patch({ model: event.target.value })}
+                placeholder="Enter a model ID"
                 spellCheck={false}
               />
-            ) : (
-              <Select
-                id={`ai-model-${provider.id}`}
-                aria-label="Model"
-                value={form.model}
-                onOpenChange={(open) => {
-                  if (
-                    open &&
-                    native &&
-                    !busy &&
-                    !onSaved &&
-                    !runtimeMissing &&
-                    !runtimeChecking &&
-                    (!accountProvider || connected) &&
-                    !state.models[provider.id]
-                  ) {
-                    void action("catalog", () => discoverAIModels(provider.id));
-                  }
-                }}
-                onChange={(event) => patch({ model: event.target.value })}
-              >
-                <option value="">
-                  {providerDefault ? "Provider default" : "Choose a model"}
-                </option>
-                {form.model &&
-                  !state.models[provider.id]?.some(
-                    (model) => model.id === form.model,
-                  ) && <option value={form.model}>{form.model}</option>}
-                {(state.models[provider.id] ?? []).map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name || model.id}
+            </div>
+            <p className="ai-provider-section-help">
+              You can load the model list after saving.
+            </p>
+          </section>
+        ) : (
+          <section className="ai-provider-section">
+            <h4>Model</h4>
+            <p className="ai-provider-section-help">
+              {providerDefault
+                ? "Leave this blank to use the provider's default model."
+                : "Load the models available from this provider, or enter a model ID."}
+            </p>
+            <div className="ai-provider-field">
+              <label htmlFor={`ai-model-${provider.id}`}>Default model</label>
+              {enterModel ? (
+                <input
+                  id={`ai-model-${provider.id}`}
+                  aria-label="Model ID"
+                  value={form.model}
+                  onChange={(event) => patch({ model: event.target.value })}
+                  spellCheck={false}
+                />
+              ) : (
+                <Select
+                  id={`ai-model-${provider.id}`}
+                  aria-label="Model"
+                  value={form.model}
+                  onOpenChange={(open) => {
+                    if (
+                      open &&
+                      native &&
+                      !busy &&
+                      !runtimeMissing &&
+                      !runtimeChecking &&
+                      (!accountProvider || connected) &&
+                      !state.models[provider.id]
+                    ) {
+                      void action("catalog", () =>
+                        discoverAIModels(provider.id),
+                      );
+                    }
+                  }}
+                  onChange={(event) => patch({ model: event.target.value })}
+                >
+                  <option value="">
+                    {providerDefault ? "Provider default" : "Choose a model"}
                   </option>
-                ))}
-              </Select>
-            )}
-            {busy === "catalog" && (
-              <Skeleton variant="inline" label="Loading models" />
-            )}
+                  {form.model &&
+                    !state.models[provider.id]?.some(
+                      (model) => model.id === form.model,
+                    ) && <option value={form.model}>{form.model}</option>}
+                  {(state.models[provider.id] ?? []).map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name || model.id}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              {busy === "catalog" && (
+                <Skeleton variant="inline" label="Loading models" />
+              )}
+              <button
+                type="button"
+                className="ai-text-action"
+                onClick={() => setEnterModel(!enterModel)}
+              >
+                {enterModel ? "Use model list" : "Enter model ID"}
+              </button>
+            </div>
             <button
-              type="button"
-              className="ai-text-action"
-              onClick={() => setEnterModel(!enterModel)}
+              aria-busy={busy === "models"}
+              className="setting-action"
+              disabled={!!busy || !native || runtimeChecking || runtimeMissing}
+              onClick={() => void action("models", refreshModels)}
             >
-              {enterModel ? "Use model list" : "Enter model ID"}
+              <RefreshCw size={12} /> Load models
             </button>
-          </div>
-          <button
-            aria-busy={busy === "models"}
-            className="setting-action"
-            disabled={
-              !!busy ||
-              !native ||
-              !!onSaved ||
-              runtimeChecking ||
-              runtimeMissing
-            }
-            onClick={() => void action("models", refreshModels)}
-          >
-            <RefreshCw size={12} /> Load models
-          </button>
-        </section>
+          </section>
+        )}
         {builtInCLI && (
           <section className="ai-provider-section ai-provider-runtime">
             <button
@@ -899,6 +917,11 @@ export default function AIProviderDetail({
         )}
       </div>
       <footer>
+        {onSaved && (
+          <button className="secondary" onClick={onRemoved}>
+            Cancel
+          </button>
+        )}
         {custom && !onSaved && (
           <button
             className="ai-text-action ai-danger-action"

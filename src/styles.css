@@ -704,7 +704,6 @@ a {
 }
 
 .tree-row {
-  content-visibility: auto;
   height: 30px;
   display: flex;
   align-items: center;
@@ -713,9 +712,8 @@ a {
   position: relative;
 }
 
-/* The virtual window already excludes offscreen rows. Paint its buffer early. */
-.file-tree[data-virtual] .tree-row {
-  content-visibility: visible;
+.tree-row[data-ignored]:not(:is(:hover, [data-current], [data-multi-selected])) .tree-file {
+  opacity: 0.68;
 }
 
 .tree-row:hover {
@@ -6966,29 +6964,58 @@ body {
 .source-control {
   padding-bottom: 12px;
 }
-.source-control .branch-card {
+.scm-repository {
+  display: grid;
   gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
 }
-.source-control .branch-card :is(select, .devyy-select) {
+.scm-repository-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.source-control .branch-card {
+  padding: 0;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+}
+.source-control .branch-card .devyy-select {
   flex: 1;
   min-width: 0;
   background: transparent;
   border: 0;
   color: var(--ink);
   font-size: calc(11px * var(--ui-text-scale, 1));
-  padding: 4px 0;
+  padding: 4px 6px;
 }
 .source-control .branch-card > .icon-button {
-  margin-left: 0;
   flex-shrink: 0;
 }
-.scm-upstream {
+.scm-tracking {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
   color: var(--muted);
   font-size: calc(10px * var(--ui-text-scale, 1));
-  padding: 0 4px;
+}
+.scm-tracking > :first-child {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scm-tracking > :not(:first-child) {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .scm-group {
   margin-top: 15px;
@@ -7053,11 +7080,10 @@ body {
   flex-shrink: 0;
   width: 21px;
   height: 24px;
-  opacity: 0;
+  color: var(--muted);
 }
-.scm-group .change-row:hover .change-tool,
-.scm-group .change-row:focus-within .change-tool {
-  opacity: 1;
+.scm-group .change-tool:hover {
+  color: var(--ink);
 }
 .scm-clean {
   display: flex;
@@ -7066,21 +7092,6 @@ body {
   padding: 12px 4px;
   color: var(--muted);
   font-size: calc(11px * var(--ui-text-scale, 1));
-}
-.scm-history-toggle {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 13px 3px 8px;
-  color: var(--muted);
-  font-size: calc(11px * var(--ui-text-scale, 1));
-}
-.scm-history-toggle > svg:last-child {
-  margin-left: auto;
-}
-.scm-history-toggle[aria-expanded="true"] > svg:last-child {
-  transform: rotate(180deg);
 }
 .scm-commit {
   display: flex;
@@ -9644,7 +9655,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
   font-size: calc(10px * var(--ui-text-scale, 1));
   color: var(--muted);
 }
@@ -10031,18 +10041,46 @@ body {
   user-select: text;
   -webkit-user-select: text;
 }
-.scm-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 12px 0 8px;
-  color: var(--muted);
-  font-size: calc(10px * var(--ui-text-scale, 1));
+.scm-composer {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
 }
-.scm-summary strong {
+.scm-composer > label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   color: var(--secondary);
-  font-weight: 500;
+  font-size: calc(11px * var(--ui-text-scale, 1));
+}
+.scm-composer > label small {
+  color: var(--muted);
+}
+.scm-composer .commit-message {
+  margin: 0;
+  min-height: 50px;
+}
+.scm-commit-actions {
+  display: flex;
+  gap: 4px;
+}
+.scm-commit-actions .primary {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px;
+}
+.scm-commit-actions > .icon-button {
+  flex: none;
+  height: auto;
+  background: var(--hover);
+}
+.scm-commit-actions > .icon-button:is(:hover,[data-state="open"]) {
+  background: var(--raised);
 }
 @media (max-width: 800px) {
   .ai-provider-workspace {
@@ -12513,41 +12551,6 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   color: var(--muted);
   margin: 16px 0;
 }
-.scm-repository-section {
-  border-bottom: 1px solid var(--line);
-  padding: 8px 12px;
-}
-.scm-repository-section > header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.scm-repository-section > header > button:first-child {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1;
-  text-align: left;
-  font-size: 11px;
-  padding: 7px 0;
-}
-.scm-repository-section small {
-  margin-left: auto;
-  color: var(--muted);
-}
-.scm-repository-section textarea {
-  width: 100%;
-  min-height: 50px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  color: var(--ink);
-  padding: 8px;
-  font: inherit;
-  font-size: 11px;
-  resize: vertical;
-  margin: 8px 0;
-}
 .account-server-label {
   display: flex;
   flex-direction: column;
@@ -13984,13 +13987,78 @@ dialog.port-dialog::backdrop {
 }
 
 dialog.provider-add-dialog {
-  width: min(595px, calc(100vw - 30px));
+  width: min(475px, calc(100vw - 30px));
+  padding: 0;
+}
+.provider-add-dialog .dialog-heading {
+  padding: 17px 19px;
+  border-bottom: 1px solid var(--line);
+  background: var(--shell);
+}
+.provider-add-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+.provider-add-title > svg {
+  margin-top: 2px;
+  flex: none;
+  color: var(--muted);
+}
+.provider-add-title h2 {
+  margin: 0 0 3px;
+  font-size: calc(15px * var(--ui-text-scale, 1));
+  font-weight: 600;
+}
+.provider-add-title p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(11px * var(--ui-text-scale, 1));
 }
 .provider-add-dialog .ai-provider-detail {
-  display: block;
+  height: auto;
 }
 .provider-add-dialog .ai-provider-detail-scroll {
+  padding: 16px 19px;
   overflow: visible;
+}
+.provider-add-dialog .ai-provider-detail-scroll > .ai-provider-section {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.provider-add-dialog .ai-provider-detail-scroll > .ai-provider-section + .ai-provider-section {
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 14px;
+  gap: 5px;
+}
+.provider-add-dialog .ai-provider-field {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.provider-add-dialog .ai-provider-field > label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: auto;
+}
+.provider-add-dialog .ai-provider-field small,
+.provider-add-dialog .ai-provider-section-help {
+  color: var(--muted);
+}
+.provider-add-dialog .ai-provider-section-help {
+  margin: 0;
+}
+.provider-add-dialog .ai-provider-detail > footer {
+  padding: 12px 19px;
+  margin: 0;
+  background: var(--shell);
 }
 
 /* Shared workbench controls */

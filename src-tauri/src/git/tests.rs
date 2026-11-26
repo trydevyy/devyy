@@ -299,3 +299,52 @@ fn visual_diffs_handle_unborn_renamed_deleted_binary_and_untracked_files() {
         .iter()
         .all(|change| change.index.trim().is_empty() || change.index == "?"));
 }
+
+#[test]
+fn ignored_paths_are_separate_from_changes() {
+    let repo = repository();
+    let base = repo.path();
+    commit_file(base, "tracked.log", "tracked");
+    std::fs::write(base.join(".gitignore"), "cache/\n*.log\n").unwrap();
+    std::fs::create_dir(base.join("cache")).unwrap();
+    std::fs::write(base.join("cache/temp"), "ignored").unwrap();
+    std::fs::write(base.join("new.log"), "ignored").unwrap();
+    let status = status_with_ignored(base, true).unwrap();
+    assert!(status.ignored.iter().any(|path| path == "cache"));
+    assert!(status.ignored.iter().any(|path| path == "new.log"));
+    assert!(!status.ignored.iter().any(|path| path == "tracked.log"));
+    assert_eq!(status.changes.len(), 1);
+    assert_eq!(status.changes[0].path, ".gitignore");
+}
+
+#[test]
+fn push_publishes_then_updates_only_the_current_branch() {
+    let repo = repository();
+    let base = repo.path();
+    let remote = tempfile::tempdir().unwrap();
+    git(remote.path(), &["init", "--bare"]).unwrap();
+    git(
+        base,
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    )
+    .unwrap();
+    commit_file(base, "main.rs", "first");
+    git(base, &["branch", "private"]).unwrap();
+    git(base, &["config", "push.default", "matching"]).unwrap();
+    push_branch(base).unwrap();
+    assert_eq!(
+        status(base).unwrap().upstream.as_deref(),
+        Some("origin/main")
+    );
+    commit_file(base, "main.rs", "second");
+    push_branch(base).unwrap();
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/main"]).unwrap(),
+        git(base, &["rev-parse", "HEAD"]).unwrap()
+    );
+    assert!(git(
+        remote.path(),
+        &["rev-parse", "--verify", "refs/heads/private"]
+    )
+    .is_err());
+}

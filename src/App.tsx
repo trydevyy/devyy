@@ -454,6 +454,9 @@ export default function App() {
     [gitRepository, setGitRepository] = useState("");
   const gitRepositoryRef = useRef("");
   const gitStatusRequest = useRef(0);
+  const [gitIgnored, setGitIgnored] = useState(
+    () => new Map<string, string[]>(),
+  );
   const gitOperationBusy = useRef(false);
   const gitDrafts = useRef(new Map<string, string>());
   const [query, setQuery] = useState(""),
@@ -1046,12 +1049,25 @@ export default function App() {
       repository = gitRepositoryRef.current,
       request = ++gitStatusRequest.current;
     try {
-      const next = await invoke<GitState>("git_status", { repository });
+      const next = await invoke<GitState>("git_status", {
+        repository,
+        includeIgnored: true,
+      });
       if (
         root === wsRef.current.root &&
         repository === gitRepositoryRef.current &&
         request === gitStatusRequest.current
       ) {
+        setGitIgnored((previous) => {
+          const paths = next.ignored ?? [];
+          const current = previous.get(repository) ?? [];
+          if (
+            current.length === paths.length &&
+            current.every((path, index) => path === paths[index])
+          )
+            return previous;
+          return new Map(previous).set(repository, paths);
+        });
         setGit((previous) =>
           previous &&
           previous.branch === next.branch &&
@@ -1439,6 +1455,7 @@ export default function App() {
       setGitRepository("");
       gitRepositoryRef.current = "";
       ++gitStatusRequest.current;
+      setGitIgnored(new Map());
       gitDrafts.current.clear();
       setCommit("");
       clearQueuedProblems(() => true);
@@ -2649,44 +2666,45 @@ export default function App() {
     setDialog({
       title: directory ? "New folder" : "New file",
       description:
-        "Use a path relative to your project. Parent folders must already exist.",
+        "Use a path relative to your project. Missing folders are created automatically.",
       initial: parent ? `${parent}/` : "",
       label: directory ? "Create folder" : "Create file",
       submit: async (path) => {
+        const parts = path.split("/");
         if (
           !path.trim() ||
-          path.startsWith("/") ||
-          path
-            .split("/")
-            .some((part) => part === ".." || part === "." || part === "")
+          /[\\:\0]/.test(path) ||
+          parts.some((part) => part === ".." || part === "." || part === "")
         )
           throw new Error("Enter a valid relative path.");
-        const parent = path.split("/").slice(0, -1).join("/");
-        if (
-          parent &&
-          !workspace.files.some((f) => f.directory && f.path === parent)
-        )
-          throw new Error("The parent folder must already exist.");
-        if (workspace.files.some((f) => f.path === path))
-          throw new Error("That path already exists.");
+        const parents = parts
+          .slice(0, -1)
+          .map((_, index) => parts.slice(0, index + 1).join("/"));
         if (workspace.root === "demo") {
-          if (directory) {
-            setWorkspace((w) => ({
-              ...w,
-              files: [
-                ...w.files,
-                { path, name: filename(path), directory: true },
-              ],
-            }));
-          } else {
+          const existing = new Map(
+            workspace.files.map((entry) => [entry.path, entry]),
+          );
+          if (existing.has(path)) throw new Error("That path already exists.");
+          if (
+            parents.some((parent) => existing.get(parent)?.directory === false)
+          )
+            throw new Error("A parent path is a file.");
+          setWorkspace((w) => ({
+            ...w,
+            files: [
+              ...w.files,
+              ...parents
+                .filter((parent) => !existing.has(parent))
+                .map((parent) => ({
+                  path: parent,
+                  name: filename(parent),
+                  directory: true,
+                })),
+              { path, name: filename(path), directory },
+            ],
+          }));
+          if (!directory) {
             setDemo((d) => ({ ...d, [path]: "" }));
-            setWorkspace((w) => ({
-              ...w,
-              files: [
-                ...w.files,
-                { path, name: filename(path), directory: false },
-              ],
-            }));
             setTabs((old) => [
               ...old,
               { path, content: "", saved: "", modified: "" },
@@ -2695,8 +2713,30 @@ export default function App() {
           }
         } else {
           await invoke("create_file", { path, directory });
-          await refresh();
+          if (workspace.root !== wsRef.current.root) return;
+          // Reveal newly created paths even if this branch is outside the search index.
+          const additions = [...parents, path];
+          setWorkspace((current) => {
+            const known = new Set(current.files.map((entry) => entry.path));
+            return {
+              ...current,
+              files: [
+                ...current.files,
+                ...additions
+                  .filter((item) => !known.has(item))
+                  .map((item) => ({
+                    path: item,
+                    name: filename(item),
+                    directory: item !== path || directory,
+                  })),
+              ],
+            };
+          });
+        }
+        setExpandedFolders((current) => new Set([...current, ...parents]));
+        if (workspace.root !== "demo") {
           if (!directory) await openFile(path);
+          void refresh(true);
         }
       },
     });
@@ -3427,6 +3467,32 @@ export default function App() {
       setGitBusy(false);
     }
   }
+  async function syncGit(direction: "pull" | "push") {
+    if (
+      direction === "pull" &&
+      tabsRef.current.some(
+        (tab) => tab.content !== tab.saved || tab.modified === "devyy:new",
+      )
+    ) {
+      notify("Save or close unsaved files before pulling changes.");
+      return;
+    }
+    if (
+      await gitAction(() =>
+        invoke(direction === "pull" ? "git_pull" : "git_push", {
+          repository: gitRepositoryRef.current,
+        }),
+      )
+    ) {
+      notify(direction === "pull" ? "Pull complete." : "Push complete.", false);
+      if (direction === "pull") {
+        setComparison(null);
+        setDiffActive(false);
+        await reloadBuffers();
+      }
+    }
+  }
+
   function selectGitRepository(repository: string) {
     if (gitOperationBusy.current || repository === gitRepositoryRef.current)
       return;
@@ -5351,6 +5417,7 @@ export default function App() {
                   active={active}
                   dirty={dirty}
                   changes={git?.changes ?? []}
+                  ignored={gitIgnored}
                   expanded={expandedFolders}
                   onExpandedChange={setExpandedFolders}
                   onOpen={(path) => void openFile(path)}
@@ -5360,18 +5427,30 @@ export default function App() {
                     void invoke<Workspace["files"]>("list_directory", { path })
                       .then((children) => {
                         if (wsRef.current.root !== root) return;
-                        const childPaths = new Set(
-                          children.map((child) => child.path),
+                        const fetched = new Map(
+                          children.map((child) => [child.path, child]),
                         );
-                        setWorkspace((old) => ({
-                          ...old,
-                          files: [
-                            ...old.files.filter(
-                              (entry) => !childPaths.has(entry.path),
-                            ),
-                            ...children,
-                          ],
-                        }));
+                        setWorkspace((old) => {
+                          let unchanged = 0;
+                          for (const entry of old.files) {
+                            const child = fetched.get(entry.path);
+                            if (
+                              child?.name === entry.name &&
+                              child.directory === entry.directory
+                            )
+                              unchanged++;
+                          }
+                          if (unchanged === fetched.size) return old;
+                          return {
+                            ...old,
+                            files: [
+                              ...old.files.filter(
+                                (entry) => !fetched.has(entry.path),
+                              ),
+                              ...children,
+                            ],
+                          };
+                        });
                       })
                       .catch(notify);
                   }}
@@ -5506,7 +5585,7 @@ export default function App() {
               </Suspense>
             </div>
           )}
-          {section === "git" && !!git && (
+          {section === "git" && (
             <div className="sidebar-content">
               {workspace.root === "demo" && !playground ? (
                 <Empty
@@ -5543,6 +5622,7 @@ export default function App() {
                   busy={gitBusy || workspaceScan}
                   commit={commit}
                   onCommitChange={setCommit}
+                  onSync={(direction) => void syncGit(direction)}
                   onRefresh={() => void refreshGit()}
                   onCommit={() =>
                     void gitAction(async () => {
@@ -5590,6 +5670,10 @@ export default function App() {
                     })
                   }
                 />
+              ) : !gitError && native ? (
+                <p className="sidebar-empty" role="status">
+                  Checking repository…
+                </p>
               ) : (
                 <Empty
                   icon={<GitBranch size={28} />}

@@ -395,6 +395,28 @@ impl SshWorkspace {
     }
 
     pub async fn create(&self, path: &str, directory: bool) -> Result<()> {
+        let path = relative(path)?;
+        let mut prefix = String::new();
+        if let Some((parent, _)) = path.rsplit_once('/') {
+            for segment in parent.split('/') {
+                if !prefix.is_empty() {
+                    prefix.push('/');
+                }
+                prefix.push_str(segment);
+                let destination = self.destination(&prefix).await?;
+                if let Err(error) = self.files.create_dir(&destination).await {
+                    match self.checked(&prefix).await {
+                        Ok(checked)
+                            if self
+                                .files
+                                .metadata(&checked)
+                                .await
+                                .is_ok_and(|m| m.is_dir()) => {}
+                        _ => return Err(message(error)),
+                    }
+                }
+            }
+        }
         if directory {
             self.files
                 .create_dir(self.destination(path).await?)

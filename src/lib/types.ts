@@ -51,6 +51,7 @@ export interface GitChange {
 export interface GitState {
   branch: string;
   changes: GitChange[];
+  ignored?: string[];
   upstream?: string | null;
   ahead?: number;
   behind?: number;

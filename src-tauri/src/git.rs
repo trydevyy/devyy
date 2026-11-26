@@ -30,6 +30,8 @@ pub struct Change {
 pub struct GitState {
     pub branch: String,
     pub changes: Vec<Change>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
     pub upstream: Option<String>,
     pub ahead: u32,
     pub behind: u32,
@@ -287,24 +289,23 @@ fn prefix(base: &Path) -> Result<String, String> {
         .into())
 }
 pub(crate) fn status(base: &Path) -> Result<GitState, String> {
+    status_with_ignored(base, false)
+}
+fn status_with_ignored(base: &Path, include_ignored: bool) -> Result<GitState, String> {
     let branch = git(base, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .unwrap_or_else(|_| "detached".into())
         .trim()
         .to_owned();
     let prefix = prefix(base)?;
-    let raw = git(
-        base,
-        &[
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-            "--",
-            ".",
-        ],
-    )?;
+    let mut args = vec!["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+    if include_ignored {
+        args.push("--ignored=matching");
+    }
+    args.extend(["--", "."]);
+    let raw = git(base, &args)?;
     let mut records = raw.split('\0').filter(|s| !s.is_empty());
     let mut changes = Vec::new();
+    let mut ignored = Vec::new();
     while let Some(record) = records.next() {
         if record.len() < 4 || !record.is_char_boundary(3) {
             continue;
@@ -322,6 +323,10 @@ pub(crate) fn status(base: &Path) -> Result<GitState, String> {
         let Some(path) = record[3..].strip_prefix(&prefix) else {
             continue;
         };
+        if index == "!" {
+            ignored.push(path.trim_end_matches('/').to_owned());
+            continue;
+        }
         changes.push(Change {
             path: path.into(),
             index: index.into(),
@@ -349,6 +354,7 @@ pub(crate) fn status(base: &Path) -> Result<GitState, String> {
     Ok(GitState {
         branch,
         changes,
+        ignored,
         upstream,
         ahead: counts.next().and_then(|s| s.parse().ok()).unwrap_or(0),
         behind: counts.next().and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -874,15 +880,76 @@ pub async fn git_pull(
     })
     .await
 }
+fn push_branch(base: &Path) -> Result<String, String> {
+    let branch = git(base, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .map_err(|_| "Switch to a branch before pushing this repository.".to_string())?;
+    let branch = branch.trim();
+    let remote = git(
+        base,
+        &["config", "--get", &format!("branch.{branch}.remote")],
+    );
+    let merge = git(
+        base,
+        &["config", "--get", &format!("branch.{branch}.merge")],
+    );
+    if let (Ok(remote), Ok(merge)) = (remote, merge) {
+        let target = merge.trim();
+        if !target.starts_with("refs/heads/") || remote.trim() == "." {
+            return Err("This branch does not track a remote branch.".into());
+        }
+        return git(
+            base,
+            &["push", "--", remote.trim(), &format!("HEAD:{target}")],
+        );
+    }
+    let remotes = git(base, &["remote"])?;
+    let mut names = remotes.lines();
+    let first = names.next();
+    let remote = match first {
+        Some(name) if names.next().is_none() => name,
+        _ if remotes.lines().any(|name| name == "origin") => "origin",
+        _ => {
+            return Err(
+                "Configure a single remote or an origin remote before publishing this branch."
+                    .into(),
+            )
+        }
+    };
+    git(
+        base,
+        &[
+            "push",
+            "--set-upstream",
+            "--",
+            remote,
+            &format!("refs/heads/{branch}:refs/heads/{branch}"),
+        ],
+    )
+}
+
+#[tauri::command]
+pub async fn git_push(
+    repository: Option<String>,
+    state: State<'_, Workspace>,
+) -> Result<String, String> {
+    let workspace = root(&state)?;
+    background(move || push_branch(&repository_base(&workspace, repository.as_deref())?)).await
+}
+
 #[tauri::command]
 pub async fn git_status(
     repository: Option<String>,
+    include_ignored: Option<bool>,
     state: State<'_, Workspace>,
 ) -> Result<GitState, String> {
     let workspace = root(&state)?;
     background(move || {
         let base = repository_base(&workspace, repository.as_deref())?;
-        let mut status = status(&base)?;
+        let mut status = status_with_ignored(&base, include_ignored.unwrap_or(false))?;
+        for path in &mut status.ignored {
+            *path = workspace_path(repository.as_deref(), path);
+        }
+        status.ignored.sort_unstable();
         for change in &mut status.changes {
             change.path = workspace_path(repository.as_deref(), &change.path);
             change.old_path = change
