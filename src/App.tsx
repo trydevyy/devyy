@@ -58,6 +58,7 @@ import { useConfirm, type Confirmation } from "./components/ui/Confirm";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowUpRight,
+  Download,
   Asterisk,
   Copy,
   Eye,
@@ -146,8 +147,11 @@ import type { SettingsCategory } from "./lib/settingsCatalog";
 import SearchResults from "./components/SearchResults";
 import ProjectBadge from "./components/ProjectBadge";
 import Palette, { type PaletteItem } from "./components/Palette";
-import { checkUpdates, type UpdateStatus } from "./lib/buildInfo";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  checkUpdates,
+  type UpdateProgress,
+  type UpdateStatus,
+} from "./lib/buildInfo";
 import { Toaster, toast as showToast } from "sonner";
 const MarkdownPreview = lazy(() => import("./components/MarkdownPreview"));
 const TerminalGroup = lazy(() => import("./components/TerminalGroup"));
@@ -261,6 +265,10 @@ function whenWorkspaceIdle(work: () => void) {
   else setTimeout(work, 120);
 }
 
+function afterWorkspaceIdle(): Promise<void> {
+  return afterWorkspacePaint().then(() => new Promise(whenWorkspaceIdle));
+}
+
 export default function App() {
   const confirmAction = useConfirm();
   const [portsVisited, setPortsVisited] = useState(false);
@@ -342,7 +350,13 @@ export default function App() {
     setSetupOpen(false);
   }
   useEffect(() => {
-    void initializeExtensions().catch(notify);
+    let disposed = false;
+    void afterWorkspaceIdle().then(() => {
+      if (!disposed) return initializeExtensions().catch(notify);
+    });
+    return () => {
+      disposed = true;
+    };
   }, []);
   const [breakpoints, setBreakpoints] = useState<Record<string, number[]>>({}),
     [debugSession, setDebugSession] = useState<DebugSession>({
@@ -575,23 +589,56 @@ export default function App() {
     ),
     [workspaceScan, setWorkspaceScan] = useState(false),
     [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [openingUpdate, setOpeningUpdate] = useState(false);
+  const [update, setUpdate] = useState<{
+    version: string;
+    progress: UpdateProgress;
+    error?: string;
+  }>();
   const updateHandoff = useRef(false);
 
-  async function viewUpdate(url: string, onError?: () => void) {
-    if (updateHandoff.current) return;
+  async function installUpdate(version: string) {
+    if (updateHandoff.current || !native) return;
     updateHandoff.current = true;
-    setOpeningUpdate(true);
+    let unlisten: (() => void) | undefined;
+    const hasUnsavedFiles = () =>
+      tabsRef.current.some(
+        (tab) => tab.content !== tab.saved || tab.modified === "devyy:new",
+      ) || saveQueue.current.size > 0;
     try {
-      // Give the webview time to paint before the browser takes focus.
-      await new Promise<void>((resolve) => setTimeout(resolve, 300));
-      await openUrl(url);
-    } catch {
-      if (onError) onError();
-      else showToast.error("Could not open release");
+      if (hasUnsavedFiles()) {
+        showToast.error("Save your files before updating Devyy.");
+        return;
+      }
+      if (
+        !(await ask(
+          `Download and install Devyy ${version}? Devyy will restart when the update is ready.`,
+          {
+            title: "Install Devyy update",
+            confirmLabel: "Install and restart",
+          },
+        ))
+      )
+        return;
+      if (hasUnsavedFiles()) {
+        showToast.error("Save your files before updating Devyy.");
+        return;
+      }
+      setUpdate({
+        version,
+        progress: { stage: "checking", downloaded: 0, total: null },
+      });
+      unlisten = await listen<UpdateProgress>(
+        "devyy-update-progress",
+        ({ payload }) => {
+          setUpdate((state) => state && { ...state, progress: payload });
+        },
+      );
+      await invoke("install_update", { version });
+    } catch (error) {
+      setUpdate((state) => state && { ...state, error: String(error) });
     } finally {
+      unlisten?.();
       updateHandoff.current = false;
-      setOpeningUpdate(false);
     }
   }
 
@@ -1393,9 +1440,9 @@ export default function App() {
           localStorage.setItem("devyy.recent", JSON.stringify(list));
           return list;
         });
-      const painted = afterWorkspacePaint();
+      const idle = afterWorkspaceIdle();
       workspaceServices.current = syncExtensionHost(
-        Promise.all([stopped, painted]),
+        Promise.all([stopped, idle]),
       ).catch((error) => log(String(error)));
       if (disconnect) {
         log("Disconnected from SSH");
@@ -1413,11 +1460,11 @@ export default function App() {
       const currentWorkspace = () =>
         openRequest === workspaceOpenRequest.current &&
         wsRef.current.root === next.root;
-      void painted.then(() => {
-        whenWorkspaceIdle(() => {
-          if (!currentWorkspace()) return;
-          void refresh(true);
-        });
+      void idle.then(() => {
+        // Keep the root snapshot usable while the active editor connects.
+        setTimeout(() => {
+          if (currentWorkspace()) void refresh(true);
+        }, 250);
       });
       return true;
     } catch (e) {
@@ -4715,7 +4762,7 @@ export default function App() {
                 settings={settings}
                 category={settingsPage}
                 onCategoryChange={setSettingsPage}
-                onViewUpdate={viewUpdate}
+                onInstallUpdate={installUpdate}
                 onSetup={() => {
                   void closeTab("devyy:settings");
                   setSetupOpen(true);
@@ -5138,19 +5185,13 @@ export default function App() {
             <button
               className="titlebar-update-button"
               aria-label={`Update available: ${updateStatus.version}`}
-              title={`View release for v${updateStatus.version}`}
-              onClick={() => {
-                const showAbout = () => {
-                  setSettingsPage("about");
-                  setSettingsOpen(true);
-                };
-                if (updateStatus.url)
-                  void viewUpdate(updateStatus.url, showAbout);
-                else showAbout();
-              }}
+              title={`Install Devyy v${updateStatus.version}`}
+              onClick={() =>
+                updateStatus.version && void installUpdate(updateStatus.version)
+              }
             >
               <span>Update</span>
-              <ArrowUpRight size={13} aria-hidden="true" />
+              <Download size={13} aria-hidden="true" />
             </button>
           )}
           <NativeWindowControls />
@@ -6551,7 +6592,7 @@ export default function App() {
               settings={settings}
               category={settingsPage}
               onCategoryChange={setSettingsPage}
-              onViewUpdate={viewUpdate}
+              onInstallUpdate={installUpdate}
               onSetup={() => {
                 setSettingsOpen(false);
                 setSetupOpen(true);
@@ -6612,7 +6653,9 @@ export default function App() {
           setSettingsOpen(true);
         }}
       />
-      {openingUpdate && <UpdateOverlay />}
+      {update && (
+        <UpdateOverlay {...update} onClose={() => setUpdate(undefined)} />
+      )}
       <Toaster
         theme={settings.theme === "paper" ? "light" : "dark"}
         position="bottom-right"

@@ -29,6 +29,11 @@ export interface UpdateStatus {
   version: string | null;
   url: string | null;
 }
+export interface UpdateProgress {
+  stage: "checking" | "downloading" | "verifying" | "installing" | "restarting";
+  downloaded: number;
+  total: number | null;
+}
 const browserInfo: BuildInfo = {
   version,
   builtAt: __DEVYY_BUILD__.builtAt,

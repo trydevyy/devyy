@@ -1,3 +1,4 @@
+import HardwareAcceleration from "./HardwareAcceleration";
 // Copyright (C) 2026 Devyy contributors
 //
 // This program is free software: you can redistribute it and/or modify
@@ -100,7 +101,7 @@ export default function Preferences({
   category,
   onCategoryChange,
   onSetup,
-  onViewUpdate,
+  onInstallUpdate,
   embedded = false,
   initialQuery = "",
 }: {
@@ -108,7 +109,7 @@ export default function Preferences({
   onChange: Dispatch<SetStateAction<Settings>>;
   onClose: () => void;
   onSetup: () => void;
-  onViewUpdate: (url: string) => Promise<void>;
+  onInstallUpdate: (version: string) => Promise<void>;
   onResetLayout: () => void;
   category: SettingsCategory;
   onCategoryChange: (category: SettingsCategory) => void;
@@ -481,13 +482,13 @@ export default function Preferences({
               transition={transition}
             >
               {!searching && category === "about" ? (
-                <About onViewUpdate={onViewUpdate} />
+                <About onInstallUpdate={onInstallUpdate} />
               ) : null}
               {!["about", "ai", "credits"].includes(category) || searching ? (
                 <div className="settings-section-heading">
                   <p aria-live="polite">
                     {searching
-                      ? `${matches.length + keys.length + matchingExtensionSettings(installed, query).length} results for “${query.trim()}”`
+                      ? `${matches.length + keys.length + matchingExtensionSettings(installed, query).length + (native && "hardware acceleration gpu graphics rendering".includes(query.trim().toLowerCase()) ? 1 : 0)} results for “${query.trim()}”`
                       : selected.description}
                   </p>
                 </div>
@@ -606,6 +607,13 @@ export default function Preferences({
                   )}
                 </nav>
               )}
+              {native &&
+                ((!searching && category === "appearance") ||
+                  (searching &&
+                    "hardware acceleration gpu graphics rendering".includes(
+                      query.trim().toLowerCase(),
+                    ))) && <HardwareAcceleration />}
+
               {matches.map((item, i) => (
                 <div key={item.key}>
                   {(i === 0 || matches[i - 1].section !== item.section) && (

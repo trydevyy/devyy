@@ -181,7 +181,7 @@ pub async fn lsp_start<R: tauri::Runtime>(
             let _ = app.emit("lsp-output", json!({"language":lang,"text":text,"level":level}));
         };
         output("info", &format!("Starting {binary}"));
-        let mut command = crate::process::command(binary);
+        let mut command = crate::process::background_command(binary);
         crate::process::with_tool_path(&mut command);
         if lang == "rust" && std::env::var_os("RUST_BACKTRACE").is_none() {
             command.env("RUST_BACKTRACE", "1");

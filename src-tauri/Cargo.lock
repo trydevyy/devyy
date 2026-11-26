@@ -1372,6 +1372,7 @@ name = "devyy"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
+ "dirs",
  "futures-util",
  "hit",
  "ignore",
@@ -1404,6 +1405,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
+ "webkit2gtk",
  "window-vibrancy",
  "windows-sys 0.59.0",
  "winreg 0.55.0",

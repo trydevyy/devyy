@@ -20,6 +20,24 @@
 mod linux_webkit;
 
 fn main() {
+    #[cfg(windows)]
+    if let Some(result) = devyy_lib::updater::run_helper() {
+        if let Err(error) = result {
+            let text: Vec<u16> = error.encode_utf16().chain([0]).collect();
+            let title: Vec<u16> = "Devyy update".encode_utf16().chain([0]).collect();
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                    std::ptr::null_mut(),
+                    text.as_ptr(),
+                    title.as_ptr(),
+                    0x10,
+                );
+            }
+        }
+        return;
+    }
+    #[cfg(windows)]
+    devyy_lib::updater::clean_previous_helper();
     #[cfg(target_os = "linux")]
     linux_webkit::configure_renderer();
     devyy_lib::run();

@@ -158,13 +158,17 @@ test("native About reports metadata and handles available, failed and current up
         },
         transformCallback: () => ++callback,
         unregisterCallback: () => {},
-        invoke: async (cmd: string, args?: { url: string }) => {
-          if (cmd === "plugin:opener|open_url") {
-            document.body.dataset.openedRelease = args?.url;
-            return new Promise<void>((resolve) => {
-              window.addEventListener("test:release-opened", () => resolve(), {
-                once: true,
-              });
+        invoke: async (cmd: string, args?: { version: string }) => {
+          if (cmd === "install_update") {
+            document.body.dataset.updateVersion = args?.version;
+            return new Promise<void>((_resolve, reject) => {
+              window.addEventListener(
+                "test:update-failed",
+                () => reject(Error("Test install failure")),
+                {
+                  once: true,
+                },
+              );
             });
           }
           if (cmd === "plugin:event|listen") return ++callback;
@@ -201,39 +205,39 @@ test("native About reports metadata and handles available, failed and current up
     name: "Update available: 0.2.0",
     exact: true,
   });
-  const progress = page.getByRole("progressbar", { name: "Opening release" });
-  const release = "https://github.com/trydevyy/devyy/releases/tag/v0.2.0";
+  const progress = page.getByRole("progressbar", { name: "Update progress" });
+  async function checkInstallation() {
+    await page
+      .getByRole("button", { name: "Install and restart", exact: true })
+      .click();
+    await expect(progress).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-update-version",
+      "0.2.0",
+    );
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("test:update-failed")),
+    );
+    const dialog = page.getByRole("dialog", { name: "Update couldn’t finish" });
+    await expect(dialog.getByRole("alert")).toContainText(
+      "Test install failure",
+    );
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  }
   await update.click();
-  await expect(progress).toBeVisible();
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-opened-release",
-    release,
-  );
-  await page.evaluate(() => {
-    window.dispatchEvent(new Event("test:release-opened"));
-    delete document.body.dataset.openedRelease;
-  });
-  await expect(progress).toHaveCount(0);
+  await checkInstallation();
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("tab", { name: "About devyy", exact: true }).click();
   const about = page.getByRole("region", { name: "About devyy", exact: true });
   await expect(about).toContainText("26.1 (25B78)");
   await expect(about).toContainText("test-build (aarch64)");
   await expect(about.getByRole("status")).toContainText("0.2.0 is available");
-  const viewRelease = about.getByRole("button", {
-    name: "View release",
+  const install = about.getByRole("button", {
+    name: "Install v0.2.0",
     exact: true,
   });
-  await viewRelease.click();
-  await expect(progress).toBeVisible();
-  await expect(page.locator("body")).toHaveAttribute(
-    "data-opened-release",
-    release,
-  );
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("test:release-opened")),
-  );
-  await expect(progress).toHaveCount(0);
+  await install.click();
+  await checkInstallation();
   await about
     .getByRole("button", { name: "Check for updates", exact: true })
     .click();
@@ -245,7 +249,7 @@ test("native About reports metadata and handles available, failed and current up
     .click();
   await expect(about.getByRole("status")).toContainText("Up to date");
   await expect(
-    about.getByRole("button", { name: "View release", exact: true }),
+    about.getByRole("button", { name: "Install v0.2.0", exact: true }),
   ).toHaveCount(0);
 });
 

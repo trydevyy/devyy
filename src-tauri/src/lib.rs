@@ -28,6 +28,7 @@ mod extensions;
 mod file_types;
 mod git;
 mod github;
+mod graphics;
 mod language_config;
 mod lsp;
 mod menus;
@@ -38,6 +39,7 @@ mod shells;
 mod ssh;
 mod store;
 mod terminal;
+pub mod updater;
 #[path = "../../shared/webhook.rs"]
 mod webhook;
 #[cfg(windows)]
@@ -49,6 +51,7 @@ mod workspace;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     use tauri::Manager;
+    graphics::configure_before_launch();
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, cwd| {
@@ -75,6 +78,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(updater::Updater::default())
         .manage(account::Accounts::default())
         .manage(store::Store::default())
         .manage(remote::Remotes::default())
@@ -93,6 +97,9 @@ pub fn run() {
         .setup(|app| {
             crash_report::install(app.handle());
             menus::install(app.handle())?;
+            if let Some(window) = app.get_webview_window("main") {
+                graphics::configure_window(&window)?;
+            }
             #[cfg(all(target_os = "linux", not(debug_assertions)))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -179,6 +186,9 @@ pub fn run() {
             associations::set_all_default_apps,
             associations::take_open_targets,
             app_info::check_updates,
+            updater::install_update,
+            graphics::hardware_acceleration,
+            graphics::set_hardware_acceleration,
             workspace::read_preview_image,
             workspace::read_preview_media,
             menus::set_menu_shortcuts,

@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 // Copyright (C) 2026 Devyy contributors
 //
 // This program is free software: you can redistribute it and/or modify
@@ -27,9 +28,9 @@ import {
 } from "../lib/buildInfo";
 import { native } from "../lib/native";
 export default function About({
-  onViewUpdate,
+  onInstallUpdate,
 }: {
-  onViewUpdate: (url: string) => Promise<void>;
+  onInstallUpdate: (version: string) => Promise<void>;
 }) {
   const [info, setInfo] = useState<BuildInfo>();
   const [error, setError] = useState("");
@@ -147,15 +148,30 @@ export default function About({
           <RefreshCw size={13} />
           Check for updates
         </button>
-        {update?.status === "available" && update.url && (
-          <button
-            className="setting-action about-release-button"
-            aria-label="View release"
-            onClick={() => update.url && void onViewUpdate(update.url)}
-          >
-            Get v{update.version}
-            <ArrowUpRight size={13} />
-          </button>
+        {update?.status === "available" && update.version && (
+          <>
+            <button
+              className="setting-action about-release-button"
+              onClick={() =>
+                update.version && void onInstallUpdate(update.version)
+              }
+            >
+              Install v{update.version}
+            </button>
+            {update.url && (
+              <button
+                className="setting-action"
+                onClick={() => {
+                  if (update.url)
+                    void openUrl(update.url).catch((error) =>
+                      setUpdateError(String(error)),
+                    );
+                }}
+              >
+                Release notes <ArrowUpRight size={13} />
+              </button>
+            )}
+          </>
         )}
         <button
           className="setting-action"

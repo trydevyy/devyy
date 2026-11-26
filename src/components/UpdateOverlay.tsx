@@ -15,29 +15,75 @@
 
 import { useEffect, useRef } from "react";
 import { Asterisk } from "lucide-react";
+import type { UpdateProgress } from "../lib/buildInfo";
 
-export default function UpdateOverlay() {
+const stages: Record<UpdateProgress["stage"], string> = {
+  checking: "Checking release files",
+  downloading: "Downloading update",
+  verifying: "Verifying download",
+  installing: "Installing update",
+  restarting: "Restarting Devyy",
+};
+
+export default function UpdateOverlay({
+  version,
+  progress,
+  error,
+  onClose,
+}: {
+  version: string;
+  progress: UpdateProgress;
+  error?: string;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
-
   useEffect(() => {
-    const dialog = ref.current!;
+    const dialog = ref.current;
+    if (!dialog) return;
     dialog.showModal();
     return () => dialog.close();
   }, []);
-
+  const percent =
+    progress.total && progress.stage === "downloading"
+      ? Math.min(100, Math.floor((progress.downloaded / progress.total) * 100))
+      : undefined;
   return (
     <dialog
       ref={ref}
       className="update-overlay"
-      aria-label="Opening the Devyy release page"
-      onCancel={(event) => event.preventDefault()}
+      aria-labelledby="update-heading"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (error) onClose();
+      }}
     >
-      <Asterisk size={72} strokeWidth={1.8} aria-hidden="true" />
-      <div
-        className="update-progress"
-        role="progressbar"
-        aria-label="Opening release"
-      />
+      <Asterisk size={30} strokeWidth={2} aria-hidden="true" />
+      <h2 id="update-heading">
+        {error ? "Update couldn’t finish" : `Updating to Devyy ${version}`}
+      </h2>
+      {error ? (
+        <>
+          <p role="alert">{error}</p>
+          <button className="setting-action" onClick={onClose} autoFocus>
+            Close
+          </button>
+        </>
+      ) : (
+        <>
+          <p role="status">{stages[progress.stage]}</p>
+          <div
+            className="update-progress"
+            role="progressbar"
+            aria-label="Update progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
+            {percent !== undefined && <span style={{ width: `${percent}%` }} />}
+          </div>
+          {percent !== undefined && <small>{percent}%</small>}
+        </>
+      )}
     </dialog>
   );
 }

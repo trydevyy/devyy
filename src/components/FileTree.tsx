@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { flushSync } from "react-dom";
 import ErrorToast from "./ui/ErrorToast";
 import { writeAIContextDrag } from "../lib/aiContext";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -48,7 +49,8 @@ interface Props {
   onMove: (path: string, destination: string) => Promise<void>;
 }
 const treeRowHeight = 30;
-const overscan = 8;
+const overscan = 24;
+const bufferGuard = 8;
 const FILE_MOVE_MIME = "application/x-devyy-file-move";
 export default function FileTree(p: Props) {
   const [internalExpanded, setInternalExpanded] = useState<Set<string>>(
@@ -184,32 +186,66 @@ export default function FileTree(p: Props) {
   }, [children, expanded]);
   const paths = useMemo(() => rows.map(({ file }) => file.path), [rows]);
   const viewport = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState({ first: 0, count: 0 });
+  const [range, setRange] = useState({ start: 0, end: 64 });
+  const rendered = useRef(range);
+  rendered.current = range;
+  const scrollFrame = useRef<number | undefined>(undefined);
+  const viewportHeight = useRef(0);
   const virtual = rows.length > 150;
-  function measure() {
+
+  function measure(urgent = false) {
     const element = viewport.current;
     if (!element) return;
-    const first = Math.floor(element.scrollTop / treeRowHeight);
-    const count = Math.ceil(element.clientHeight / treeRowHeight);
-    setRange((previous) =>
-      previous.first === first && previous.count === count
-        ? previous
-        : { first, count },
-    );
+    const first = Math.max(0, Math.floor(element.scrollTop / treeRowHeight));
+    const count = Math.ceil(viewportHeight.current / treeRowHeight) + 1;
+    const last = Math.min(rows.length, first + count);
+    const previous = rendered.current;
+    if (
+      previous.end <= rows.length &&
+      first >= previous.start + (previous.start === 0 ? 0 : bufferGuard) &&
+      last <= previous.end - (previous.end === rows.length ? 0 : bufferGuard)
+    )
+      return;
+
+    const start = Math.max(0, Math.min(first, rows.length - count) - overscan);
+    const end = Math.min(rows.length, start + count + 2 * overscan);
+    if (start === previous.start && end === previous.end) return;
+    const next = { start, end };
+    // Large trackpad jumps can skip the existing buffer in one frame.
+    if (urgent && (first < previous.start || last > previous.end))
+      flushSync(() => setRange(next));
+    else setRange(next);
   }
+
+  function onTreeScroll() {
+    if (scrollFrame.current !== undefined) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = undefined;
+      measure(true);
+    });
+  }
+
   useLayoutEffect(() => {
-    if (!virtual || !viewport.current) return;
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport.current);
-    return () => observer.disconnect();
-  }, [virtual]);
+    const element = viewport.current;
+    if (!virtual || !element) return;
+    const resize = () => {
+      viewportHeight.current = element.clientHeight;
+      measure();
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      if (scrollFrame.current !== undefined)
+        cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = undefined;
+    };
+  }, [virtual, rows.length]);
   const start = virtual
-    ? Math.max(0, Math.min(range.first, rows.length - range.count) - overscan)
+    ? Math.min(range.start, Math.max(0, rows.length - 1))
     : 0;
-  const end = virtual
-    ? Math.min(rows.length, start + range.count + 2 * overscan)
-    : rows.length;
+  const end = virtual ? Math.min(rows.length, range.end) : rows.length;
   const draggingIndex = dragging ? paths.indexOf(dragging) : -1;
   function openTreeEntry(file: FileEntry) {
     if (!file.directory) {
@@ -386,7 +422,8 @@ export default function FileTree(p: Props) {
         role="navigation"
         aria-label="Project files"
         ref={viewport}
-        onScroll={virtual ? measure : undefined}
+        data-virtual={virtual || undefined}
+        onScroll={virtual ? onTreeScroll : undefined}
         tabIndex={0}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {

@@ -691,6 +691,7 @@ a {
 
 .file-tree {
   overflow: auto;
+  overflow-anchor: none;
   min-height: 0;
   padding: 0 8px 8px;
   flex: 1;
@@ -710,6 +711,11 @@ a {
   border-radius: 5px;
   color: var(--secondary);
   position: relative;
+}
+
+/* The virtual window already excludes offscreen rows. Paint its buffer early. */
+.file-tree[data-virtual] .tree-row {
+  content-visibility: visible;
 }
 
 .tree-row:hover,
@@ -3059,51 +3065,63 @@ a {
   position: fixed;
   inset: 0;
   margin: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: 24px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
   color: var(--ink);
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 .update-overlay[open] {
   display: grid;
-  justify-items: center;
-  gap: 22px;
-  width: min(190px, 72vw);
-  height: fit-content;
+  gap: 12px;
+  justify-items: start;
+}
+.update-overlay h2,
+.update-overlay p {
+  margin: 0;
+}
+.update-overlay h2 {
+  font-size: 18px;
+}
+.update-overlay p,
+.update-overlay small {
+  color: var(--secondary);
+  overflow-wrap: anywhere;
 }
 .update-overlay::backdrop {
-  background: rgba(var(--shell-rgb), 0.76);
-  backdrop-filter: blur(13px);
+  background: rgba(0, 0, 0, 0.58);
 }
 .update-progress {
-  position: relative;
   width: 100%;
-  height: 5px;
+  height: 7px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--border-strong);
 }
-.update-progress::after {
-  content: "";
+.update-progress > span,
+.update-progress:not([aria-valuenow])::after {
   display: block;
-  width: 40%;
   height: 100%;
   border-radius: inherit;
-  background: var(--ink);
+  background: var(--accent);
+}
+.update-progress:not([aria-valuenow])::after {
+  content: "";
+  width: 40%;
   animation: update-progress 1.1s ease-in-out infinite;
 }
 @keyframes update-progress {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(350%);
-  }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
 }
 @media (prefers-reduced-motion: reduce) {
   .update-progress::after {
     margin-inline: auto;
-    animation: none;
+    animation: none !important;
   }
 }
 

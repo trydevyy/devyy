@@ -1712,6 +1712,43 @@ test("workspace access requires consent and agent proposals are reviewed before 
   await expect(access).toHaveAttribute("data-value", "attached");
 });
 
+test("fast file-tree jumps refill the viewport without mounting the whole project", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const ipc = Reflect.get(window, "__TAURI_INTERNALS__");
+    const invoke = ipc.invoke;
+    const files = Array.from({ length: 1500 }, (_, index) => {
+      const name = `file-${String(index).padStart(4, "0")}.txt`;
+      return { name, path: name, directory: false };
+    });
+    ipc.invoke = (command: string, args: unknown) =>
+      command === "open_workspace" || command === "refresh_workspace"
+        ? Promise.resolve({ root: "/fixture", name: "fixture", files })
+        : invoke(command, args);
+  });
+  await page.keyboard.press(`${mod}+o`);
+  const tree = page.getByRole("navigation", { name: "Project files" });
+  await expect(tree).toHaveAttribute("data-virtual", "true");
+  await expect(
+    tree.getByRole("button", { name: "file-0000.txt", exact: true }),
+  ).toBeVisible();
+  await tree.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(
+    tree.getByRole("button", { name: "file-1499.txt", exact: true }),
+  ).toBeVisible();
+  expect(await tree.locator(".tree-row").count()).toBeLessThan(120);
+  await tree.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(
+    tree.getByRole("button", { name: "file-0000.txt", exact: true }),
+  ).toBeVisible();
+});
+
 test("workspace shell and first document appear while indexing and services remain pending", async ({
   page,
 }) => {

@@ -69,13 +69,22 @@ pub async fn build_info() -> Result<BuildInfo, String> {
     .map_err(|e| e.to_string())
 }
 #[derive(Deserialize)]
-struct Release {
-    tag_name: String,
+pub(crate) struct Release {
+    pub(crate) tag_name: String,
     html_url: String,
     #[serde(default)]
-    draft: bool,
+    pub(crate) draft: bool,
     #[serde(default)]
-    prerelease: bool,
+    pub(crate) prerelease: bool,
+    #[serde(default)]
+    pub(crate) assets: Vec<ReleaseAsset>,
+}
+#[derive(Deserialize)]
+pub(crate) struct ReleaseAsset {
+    pub(crate) name: String,
+    pub(crate) browser_download_url: String,
+    pub(crate) size: u64,
+    pub(crate) digest: Option<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,7 +97,7 @@ fn release_status(release: Release, current: &str) -> Result<UpdateStatus, Strin
     let latest = semver::Version::parse(release.tag_name.trim_start_matches('v'))
         .map_err(|_| "Release version is invalid")?;
     let current = semver::Version::parse(current).map_err(|_| "Build version is invalid")?;
-    let newer = !release.draft && !release.prerelease && latest > current;
+    let newer = !release.draft && !release.prerelease && latest.pre.is_empty() && latest > current;
     let url = release
         .html_url
         .starts_with("https://github.com/trydevyy/devyy/releases/")
@@ -101,6 +110,17 @@ fn release_status(release: Release, current: &str) -> Result<UpdateStatus, Strin
 }
 #[tauri::command]
 pub async fn check_updates() -> Result<UpdateStatus, String> {
+    match latest_release().await? {
+        Some(release) => release_status(release, env!("CARGO_PKG_VERSION")),
+        None => Ok(UpdateStatus {
+            status: "unpublished",
+            version: None,
+            url: None,
+        }),
+    }
+}
+
+pub(crate) async fn latest_release() -> Result<Option<Release>, String> {
     let client = reqwest::Client::builder()
         .user_agent(concat!("devyy/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(12))
@@ -112,11 +132,7 @@ pub async fn check_updates() -> Result<UpdateStatus, String> {
         .await
         .map_err(|_| "Could not reach the release server. Try again later.")?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(UpdateStatus {
-            status: "unpublished",
-            version: None,
-            url: None,
-        });
+        return Ok(None);
     }
     if !response.status().is_success() {
         return Err(format!(
@@ -138,7 +154,7 @@ pub async fn check_updates() -> Result<UpdateStatus, String> {
     }
     let release: Release =
         serde_json::from_slice(&data).map_err(|_| "Release response is invalid")?;
-    release_status(release, env!("CARGO_PKG_VERSION"))
+    Ok(Some(release))
 }
 #[cfg(test)]
 mod tests {
@@ -150,6 +166,7 @@ mod tests {
             html_url: "https://github.com/trydevyy/devyy/releases/tag/v1".into(),
             draft: false,
             prerelease,
+            assets: vec![],
         };
         assert_eq!(
             release_status(release("v0.2.0", false), "0.1.0")

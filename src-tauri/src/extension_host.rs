@@ -178,7 +178,7 @@ fn start(
         include_str!("../../public/extension-messages.js"),
     )
     .map_err(|e| e.to_string())?;
-    let mut command = crate::process::command(&node.to_string_lossy());
+    let mut command = crate::process::background_command(&node.to_string_lossy());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

@@ -203,6 +203,22 @@ pub fn command(binary: &str) -> Command {
     command
 }
 
+/// Keep indexing and extension activation from competing with WebKitGTK.
+pub(crate) fn background_command(binary: &str) -> Command {
+    #[cfg(target_os = "linux")]
+    if let Some(nice) = ["/usr/bin/nice", "/bin/nice"]
+        .iter()
+        .find(|path| Path::new(path).is_file())
+    {
+        if let Some(path) = executable(binary) {
+            let mut command = Command::new(nice);
+            command.args(["-n", "5"]).arg(path);
+            return command;
+        }
+    }
+    command(binary)
+}
+
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 32 * 1024;
 const LOG_LINE_LIMIT: usize = 4096;
 
