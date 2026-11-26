@@ -349,6 +349,7 @@ export default function RemoteExplorer({
           title="No SSH hosts"
           text="Add a host to browse its files and open a remote workspace over SSH."
           actionLabel="Add host"
+          actionIcon={<Plus size={13} />}
           action={() => startEdit()}
         />
       ) : !filtered.length ? (

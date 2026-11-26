@@ -31,9 +31,13 @@ test("interface text and scale persist independently of editor text", async ({
     .locator(".project-title")
     .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
   const preferences = await settings(page);
-  await preferences
-    .getByRole("slider", { name: "Interface text size", exact: true })
-    .fill("16");
+  for (let i = 0; i < 3; i++)
+    await preferences
+      .getByRole("button", {
+        name: "Increase interface text size",
+        exact: true,
+      })
+      .click();
   await expect
     .poll(() =>
       page
@@ -42,9 +46,10 @@ test("interface text and scale persist independently of editor text", async ({
     )
     .toBeGreaterThan(originalTitle);
   await expect(code).toHaveCSS("font-size", size);
-  await preferences
-    .getByRole("slider", { name: "Interface scale", exact: true })
-    .fill("125");
+  for (let i = 0; i < 5; i++)
+    await preferences
+      .getByRole("button", { name: "Increase interface scale", exact: true })
+      .click();
   await page.keyboard.press("Escape");
   await expect(preferences).toHaveCount(0);
   const bounds = await page.locator(".devyy").boundingBox();

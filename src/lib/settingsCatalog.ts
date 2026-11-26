@@ -152,6 +152,7 @@ export interface SettingControl {
     | "select"
     | "theme-store"
     | "font-size"
+    | "stepper"
     | "profile"
     | "accent";
   min?: number;
@@ -182,7 +183,7 @@ export const controls: SettingControl[] = [
     label: "Interface scale",
     description: "Resize the entire interface, including controls and panels.",
     keywords: "zoom size accessibility",
-    type: "range",
+    type: "stepper",
     min: 80,
     max: 150,
     step: 5,
@@ -196,7 +197,7 @@ export const controls: SettingControl[] = [
     description:
       "Resize labels, menus and chat text. Editor and terminal fonts have their own settings.",
     keywords: "font text size accessibility",
-    type: "range",
+    type: "stepper",
     min: 11,
     max: 18,
     step: 1,

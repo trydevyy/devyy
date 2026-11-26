@@ -152,7 +152,6 @@ export default function Preferences({
     scrollRef = useRef<HTMLDivElement>(null);
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean),
     searching = terms.length > 0;
-  const selected = categories.find((c) => c.id === category)!;
   const matches = controls.filter((c) => {
     if (!supportsWindowVibrancy && c.section === "Glass") return false;
     return searching
@@ -268,26 +267,40 @@ export default function Preferences({
           </output>
         </div>
       );
-    if (item.type === "font-size")
+    if (item.type === "font-size" || item.type === "stepper") {
+      const current = Number(value);
+      const min = item.min ?? 10;
+      const max = item.max ?? 28;
+      const step = item.step ?? 1;
+      const label = item.label.toLowerCase();
       return (
-        <div className="stepper" role="group" aria-label="Font size">
+        <div
+          className="stepper"
+          role="group"
+          aria-label={item.label}
+          aria-describedby={`setting-${key}-description`}
+        >
           <button
-            aria-label="Decrease font size"
-            disabled={settings.fontSize <= 10}
-            onClick={() => update("fontSize", settings.fontSize - 1)}
+            aria-label={`Decrease ${label}`}
+            disabled={current <= min}
+            onClick={() => update(key, Math.max(min, current - step))}
           >
             <Minus size={13} />
           </button>
-          <span aria-live="polite">{settings.fontSize}</span>
+          <span aria-live="polite">
+            {current}
+            {item.unit}
+          </span>
           <button
-            aria-label="Increase font size"
-            disabled={settings.fontSize >= 28}
-            onClick={() => update("fontSize", settings.fontSize + 1)}
+            aria-label={`Increase ${label}`}
+            disabled={current >= max}
+            onClick={() => update(key, Math.min(max, current + step))}
           >
             <Plus size={13} />
           </button>
         </div>
       );
+    }
     if (item.type === "select")
       return (
         <Select
@@ -472,24 +485,23 @@ export default function Preferences({
           searching ? "settings-results-title" : `settings-tab-${category}`
         }
       >
-        <header className="settings-heading">
-          <span className="settings-category-icon" aria-hidden="true">
-            {searching ? <Search size={20} /> : <selected.icon size={20} />}
-          </span>
-          <div>
-            <h3
-              id="settings-results-title"
-              className="settings-current-category"
-            >
-              {searching ? "Search results" : selected.label}
-            </h3>
+        {searching && (
+          <div className="settings-search-summary">
+            <h3 id="settings-results-title">Search results</h3>
             <p aria-live="polite">
-              {searching
-                ? `${matches.length + keys.length + matchingExtensionSettings(installed, query).length + (native && "hardware acceleration gpu graphics rendering".includes(query.trim().toLowerCase()) ? 1 : 0)} results for “${query.trim()}”`
-                : selected.description}
+              {matches.length +
+                keys.length +
+                matchingExtensionSettings(installed, query).length +
+                (native &&
+                "hardware acceleration gpu graphics rendering".includes(
+                  query.trim().toLowerCase(),
+                )
+                  ? 1
+                  : 0)}{" "}
+              results for “{query.trim()}”
             </p>
           </div>
-        </header>
+        )}
         <div className="settings-scroll" ref={scrollRef}>
           <AnimatePresence mode="wait" initial={false} custom={direction}>
             <SettingsPage

@@ -15517,17 +15517,16 @@ button[aria-busy="true"]::after {
   display: grid;
   grid-template-columns: clamp(164px, 23%, 216px) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  background: var(--paper);
+  background: var(--shell);
 }
 .settings-workbench .settings-chrome {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr minmax(0, 340px) 36px;
+  grid-template-columns: minmax(0, 1fr) min(44%, 390px) minmax(0, 1fr);
   align-items: center;
   gap: 16px;
   padding: 10px 18px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  background: var(--shell);
 }
 .settings-workbench .settings-identity {
   gap: 9px;
@@ -15545,7 +15544,19 @@ button[aria-busy="true"]::after {
 .settings-workbench .settings-search {
   margin: 0;
   min-width: 0;
-  padding: 7px 10px;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  background: var(--hover);
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 #ffffff03;
+}
+.settings-workbench .settings-search:hover {
+  background: color-mix(in srgb, var(--ink) 8%, var(--shell));
+}
+.settings-workbench .settings-search:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .settings-workbench .settings-close {
   justify-self: end;
@@ -15586,8 +15597,8 @@ button[aria-busy="true"]::after {
   flex-shrink: 0;
 }
 .settings-workbench .settings-tabs button.active {
-  background: var(--accent-soft);
-  border-color: var(--line);
+  background: color-mix(in srgb, var(--hover) 72%, var(--shell));
+  border-color: transparent;
   color: var(--ink);
 }
 .settings-workbench .settings-brand {
@@ -15595,33 +15606,30 @@ button[aria-busy="true"]::after {
 }
 .settings-workbench .settings-content {
   min-width: 0;
-}
-.settings-workbench .settings-heading {
-  height: auto;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 20px clamp(14px, 3vw, 34px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 12px 0 0;
   background: var(--paper);
 }
-.settings-category-icon {
-  display: grid;
-  flex: 0 0 40px;
-  height: 40px;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--accent);
+.settings-workbench .settings-navigation {
+  border-right: 0;
 }
-.settings-workbench .settings-heading .settings-current-category {
-  font-size: calc(20px * var(--ui-text-scale, 1));
-  font-weight: 600;
-  letter-spacing: -0.35px;
+.settings-search-summary {
+  padding: 14px clamp(14px, 3vw, 34px) 0;
 }
-.settings-workbench .settings-heading p {
-  margin: 3px 0 0;
+.settings-search-summary h3,
+.settings-search-summary p {
+  margin: 0;
+}
+.settings-search-summary h3 {
+  font-size: calc(13px * var(--ui-text-scale, 1));
+}
+.settings-search-summary p {
+  margin-top: 4px;
   color: var(--secondary);
-  font-size: calc(12px * var(--ui-text-scale, 1));
+  font-size: calc(11px * var(--ui-text-scale, 1));
   overflow-wrap: anywhere;
 }
 .settings-workbench .settings-scroll {
@@ -15642,7 +15650,7 @@ button[aria-busy="true"]::after {
     grid-template-columns: minmax(105px, 29%) minmax(0, 1fr);
   }
   .settings-workbench .settings-chrome {
-    grid-template-columns: auto minmax(0, 1fr) 28px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 50%) minmax(0, 1fr);
     gap: 8px;
     padding-inline: 10px;
   }
@@ -15656,8 +15664,5 @@ button[aria-busy="true"]::after {
   }
   .settings-workbench .settings-tabs button svg {
     width: 13px;
-  }
-  .settings-category-icon {
-    display: none;
   }
 }

@@ -22,6 +22,7 @@ export interface EmptyProps {
   text: string;
   action: () => void;
   actionLabel?: string;
+  actionIcon?: React.ReactNode;
 }
 
 export default function Empty({
@@ -30,6 +31,7 @@ export default function Empty({
   text,
   action,
   actionLabel = "Open a folder",
+  actionIcon = <ArrowUpRight size={13} />,
 }: EmptyProps) {
   return (
     <div className="sidebar-empty">
@@ -38,7 +40,7 @@ export default function Empty({
       <p>{text}</p>
       <button className="secondary" onClick={action}>
         {actionLabel}
-        <ArrowUpRight size={13} />
+        {actionIcon}
       </button>
     </div>
   );
