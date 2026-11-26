@@ -2167,6 +2167,19 @@ a {
   color: var(--secondary);
 }
 
+.sidebar-empty.panel-empty-state {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  justify-content: safe center;
+  padding: 20px 16px;
+}
+
+.panel-empty-state p {
+  max-width: 44ch;
+}
+
 .sidebar-empty > svg {
   margin-bottom: 12px;
   color: var(--faint);
@@ -14346,6 +14359,11 @@ dialog.provider-add-dialog {
 
 .ports-workbench {
   padding: 9px 12px 12px;
+}
+.ports-workbench .panel-empty-state {
+  height: auto;
+  min-height: 0;
+  flex: 1;
 }
 .ports-workbench-toolbar {
   justify-content: flex-end;

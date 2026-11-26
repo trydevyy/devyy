@@ -24,7 +24,8 @@ import {
 } from "react";
 import { Terminal as XTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ArrowUpRight, TerminalSquare, RotateCcw } from "lucide-react";
+import Empty from "./Empty";
+import { TerminalSquare, RotateCcw } from "lucide-react";
 import { invoke, listen, native } from "../lib/native";
 import "@xterm/xterm/css/xterm.css";
 
@@ -355,20 +356,17 @@ export default forwardRef<
   return (
     <div className="terminal-content">
       {!preview && (root === "demo" || !native) ? (
-        <div className="terminal-welcome">
-          <TerminalSquare size={23} />
-          <div>
-            <strong>No terminal session</strong>
-            <p>
-              {native
-                ? "Open a project folder to start an integrated shell."
-                : "Open a local project in the desktop app to use the integrated terminal."}
-            </p>
-          </div>
-          <button onClick={onOpen}>
-            Open a folder <ArrowUpRight size={14} />
-          </button>
-        </div>
+        <Empty
+          panel
+          icon={<TerminalSquare size={28} />}
+          title="No folder opened"
+          text={
+            native
+              ? "Open a project folder to start an integrated shell."
+              : "Open a local project in the desktop app to use the integrated terminal."
+          }
+          action={onOpen}
+        />
       ) : (
         <>
           <div className="xterm-host" ref={host} />

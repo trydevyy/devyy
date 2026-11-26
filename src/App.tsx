@@ -6271,7 +6271,12 @@ export default function App() {
               >
                 <Suspense
                   fallback={
-                    <div className="panel-empty">Preparing your shell…</div>
+                    <Empty
+                      panel
+                      icon={<TerminalSquare size={28} />}
+                      title="Preparing terminal"
+                      text="Loading the integrated terminal."
+                    />
                   }
                 >
                   <TerminalGroup
@@ -6385,19 +6390,16 @@ export default function App() {
                     />
                   )
                 ) : (
-                  <div className="panel-empty">
-                    <span className="success-circle">
-                      <Check size={16} />
-                    </span>
-                    <div>
-                      <strong>No problems detected</strong>
-                      <p>
-                        {Object.values(lspStatus).includes("Connected")
-                          ? "No diagnostics reported by connected language servers."
-                          : "No diagnostics reported. Open a supported file with its language server installed to check your code."}
-                      </p>
-                    </div>
-                  </div>
+                  <Empty
+                    panel
+                    icon={<CircleAlert size={28} />}
+                    title="No problems detected"
+                    text={
+                      Object.values(lspStatus).includes("Connected")
+                        ? "Connected language servers haven’t reported any problems."
+                        : "Open a supported file with a language server installed to check your code."
+                    }
+                  />
                 )}
               </div>
               <div
@@ -6416,9 +6418,31 @@ export default function App() {
                     );
                   }}
                 >
-                  <pre className="output-log">
-                    {formattedOutputText || "Output is clear."}
-                  </pre>
+                  {filteredOutputEntries.length > 0 ? (
+                    <pre className="output-log">{formattedOutputText}</pre>
+                  ) : (
+                    <Empty
+                      panel
+                      icon={<Code2 size={28} />}
+                      title={
+                        outputFilter.trim()
+                          ? "No matching output"
+                          : "Output is clear."
+                      }
+                      text={
+                        outputFilter.trim()
+                          ? "Try a different filter to find output lines."
+                          : "Logs from tools and extensions appear here."
+                      }
+                      action={
+                        outputFilter.trim()
+                          ? () => setOutputFilter("")
+                          : undefined
+                      }
+                      actionLabel="Clear filter"
+                      actionIcon={<X size={13} />}
+                    />
+                  )}
                 </div>
               </div>
               <div
@@ -6430,9 +6454,12 @@ export default function App() {
                 {(portsVisited || (panel && panelTab === "ports")) && (
                   <Suspense
                     fallback={
-                      <p className="sidebar-empty" role="status">
-                        Loading ports…
-                      </p>
+                      <Empty
+                        panel
+                        icon={<Radio size={28} />}
+                        title="Loading ports…"
+                        text="Loading the forwarded ports panel."
+                      />
                     }
                   >
                     <PortsPanel

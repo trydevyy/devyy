@@ -22,7 +22,14 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Plus, SplitSquareHorizontal, X } from "lucide-react";
+import Empty from "./Empty";
+import {
+  ChevronDown,
+  Plus,
+  SplitSquareHorizontal,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import PseudoTerminal from "./PseudoTerminal";
 import { registerAIContext, writeAIContextDrag } from "../lib/aiContext";
 import Terminal, { type TerminalHandle } from "./Terminal";
@@ -742,12 +749,27 @@ export default forwardRef<
           </div>
         )}
         {!sessions.length && (
-          <div className="terminal-empty">
-            <span>No active terminals</span>
-            <button onClick={() => create()}>
-              <Plus size={14} /> New terminal
-            </button>
-          </div>
+          <Empty
+            panel
+            icon={<TerminalSquare size={28} />}
+            title={
+              root === "demo" && !preview
+                ? "No folder opened"
+                : "No active terminals"
+            }
+            text={
+              root === "demo" && !preview
+                ? "Open a project folder to start an integrated shell."
+                : "Start a shell to run commands in this workspace."
+            }
+            action={root === "demo" && !preview ? onOpen : () => create()}
+            actionLabel={
+              root === "demo" && !preview ? "Open a folder" : "New terminal"
+            }
+            actionIcon={
+              root === "demo" && !preview ? undefined : <Plus size={13} />
+            }
+          />
         )}
       </div>
     </div>

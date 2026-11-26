@@ -32,6 +32,12 @@ test("desktop panels use compact controls and report operations in toasts", asyn
 
   await page.screenshot({ path: testInfo.outputPath("ssh.png") });
   await page.getByRole("tab", { name: "Ports" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No forwarded ports" }),
+  ).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Filter ports" })).toHaveCount(
+    0,
+  );
   await page
     .getByRole("button", { name: "Forward a port", exact: true })
     .click();

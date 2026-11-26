@@ -20,7 +20,8 @@ export interface EmptyProps {
   icon: React.ReactNode;
   title: string;
   text: string;
-  action: () => void;
+  action?: () => void;
+  panel?: boolean;
   actionLabel?: string;
   actionIcon?: React.ReactNode;
 }
@@ -30,18 +31,23 @@ export default function Empty({
   title,
   text,
   action,
+  panel = false,
   actionLabel = "Open a folder",
   actionIcon = <ArrowUpRight size={13} />,
 }: EmptyProps) {
   return (
-    <div className="sidebar-empty">
+    <div
+      className={panel ? "sidebar-empty panel-empty-state" : "sidebar-empty"}
+    >
       {icon}
       <h3>{title}</h3>
       <p>{text}</p>
-      <button className="secondary" onClick={action}>
-        {actionLabel}
-        {actionIcon}
-      </button>
+      {action && (
+        <button className="secondary" onClick={action}>
+          {actionLabel}
+          {actionIcon}
+        </button>
+      )}
     </div>
   );
 }

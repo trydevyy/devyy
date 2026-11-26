@@ -725,7 +725,9 @@ test("output panel supports service filtering, extension channels, text filterin
   await expect(logPre).not.toContainText("Connected to lldb target process");
 
   await page.getByRole("button", { name: "Clear Prettier output" }).click();
-  await expect(logPre).toContainText("Output is clear.");
+  await expect(
+    page.getByRole("heading", { name: "Output is clear." }),
+  ).toBeVisible();
 
   await chooseOption(select, "all");
   await expect(logPre).toContainText("Connected to lldb target process");

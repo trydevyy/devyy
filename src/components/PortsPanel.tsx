@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import Skeleton from "./ui/Skeleton";
+import Empty from "./Empty";
 import { writeClipboardText } from "../lib/clipboard";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -285,8 +285,8 @@ export default function PortsPanel({
       className="ports-panel ports-workbench"
       aria-label="Forwarded ports"
     >
-      <div className="ports-workbench-toolbar">
-        {tunnels.length > 0 && (
+      {tunnels.length > 0 && (
+        <div className="ports-workbench-toolbar">
           <label className="ssh-filter">
             <Search size={14} />
             <input
@@ -296,51 +296,57 @@ export default function PortsPanel({
               onChange={(event) => setFilter(event.target.value)}
             />
           </label>
-        )}
-        {(!native || signedIn) && (
-          <button className="setting-action" onClick={() => setShowAdd(true)}>
-            <Plus size={13} /> Forward a port
-          </button>
-        )}
-        <button
-          className="icon-button"
-          title="Refresh ports"
-          aria-label="Refresh ports"
-          aria-busy={loading}
-          disabled={loading || !signedIn}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={13} />
-        </button>
-      </div>
-      {!tunnels.length && (
-        <div className="ports-workbench-empty">
-          <Radio size={19} />
-          <div>
-            <strong>
-              {loading ? (
-                <Skeleton variant="inline" label="Loading ports" />
-              ) : native && !signedIn ? (
-                "Sign in to forward a port"
-              ) : (
-                "No forwarded ports"
-              )}
-            </strong>
-            <p>
-              {native && !signedIn
-                ? "Use your Devyy account to create and manage forwarded addresses."
-                : "Share a local HTTP or HTTPS service from this panel."}
-            </p>
-          </div>
-          {native && !signedIn && (
-            <button className="setting-action" onClick={onOpenAccount}>
-              Open Account &amp; sync
+          {(!native || signedIn) && (
+            <button className="setting-action" onClick={() => setShowAdd(true)}>
+              <Plus size={13} /> Forward a port
             </button>
           )}
+          <button
+            className="icon-button"
+            title="Refresh ports"
+            aria-label="Refresh ports"
+            aria-busy={loading}
+            disabled={loading || !signedIn}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={13} />
+          </button>
         </div>
       )}
-      {tunnels.length > 0 && !filtered.length && (
-        <p className="ports-workbench-empty">No matching ports.</p>
+      {!tunnels.length ? (
+        <Empty
+          panel
+          icon={<Radio size={28} />}
+          title={loading ? "Loading ports…" : "No forwarded ports"}
+          text={
+            native && !signedIn
+              ? "Sign in to your Devyy account to forward a local port."
+              : "Forward a local HTTP or HTTPS service to share it from Devyy."
+          }
+          action={
+            loading
+              ? undefined
+              : native && !signedIn
+                ? onOpenAccount
+                : () => setShowAdd(true)
+          }
+          actionLabel={
+            native && !signedIn ? "Open Account & sync" : "Forward a port"
+          }
+          actionIcon={native && !signedIn ? undefined : <Plus size={13} />}
+        />
+      ) : (
+        !filtered.length && (
+          <Empty
+            panel
+            icon={<Search size={28} />}
+            title="No matching ports"
+            text="Try a different port number, label, or address."
+            action={() => setFilter("")}
+            actionLabel="Clear filter"
+            actionIcon={<X size={13} />}
+          />
+        )
       )}
       {filtered.length > 0 && (
         <ul className="ports-workbench-list">

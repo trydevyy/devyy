@@ -23,7 +23,11 @@ test("edit, save, switch tabs, and restore playground changes", async ({
   await page.goto("/?playground=1");
   await expect(page.getByRole("tab", { name: "main.rs" })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
-  await expect(page.locator(".terminal-welcome strong")).toBeVisible();
+  await expect(
+    page
+      .locator("#panel-terminal")
+      .getByRole("heading", { name: "No folder opened" }),
+  ).toBeVisible();
   await expect
     .poll(() => page.locator(".cm-line span").count())
     .toBeGreaterThan(10);
@@ -187,7 +191,11 @@ test("vibrancy and motion preferences persist, and the workspace fits compact wi
     .getByRole("button", { name: "Apply", exact: true })
     .click();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".terminal-welcome strong")).toBeVisible();
+  await expect(
+    page
+      .locator("#panel-terminal")
+      .getByRole("heading", { name: "No folder opened" }),
+  ).toBeVisible();
   await expect
     .poll(() => page.locator(".cm-line span").count())
     .toBeGreaterThan(10);
