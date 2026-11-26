@@ -149,6 +149,7 @@ import ProjectBadge from "./components/ProjectBadge";
 import Palette, { type PaletteItem } from "./components/Palette";
 import {
   checkUpdates,
+  getBuildInfo,
   type UpdateProgress,
   type UpdateStatus,
 } from "./lib/buildInfo";
@@ -589,6 +590,18 @@ export default function App() {
     ),
     [workspaceScan, setWorkspaceScan] = useState(false),
     [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [appVersion, setAppVersion] = useState<string>();
+  useEffect(() => {
+    let mounted = true;
+    void getBuildInfo()
+      .then((info) => {
+        if (mounted && info?.version) setAppVersion(info.version);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const [update, setUpdate] = useState<{
     version: string;
     progress: UpdateProgress;
@@ -5652,7 +5665,7 @@ export default function App() {
             <span>
               <Asterisk size={14} /> devyy
             </span>
-            <small>v0.1.0</small>
+            {appVersion && <small>v{appVersion}</small>}
           </div>
         </aside>
         <main className="main-workspace">
