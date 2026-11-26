@@ -129,6 +129,31 @@ test("pane resizing follows drag, persists, clamps and supports keyboard reset",
     .click();
   await expect(page.locator(".editors")).toBeVisible();
 });
+test("developer panel empty states switch to a compact row at short heights", async ({
+  page,
+}) => {
+  await page.goto("/?playground=1");
+  const terminal = page.locator("#panel-terminal .panel-empty-state");
+  await expect(terminal).toHaveCSS("flex-direction", "column");
+
+  const resize = page.getByRole("separator", { name: "Resize developer panel" });
+  for (let step = 0; step < 4; step++) await resize.press("Shift+ArrowDown");
+  await expect(resize).toHaveAttribute("aria-valuenow", "120");
+  await expect(terminal).toHaveCSS("flex-direction", "row");
+  await expect(
+    terminal.getByRole("button", { name: "Open a folder" }),
+  ).toBeInViewport();
+
+  await page.getByRole("tab", { name: "ports", exact: true }).click();
+  const ports = page.locator("#panel-ports .panel-empty-state");
+  await expect(ports).toHaveCSS("flex-direction", "row");
+  await expect(
+    ports.getByRole("button", { name: "Forward a port" }),
+  ).toBeInViewport();
+  await page.getByRole("button", { name: "Maximize panel" }).click();
+  await expect(ports).toHaveCSS("flex-direction", "column");
+});
+
 test("independent transparency persists and solid mode overrides both surfaces", async ({
   page,
 }) => {
@@ -244,7 +269,10 @@ test("custom context menus handle keyboard navigation, tab actions and viewport 
   await page
     .getByRole("button", { name: "main.rs", exact: true })
     .click({ button: "right" });
-  await expect(page.getByRole("menu")).toBeVisible();
+  const menu = page.getByRole("menu", { name: "Actions" });
+  await expect(menu).toBeVisible();
+  await expect(menu).toHaveCSS("animation-name", "none");
+  await expect(menu).toHaveCSS("transform", "none");
   await page.keyboard.press("End");
   await expect(
     page.getByRole("menuitem", { name: "Delete file", exact: true }),

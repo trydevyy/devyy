@@ -13,9 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { motion, useIsPresent } from "motion/react";
-import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
-import { nativeLinux } from "../lib/native";
 import {
   useEffect,
   useLayoutEffect,
@@ -38,8 +35,6 @@ export default function AIPopover({
   children: ReactNode;
   width?: number;
 }) {
-  const { transition, instant } = useSurfaceMotion();
-  const present = useIsPresent();
   const ref = useRef<HTMLDivElement>(null),
     [position, setPosition] = useState<{ left: number; top: number } | null>(
       null,
@@ -74,7 +69,7 @@ export default function AIPopover({
     };
   }, [anchor, width]);
   useEffect(() => {
-    if (!present || !positioned) return;
+    if (!positioned) return;
     const previous = document.activeElement as HTMLElement | null;
     (
       ref.current?.querySelector<HTMLElement>("input") ??
@@ -117,20 +112,14 @@ export default function AIPopover({
       document.removeEventListener("keydown", key, true);
       if (previous?.isConnected) previous.focus();
     };
-  }, [anchor, present, positioned]);
+  }, [anchor, positioned]);
   return createPortal(
-    <motion.div
-      layout={positioned && !nativeLinux}
-      onUpdate={modalFrameUpdate}
-      transition={transition}
-      initial={{ opacity: 0, scale: instant ? 1 : 0.97, y: instant ? 0 : 5 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: instant ? 1 : 0.98, y: instant ? 0 : 4 }}
+    <div
       ref={ref}
       role="dialog"
       aria-label={label}
       aria-modal="true"
-      data-escape-scope={present ? "active" : undefined}
+      data-escape-scope="active"
       className="ai-popover"
       style={{
         ...position,
@@ -139,7 +128,7 @@ export default function AIPopover({
       }}
     >
       {children}
-    </motion.div>,
+    </div>,
     document.body,
   );
 }

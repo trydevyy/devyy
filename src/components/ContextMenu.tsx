@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { AnimatePresence, motion } from "motion/react";
-import { useSurfaceMotion } from "../lib/motion";
 import { restoreFocus } from "../lib/focus";
 import {
   createContext,
@@ -91,7 +89,6 @@ const MenuContext = createContext<(e: MenuEvent, items: MenuItem[]) => void>(
 );
 export const useContextMenu = () => useContext(MenuContext);
 export function ContextMenuProvider({ children }: { children: ReactNode }) {
-  const { transition, instant } = useSurfaceMotion();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const ref = useRef<HTMLDivElement>(null),
     restore = useRef<HTMLElement | null>(null);
@@ -129,10 +126,6 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     const el = ref.current,
       rect = el.getBoundingClientRect();
     el.style.left = `${Math.max(8, Math.min(menu.x, innerWidth - rect.width - 8))}px`;
-    el.style.setProperty(
-      "--menu-origin",
-      `${menu.x > innerWidth - rect.width - 8 ? "right" : "left"} ${menu.y > innerHeight - rect.height - 8 ? "bottom" : "top"}`,
-    );
     el.style.top = `${Math.max(8, Math.min(menu.y, innerHeight - rect.height - 8))}px`;
     el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const dismiss = () => setMenu(null);
@@ -161,66 +154,56 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     <MenuContext.Provider value={open}>
       {children}
       {createPortal(
-        <AnimatePresence>
-          {menu && (
-            <motion.div
-              key="context-menu"
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: instant ? 0 : 0.12 }}
-              className="context-dismiss"
-              onPointerDown={() => close()}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                close();
+        menu && (
+          <div
+            className="context-dismiss"
+            onPointerDown={() => close()}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              close();
+            }}
+          >
+            <div
+              ref={ref}
+              className="context-menu"
+              role="menu"
+              aria-label="Actions"
+              style={{ left: menu.x, top: menu.y }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+              onKeyDown={(e) => {
+                const buttons = Array.from(
+                  ref.current?.querySelectorAll<HTMLButtonElement>(
+                    ":scope > .context-menu-entry > button:not(:disabled)",
+                  ) ?? [],
+                );
+                const i = buttons.indexOf(
+                  document.activeElement as HTMLButtonElement,
+                );
+                if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                  e.preventDefault();
+                  buttons[
+                    e.key === "Home"
+                      ? 0
+                      : e.key === "End"
+                        ? buttons.length - 1
+                        : (i +
+                            (e.key === "ArrowDown" ? 1 : -1) +
+                            buttons.length) %
+                          buttons.length
+                  ]?.focus();
+                }
+                if (e.key === "Escape" || e.key === "Tab") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  close();
+                }
               }}
             >
-              <motion.div
-                layout
-                transition={transition}
-                initial={{ opacity: 0, scale: instant ? 1 : 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                ref={ref}
-                className="context-menu"
-                role="menu"
-                aria-label="Actions"
-                style={{ left: menu.x, top: menu.y }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onContextMenu={(e) => e.preventDefault()}
-                onKeyDown={(e) => {
-                  const buttons = Array.from(
-                    ref.current?.querySelectorAll<HTMLButtonElement>(
-                      ":scope > .context-menu-entry > button:not(:disabled)",
-                    ) ?? [],
-                  );
-                  const i = buttons.indexOf(
-                    document.activeElement as HTMLButtonElement,
-                  );
-                  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-                    e.preventDefault();
-                    buttons[
-                      e.key === "Home"
-                        ? 0
-                        : e.key === "End"
-                          ? buttons.length - 1
-                          : (i +
-                              (e.key === "ArrowDown" ? 1 : -1) +
-                              buttons.length) %
-                            buttons.length
-                    ]?.focus();
-                  }
-                  if (e.key === "Escape" || e.key === "Tab") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    close();
-                  }
-                }}
-              >
-                <MenuEntries items={menu.items} close={close} />
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
+              <MenuEntries items={menu.items} close={close} />
+            </div>
+          </div>
+        ),
         document.body,
       )}
     </MenuContext.Provider>
@@ -234,7 +217,6 @@ function MenuEntries({
   items: MenuItem[];
   close: () => void;
 }) {
-  const { transition, instant } = useSurfaceMotion();
   const [expanded, setExpanded] = useState<number | null>(null);
   const [left, setLeft] = useState(false);
   return (
@@ -313,11 +295,7 @@ function MenuEntries({
               {!!submenu && <ChevronRight size={12} />}
             </button>
             {!!submenu && expanded === i && (
-              <motion.div
-                layout
-                transition={transition}
-                initial={{ opacity: 0, x: instant ? 0 : left ? 5 : -5 }}
-                animate={{ opacity: 1, x: 0 }}
+              <div
                 className={`context-menu context-submenu ${left ? "opens-left" : ""}`}
                 role="menu"
                 aria-label={item.label}
@@ -355,7 +333,7 @@ function MenuEntries({
                 }}
               >
                 <MenuEntries items={item.children!} close={close} />
-              </motion.div>
+              </div>
             )}
           </div>
         );

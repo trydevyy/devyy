@@ -14,7 +14,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ErrorToast from "./ui/ErrorToast";
-import { AnimatePresence } from "motion/react";
 import { useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -125,103 +124,97 @@ export default function AIContextPicker({
       >
         <Paperclip size={15} />
       </button>
-      <AnimatePresence>
-        {open && (
-          <AIPopover
-            anchor={anchor}
-            label="Attach context"
-            width={500}
-            onClose={() => setOpen(false)}
-          >
-            <div className="ai-context-picker">
-              <div className="ai-model-search">
-                <Search size={14} />
-                <input
-                  aria-label="Search context"
-                  placeholder="Search files and context…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <button
-                  aria-label="Close context picker"
-                  onClick={() => setOpen(false)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <div
-                className="ai-context-filters"
-                role="tablist"
-                aria-label="Context types"
+      {open && (
+        <AIPopover
+          anchor={anchor}
+          label="Attach context"
+          width={500}
+          onClose={() => setOpen(false)}
+        >
+          <div className="ai-context-picker">
+            <div className="ai-model-search">
+              <Search size={14} />
+              <input
+                aria-label="Search context"
+                placeholder="Search files and context…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <button
+                aria-label="Close context picker"
+                onClick={() => setOpen(false)}
               >
-                {["all", "files", "terminals", "problems"].map((kind) => (
-                  <button
-                    role="tab"
-                    key={kind}
-                    aria-selected={filter === kind}
-                    onClick={() => setFilter(kind)}
-                  >
-                    {kind}
-                  </button>
-                ))}
-              </div>
-              <div className="ai-context-list">
-                {items.slice(0, 160).map((item) => {
-                  const id = `${item.kind}:${item.id}`,
-                    checked = selected.includes(id);
-                  return (
-                    <button
-                      key={id}
-                      role="checkbox"
-                      aria-checked={checked}
-                      onClick={() =>
-                        setSelected((old) =>
-                          checked ? old.filter((k) => k !== id) : [...old, id],
-                        )
-                      }
-                    >
-                      <AttachmentIcon
-                        kind={item.kind}
-                        path={item.id}
-                        size={18}
-                      />
-                      <span className="ai-context-label">
-                        <strong>{item.title}</strong>
-                        {item.description && <small>{item.description}</small>}
-                      </span>
-                      <i>{checked && <Check size={11} />}</i>
-                    </button>
-                  );
-                })}
-                {!items.length && (
-                  <p className="ai-picker-status">No matching context</p>
-                )}
-              </div>
-              {error && <ErrorToast message={error} />}
-              <footer>
-                <button
-                  className="ai-text-action"
-                  onClick={() => {
-                    setOpen(false);
-                    onFiles();
-                  }}
-                >
-                  <Upload size={13} /> From device
-                </button>
-                <button
-                  aria-busy={busy}
-                  className="setting-action"
-                  disabled={!selected.length || busy}
-                  onClick={() => void attach()}
-                >
-                  <Paperclip size={13} /> Attach
-                  {selected.length ? ` (${selected.length})` : ""}
-                </button>
-              </footer>
+                <X size={14} />
+              </button>
             </div>
-          </AIPopover>
-        )}
-      </AnimatePresence>
+            <div
+              className="ai-context-filters"
+              role="tablist"
+              aria-label="Context types"
+            >
+              {["all", "files", "terminals", "problems"].map((kind) => (
+                <button
+                  role="tab"
+                  key={kind}
+                  aria-selected={filter === kind}
+                  onClick={() => setFilter(kind)}
+                >
+                  {kind}
+                </button>
+              ))}
+            </div>
+            <div className="ai-context-list">
+              {items.slice(0, 160).map((item) => {
+                const id = `${item.kind}:${item.id}`,
+                  checked = selected.includes(id);
+                return (
+                  <button
+                    key={id}
+                    role="checkbox"
+                    aria-checked={checked}
+                    onClick={() =>
+                      setSelected((old) =>
+                        checked ? old.filter((k) => k !== id) : [...old, id],
+                      )
+                    }
+                  >
+                    <AttachmentIcon kind={item.kind} path={item.id} size={18} />
+                    <span className="ai-context-label">
+                      <strong>{item.title}</strong>
+                      {item.description && <small>{item.description}</small>}
+                    </span>
+                    <i>{checked && <Check size={11} />}</i>
+                  </button>
+                );
+              })}
+              {!items.length && (
+                <p className="ai-picker-status">No matching context</p>
+              )}
+            </div>
+            {error && <ErrorToast message={error} />}
+            <footer>
+              <button
+                className="ai-text-action"
+                onClick={() => {
+                  setOpen(false);
+                  onFiles();
+                }}
+              >
+                <Upload size={13} /> From device
+              </button>
+              <button
+                aria-busy={busy}
+                className="setting-action"
+                disabled={!selected.length || busy}
+                onClick={() => void attach()}
+              >
+                <Paperclip size={13} /> Attach
+                {selected.length ? ` (${selected.length})` : ""}
+              </button>
+            </footer>
+          </div>
+        </AIPopover>
+      )}
     </>
   );
 }

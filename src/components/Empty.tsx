@@ -35,13 +35,18 @@ export default function Empty({
   actionLabel = "Open a folder",
   actionIcon = <ArrowUpRight size={13} />,
 }: EmptyProps) {
-  return (
+  const copy = (
+    <>
+      <h3>{title}</h3>
+      <p>{text}</p>
+    </>
+  );
+  const content = (
     <div
       className={panel ? "sidebar-empty panel-empty-state" : "sidebar-empty"}
     >
       {icon}
-      <h3>{title}</h3>
-      <p>{text}</p>
+      {panel ? <div className="panel-empty-copy">{copy}</div> : copy}
       {action && (
         <button className="secondary" onClick={action}>
           {actionLabel}
@@ -49,5 +54,10 @@ export default function Empty({
         </button>
       )}
     </div>
+  );
+  return panel ? (
+    <div className="panel-empty-container">{content}</div>
+  ) : (
+    content
   );
 }
