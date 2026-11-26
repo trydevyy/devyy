@@ -18,6 +18,10 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   ).toHaveCount(0);
   await ssh.getByRole("button", { name: "Add host", exact: true }).click();
   const server = page.getByRole("dialog", { name: "Add SSH server" });
+  await expect(server).toHaveClass(/devyy-modal/);
+  const modalRadius = await server.evaluate(
+    (dialog) => getComputedStyle(dialog).borderRadius,
+  );
   await server.getByLabel("Host", { exact: true }).fill("test.example.com");
   await server.getByLabel("Username").fill("dev");
   await server.getByLabel("Display name").fill("Dev server");
@@ -42,6 +46,8 @@ test("desktop panels use compact controls and report operations in toasts", asyn
     .getByRole("button", { name: "Forward a port", exact: true })
     .click();
   const port = page.getByRole("dialog", { name: "Forward a port" });
+  await expect(port).toHaveClass(/devyy-modal/);
+  await expect(port).toHaveCSS("border-radius", modalRadius);
   await port.getByLabel("Local port").fill("3000");
   const box = await port.boundingBox();
   expect(box!.x + box!.width / 2).toBeCloseTo(

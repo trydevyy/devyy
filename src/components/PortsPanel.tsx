@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { NativeModal, ModalHeader, ModalActions } from "./ui/ModalSurface";
 import Empty from "./Empty";
 import { writeClipboardText } from "../lib/clipboard";
 import { createPortal } from "react-dom";
@@ -433,21 +434,24 @@ export default function PortsPanel({
       )}
       {showAdd &&
         createPortal(
-          <dialog
-            className="devyy-confirm port-dialog"
+          <NativeModal
+            className="devyy-modal-form"
             aria-labelledby="port-dialog-title"
-            ref={(node) => {
-              if (node && !node.open) node.showModal();
-            }}
             onCancel={(event) => {
               event.preventDefault();
               if (!busy) setShowAdd(false);
             }}
           >
             <form onSubmit={handleAddPort}>
-              <h2 id="port-dialog-title">Forward a port</h2>
-              <p>Enter the port your local service is listening on.</p>
-              <div className="port-dialog-fields">
+              <ModalHeader
+                id="port-dialog-title"
+                title="Forward a port"
+                description="Enter the port your local service is listening on."
+                icon={<Radio size={18} />}
+                busy={!!busy}
+                onClose={() => setShowAdd(false)}
+              />
+              <div className="devyy-modal-fields">
                 <label>
                   Local port
                   <input
@@ -507,7 +511,7 @@ export default function PortsPanel({
                   ? "Only your Devyy account can open this address."
                   : "Anyone with the address can open this service."}
               </p>
-              <div className="ports-inline-actions">
+              <ModalActions>
                 <button
                   type="button"
                   className="button"
@@ -524,10 +528,10 @@ export default function PortsPanel({
                 >
                   Forward port
                 </button>
-              </div>
+              </ModalActions>
             </form>
             <DialogToastHost id="port-form" />
-          </dialog>,
+          </NativeModal>,
           document.body,
         )}
     </section>

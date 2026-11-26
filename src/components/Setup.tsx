@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useState } from "react";
 import {
@@ -59,7 +60,8 @@ export default function Setup({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   return (
     <ModalBackdrop className="setup-backdrop">
-      <section
+      <ModalSurface
+        as="section"
         className={`setup-dialog ${current === "AI providers" ? "setup-providers" : ""}`}
         role="dialog"
         aria-modal="true"
@@ -351,7 +353,7 @@ export default function Setup({
             </button>
           </footer>
         </div>
-      </section>
+      </ModalSurface>
     </ModalBackdrop>
   );
 }

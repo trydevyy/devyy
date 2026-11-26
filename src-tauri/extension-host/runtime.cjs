@@ -2952,6 +2952,26 @@ module.exports = function installRuntime(api, host) {
         });
         return null;
       },
+      editorViewport({ editors: updates = [] }) {
+        for (const { uri, visibleRanges } of updates) {
+          const editor = editorModels.get(uri);
+          if (!editor || !editors.includes(editor)) continue;
+          const next = visibleRanges.map(range);
+          if (
+            next.length === editor.visibleRanges.length &&
+            next.every((value, index) =>
+              value.isEqual(editor.visibleRanges[index]),
+            )
+          )
+            continue;
+          editor.visibleRanges = next;
+          event("window.onDidChangeTextEditorVisibleRanges").fire({
+            textEditor: editor,
+            visibleRanges: editor.visibleRanges,
+          });
+        }
+        return null;
+      },
       async documentSaved({ uri, text }) {
         const doc = documents.get(uri);
         if (doc)

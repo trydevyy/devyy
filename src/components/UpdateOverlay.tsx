@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useRef } from "react";
+import { NativeModal } from "./ui/ModalSurface";
 import { Asterisk } from "lucide-react";
 import type { UpdateProgress } from "../lib/buildInfo";
 
@@ -36,20 +36,12 @@ export default function UpdateOverlay({
   error?: string;
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
   const percent =
     progress.total && progress.stage === "downloading"
       ? Math.min(100, Math.floor((progress.downloaded / progress.total) * 100))
       : undefined;
   return (
-    <dialog
-      ref={ref}
+    <NativeModal
       className="update-overlay"
       aria-labelledby="update-heading"
       onCancel={(event) => {
@@ -84,6 +76,6 @@ export default function UpdateOverlay({
           {percent !== undefined && <small>{percent}%</small>}
         </>
       )}
-    </dialog>
+    </NativeModal>
   );
 }

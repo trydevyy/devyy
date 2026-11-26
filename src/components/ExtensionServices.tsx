@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import { AnimatePresence, useIsPresent } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -451,7 +452,8 @@ function ExtensionPrompt({
       className="modal-backdrop"
       onMouseDown={() => onFinish(null)}
     >
-      <form
+      <ModalSurface
+        as="form"
         ref={root}
         className="input-modal extension-prompt"
         role="dialog"
@@ -594,7 +596,7 @@ function ExtensionPrompt({
                 </button>
               )}
         </div>
-      </form>
+      </ModalSurface>
     </ModalBackdrop>
   );
 }

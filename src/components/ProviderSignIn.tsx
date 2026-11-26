@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { NativeModal } from "./ui/ModalSurface";
 import { readClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useMemo, useRef, useState } from "react";
@@ -84,13 +85,10 @@ export default function ProviderSignIn({
         </button>
       </div>
       {open && (
-        <dialog
+        <NativeModal
           className="provider-sign-in-session"
           data-escape-scope="active"
           aria-label={`${provider.name} sign-in`}
-          ref={(node) => {
-            if (node && !node.open) node.showModal();
-          }}
           onCancel={(event) => {
             event.preventDefault();
             setOpen(false);
@@ -168,7 +166,7 @@ export default function ProviderSignIn({
             {exited ? "Done" : "Close sign-in session"}
           </button>
           {error && <ErrorToast message={error} />}
-        </dialog>
+        </NativeModal>
       )}
       {!open && error && <ErrorToast message={error} />}
     </div>

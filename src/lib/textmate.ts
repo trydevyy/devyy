@@ -102,18 +102,22 @@ function color(scopes: string[]) {
 }
 export function textmateHighlighting(grammar: IGrammar) {
   const tokenizationTick = StateEffect.define<null>();
+  const marks = new Map<string, Decoration>();
+  const maxLines = 30000;
   return ViewPlugin.fromClass(
     class {
-      decorations: DecorationSet;
-      timer?: ReturnType<typeof setTimeout>;
+      decorations: DecorationSet = Decoration.none;
+      cancelParse?: () => void;
+      paintFrame?: number;
       cache: {
-        text: string;
         end: StateStack;
-        tokens: { startIndex: number; endIndex: number; scopes: string[] }[];
+        marks: { from: number; to: number; decoration: Decoration }[];
       }[] = [];
+
       constructor(view: EditorView) {
-        this.decorations = this.build(view);
+        this.schedule(view);
       }
+
       update(update: ViewUpdate) {
         if (update.docChanged) {
           let from = update.state.doc.lines;
@@ -132,63 +136,100 @@ export function textmateHighlighting(grammar: IGrammar) {
           update.transactions.some((t) =>
             t.effects.some((e) => e.is(tokenizationTick)),
           )
-        )
+        ) {
           this.decorations = this.build(update.view);
+          this.schedule(update.view);
+        }
       }
-      build(view: EditorView) {
-        clearTimeout(this.timer);
-        const started = performance.now();
-        const builder = new RangeSetBuilder<Decoration>();
+
+      schedule(view: EditorView) {
+        const doc = view.state.doc;
         const end = Math.min(
-          view.state.doc.lineAt(view.viewport.to).number,
-          30000,
+          doc.lines,
+          maxLines,
+          doc.lineAt(view.viewport.to).number + 140,
         );
-        const start = view.state.doc.lineAt(view.viewport.from).number;
-        const parseStart = Math.min(start, this.cache.length + 1);
-        let state: StateStack = this.cache[parseStart - 2]?.end ?? INITIAL;
-        for (let n = parseStart; n <= end; n++) {
-          const line = view.state.doc.line(n);
-          let cached = this.cache[n - 1];
-          if (!cached || cached.text !== line.text) {
+        if (this.cancelParse || this.cache.length >= end) return;
+        const parse = (remaining: () => number) => {
+          this.cancelParse = undefined;
+          const doc = view.state.doc;
+          const start = doc.lineAt(view.viewport.from).number;
+          const visibleEnd = doc.lineAt(view.viewport.to).number;
+          const end = Math.min(doc.lines, maxLines, visibleEnd + 140);
+          const limit = performance.now() + 4;
+          const previous = this.cache.length;
+          let state = this.cache.at(-1)?.end ?? INITIAL;
+          while (this.cache.length < end) {
+            const line = doc.line(this.cache.length + 1);
             const parsed = grammar.tokenizeLine(
               line.text.slice(0, 20000),
               state,
-              8,
+              4,
             );
-            cached = {
-              text: line.text,
-              end: parsed.ruleStack,
-              tokens: parsed.tokens,
-            };
-            this.cache[n - 1] = cached;
-          }
-          state = cached.end;
-          if (line.to >= view.viewport.from)
-            for (const token of cached.tokens) {
+            state = parsed.ruleStack;
+            const lineMarks: (typeof this.cache)[number]["marks"] = [];
+            for (const token of parsed.tokens) {
               const category = color(token.scopes);
-              const to = Math.min(line.to, line.from + token.endIndex);
-              if (category && line.from + token.startIndex < to)
-                builder.add(
-                  line.from + token.startIndex,
-                  to,
-                  Decoration.mark({ class: `tm-${category}` }),
-                );
+              const to = Math.min(line.length, token.endIndex);
+              if (!category || token.startIndex >= to) continue;
+              let decoration = marks.get(category);
+              if (!decoration) {
+                decoration = Decoration.mark({ class: `tm-${category}` });
+                marks.set(category, decoration);
+              }
+              lineMarks.push({ from: token.startIndex, to, decoration });
             }
-          if (n < end && performance.now() - started >= 7) {
-            this.timer = setTimeout(
-              () => view.dispatch({ effects: tokenizationTick.of(null) }),
-              0,
-            );
-            break;
+            this.cache.push({ end: state, marks: lineMarks });
+            if (performance.now() >= limit || remaining() < 1) break;
+          }
+          if (
+            previous < visibleEnd &&
+            this.cache.length >= start &&
+            this.paintFrame === undefined
+          ) {
+            this.paintFrame = requestAnimationFrame(() => {
+              this.paintFrame = undefined;
+              view.dispatch({ effects: tokenizationTick.of(null) });
+            });
+          }
+          this.schedule(view);
+        };
+        if (typeof requestIdleCallback === "function") {
+          const task = requestIdleCallback(
+            (deadline) => parse(() => deadline.timeRemaining()),
+            { timeout: 100 },
+          );
+          this.cancelParse = () => cancelIdleCallback(task);
+        } else {
+          const task = setTimeout(() => parse(() => 4), 16);
+          this.cancelParse = () => clearTimeout(task);
+        }
+      }
+
+      build(view: EditorView) {
+        const doc = view.state.doc;
+        const start = doc.lineAt(view.viewport.from).number;
+        const end = Math.min(
+          this.cache.length,
+          doc.lineAt(view.viewport.to).number,
+        );
+        const builder = new RangeSetBuilder<Decoration>();
+        for (let n = start; n <= end; n++) {
+          const line = doc.line(n);
+          for (const { from, to, decoration } of this.cache[n - 1].marks) {
+            builder.add(line.from + from, line.from + to, decoration);
           }
         }
         return builder.finish();
       }
+
       destroy() {
-        clearTimeout(this.timer);
+        this.cancelParse?.();
+        if (this.paintFrame !== undefined)
+          cancelAnimationFrame(this.paintFrame);
       }
     },
-    { decorations: (v) => v.decorations },
+    { decorations: (plugin) => plugin.decorations },
   );
 }
 const themeProperties = [

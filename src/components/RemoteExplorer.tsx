@@ -1,3 +1,4 @@
+import { NativeModal, ModalHeader, ModalActions } from "./ui/ModalSurface";
 import Empty from "./Empty";
 import { requestId as newRequestId } from "../lib/requestId";
 import { useEffect, useState, type FormEvent } from "react";
@@ -414,42 +415,33 @@ export default function RemoteExplorer({
       )}
       {editor &&
         createPortal(
-          <dialog
-            className="devyy-confirm port-dialog"
+          <NativeModal
+            className="devyy-modal-form"
             aria-labelledby="ssh-dialog-title"
-            ref={(node) => {
-              if (node && !node.open) node.showModal();
-            }}
             onCancel={(event) => {
               event.preventDefault();
               if (!busy) setEditor(undefined);
             }}
           >
             <form onSubmit={submit}>
-              <div className="dialog-heading">
-                <h2 id="ssh-dialog-title">
-                  {editor.action
+              <ModalHeader
+                id="ssh-dialog-title"
+                title={
+                  editor.action
                     ? "Sign in to SSH"
                     : editor.server
                       ? "Edit SSH server"
-                      : "Add SSH server"}
-                </h2>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Close"
-                  disabled={!!busy}
-                  onClick={() => setEditor(undefined)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
+                      : "Add SSH server"
+                }
+                busy={!!busy}
+                onClose={() => setEditor(undefined)}
+              />
               {editor.action ? (
                 <>
                   <p>
                     {editor.server?.user}@{editor.server?.host}
                   </p>
-                  <div className="port-dialog-fields">
+                  <div className="devyy-modal-fields">
                     <label>
                       Server password
                       <input
@@ -470,7 +462,7 @@ export default function RemoteExplorer({
                   </div>
                 </>
               ) : (
-                <div className="port-dialog-fields">
+                <div className="devyy-modal-fields">
                   <label>
                     Host
                     <input
@@ -550,7 +542,7 @@ export default function RemoteExplorer({
               {!editor.action && (
                 <details className="workbench-exclusions">
                   <DisclosureSummary>Tunnel ports</DisclosureSummary>
-                  <div className="port-dialog-fields">
+                  <div className="devyy-modal-fields">
                     <label>
                       Local port
                       <input
@@ -576,7 +568,7 @@ export default function RemoteExplorer({
                   </div>
                 </details>
               )}
-              <div className="ports-inline-actions">
+              <ModalActions>
                 <button
                   type="button"
                   className="button"
@@ -592,32 +584,31 @@ export default function RemoteExplorer({
                 >
                   {editor.action ? "Connect" : "Save server"}
                 </button>
-              </div>
+              </ModalActions>
             </form>
             <DialogToastHost id="ssh-form" />
-          </dialog>,
+          </NativeModal>,
           document.body,
         )}
       {trust &&
         createPortal(
-          <dialog
-            className="devyy-confirm port-dialog"
+          <NativeModal
+            className="devyy-modal-form"
             aria-labelledby="ssh-trust-title"
-            ref={(node) => {
-              if (node && !node.open) node.showModal();
-            }}
             onCancel={(event) => {
               event.preventDefault();
               if (!busy) setTrust(undefined);
             }}
           >
-            <h2 id="ssh-trust-title">Verify the SSH server</h2>
-            <p>
-              Compare this fingerprint with the one from {trust.server.host}{" "}
-              before connecting.
-            </p>
+            <ModalHeader
+              id="ssh-trust-title"
+              title="Verify the SSH server"
+              description={`Compare this fingerprint with the one from ${trust.server.host} before connecting.`}
+              busy={!!busy}
+              onClose={() => setTrust(undefined)}
+            />
             <code className="ssh-fingerprint">{trust.fingerprint}</code>
-            <div className="ports-inline-actions">
+            <ModalActions>
               <button
                 className="button"
                 disabled={!!busy}
@@ -637,9 +628,9 @@ export default function RemoteExplorer({
               >
                 Trust and connect
               </button>
-            </div>
+            </ModalActions>
             <DialogToastHost id="ssh-trust" />
-          </dialog>,
+          </NativeModal>,
           document.body,
         )}
     </section>

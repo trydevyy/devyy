@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import { Asterisk, X } from "lucide-react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 
@@ -31,7 +32,8 @@ export default function HelpModal({
 }: HelpModalProps) {
   return (
     <ModalBackdrop className="modal-backdrop" onMouseDown={onClose}>
-      <section
+      <ModalSurface
+        as="section"
         className="help-modal"
         role="dialog"
         aria-modal="true"
@@ -61,7 +63,7 @@ export default function HelpModal({
               </div>
             ))}
         </div>
-      </section>
+      </ModalSurface>
     </ModalBackdrop>
   );
 }

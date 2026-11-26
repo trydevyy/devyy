@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import Select from "./ui/Select";
 import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
@@ -187,7 +188,7 @@ export default function AIWorkspaceAccess({
                   setPending(undefined);
               }}
             >
-              <div
+              <ModalSurface
                 ref={dialog}
                 className="ai-access-dialog"
                 role="dialog"
@@ -266,7 +267,7 @@ export default function AIWorkspaceAccess({
                       : "Allow workspace reading"}
                   </button>
                 </footer>
-              </div>
+              </ModalSurface>
             </ModalBackdrop>
           )}
         </AnimatePresence>,

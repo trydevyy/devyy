@@ -25,6 +25,14 @@ export function sendExtensionEditorState(value: Record<string, unknown>) {
   clearTimeout(timer);
   if (native && running && !inFlight) timer = setTimeout(flushEditorState, 50);
 }
+export function sendExtensionEditorViewport(
+  editors: Record<string, unknown>[],
+) {
+  if (!native || !running) return;
+  void hostRequest("editorViewport", { editors }).catch(() => {
+    // A host restart will send a fresh editor snapshot.
+  });
+}
 async function flushEditorState() {
   const pending = state;
   if (!running || inFlight || !pending) return;

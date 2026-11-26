@@ -136,7 +136,9 @@ test("developer panel empty states switch to a compact row at short heights", as
   const terminal = page.locator("#panel-terminal .panel-empty-state");
   await expect(terminal).toHaveCSS("flex-direction", "column");
 
-  const resize = page.getByRole("separator", { name: "Resize developer panel" });
+  const resize = page.getByRole("separator", {
+    name: "Resize developer panel",
+  });
   for (let step = 0; step < 4; step++) await resize.press("Shift+ArrowDown");
   await expect(resize).toHaveAttribute("aria-valuenow", "120");
   await expect(terminal).toHaveCSS("flex-direction", "row");

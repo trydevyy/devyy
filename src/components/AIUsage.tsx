@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
@@ -339,8 +340,9 @@ export default function AIUsage({
     setNow(Date.now());
     setBusy(false);
   }
+  const Surface = embedded ? "div" : ModalSurface;
   const content = (
-    <div
+    <Surface
       className={`ai-usage-dialog ${embedded ? "ai-usage-embedded" : ""}`}
       ref={dialog}
       role={embedded ? "region" : "dialog"}
@@ -812,7 +814,7 @@ export default function AIUsage({
           <p className="ai-usage-scope">Recorded by Devyy on this device</p>
         )}
       </div>
-    </div>
+    </Surface>
   );
   return embedded
     ? content

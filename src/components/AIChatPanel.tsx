@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
@@ -1338,7 +1339,7 @@ export default function AIChatPanel({
         )}
       </AnimatePresence>
       {preview && (
-        <div
+        <ModalSurface
           ref={previewRef}
           className="ai-context-preview"
           data-escape-scope="active"
@@ -1371,7 +1372,7 @@ export default function AIChatPanel({
             </button>
           </header>
           <pre>{preview.content}</pre>
-        </div>
+        </ModalSurface>
       )}
     </div>
   );

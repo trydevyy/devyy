@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import {
   useEffect,
   useLayoutEffect,
@@ -114,7 +115,7 @@ export default function AIPopover({
     };
   }, [anchor, positioned]);
   return createPortal(
-    <div
+    <ModalSurface
       ref={ref}
       role="dialog"
       aria-label={label}
@@ -128,7 +129,7 @@ export default function AIPopover({
       }}
     >
       {children}
-    </div>,
+    </ModalSurface>,
     document.body,
   );
 }

@@ -1,3 +1,4 @@
+import { NativeModal } from "./ui/ModalSurface";
 import { InstallProgress } from "./ExtensionProgress";
 import Skeleton from "./ui/Skeleton";
 import { useEffect, useRef, useState } from "react";
@@ -33,15 +34,6 @@ export default function ThemeStorePreview({
   const [working, setWorking] = useState(false);
   const [retry, setRetry] = useState(0);
 
-  useEffect(() => {
-    const element = dialog.current;
-    const opener = document.activeElement;
-    element?.showModal();
-    return () => {
-      element?.close();
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, []);
   useEffect(() => {
     if ("manifest" in entry) return;
     let current = true;
@@ -89,7 +81,7 @@ export default function ThemeStorePreview({
   const creator = theme?.creator ?? entry.creator;
   const name = creator?.name || entry.author;
   return (
-    <dialog
+    <NativeModal
       ref={dialog}
       className="desktop-theme-preview"
       data-escape-scope="active"
@@ -191,6 +183,6 @@ export default function ThemeStorePreview({
           )}
         </div>
       </div>
-    </dialog>
+    </NativeModal>
   );
 }

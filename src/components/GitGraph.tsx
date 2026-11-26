@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -192,7 +193,7 @@ export default function GitGraph({
         if (e.currentTarget === e.target) onClose();
       }}
     >
-      <div
+      <ModalSurface
         className="git-graph"
         ref={dialog}
         role="dialog"
@@ -427,7 +428,7 @@ export default function GitGraph({
             )}
           </section>
         </div>
-      </div>
+      </ModalSurface>
     </ModalBackdrop>,
     document.body,
   );

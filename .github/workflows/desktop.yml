@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
     inputs:
       release_build:
@@ -24,8 +25,106 @@ concurrency:
   cancel-in-progress: ${{ !inputs.release_build }}
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      browser: ${{ steps.scope.outputs.browser }}
+      installer: ${{ steps.scope.outputs.installer }}
+      native: ${{ steps.scope.outputs.native }}
+      installer_native: ${{ steps.scope.outputs.installer_native }}
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ !inputs.release_build && github.event_name != 'workflow_dispatch' }}
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        shell: bash
+        env:
+          FULL: ${{ inputs.release_build || github.event_name == 'workflow_dispatch' }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          browser=false
+          installer=false
+          native=false
+          installer_native=false
+          if [[ "$FULL" == true ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            browser=true
+            installer=true
+            native=true
+            installer_native=true
+          else
+            git diff --no-renames --name-only -z "$BASE" HEAD > "$RUNNER_TEMP/devyy-changed"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                src-tauri/extension-host/*) browser=true; native=true ;;
+                src-tauri/*|third_party/*) native=true ;;
+                installer/src-tauri/*) installer=true; installer_native=true ;;
+                installer/*) installer=true ;;
+                .github/*|Makefile|.gitmodules|scripts/*)
+                  browser=true; installer=true; native=true; installer_native=true ;;
+                *.md|LICENSE|CODE_OF_CONDUCT*) ;;
+                *) browser=true ;;
+              esac
+            done < "$RUNNER_TEMP/devyy-changed"
+          fi
+          {
+            echo "full=$FULL"
+            echo "browser=$browser"
+            echo "installer=$installer"
+            echo "native=$native"
+            echo "installer_native=$installer_native"
+          } >> "$GITHUB_OUTPUT"
+
+  native-check:
+    needs: scope
+    if: >-
+      needs.scope.outputs.full != 'true' &&
+      (needs.scope.outputs.native == 'true' || needs.scope.outputs.installer_native == 'true') &&
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/fetch-hit
+        with:
+          token: ${{ secrets.HIT_READ_PAT }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: devyy-cargo-v1
+          shared-key: linux-x64
+          workspaces: |
+            src-tauri -> target
+            installer/src-tauri -> ../../src-tauri/target
+          cache-targets: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+        if: needs.scope.outputs.native == 'true'
+      - run: cargo fmt --manifest-path installer/src-tauri/Cargo.toml -- --check
+        if: needs.scope.outputs.installer_native == 'true'
+      - name: Install Linux libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev
+      - run: cargo check --locked --tests --manifest-path src-tauri/Cargo.toml
+        if: needs.scope.outputs.native == 'true'
+      - run: cargo check --locked --tests --manifest-path installer/src-tauri/Cargo.toml
+        if: needs.scope.outputs.installer_native == 'true'
+
   desktop:
-    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -86,9 +185,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libxdo-dev xvfb xdotool
           echo 'APPIMAGE_EXTRACT_AND_RUN=1' >> "$GITHUB_ENV"
-      - name: Test editor and installer (Linux)
+      - name: Test editor (Linux)
         if: runner.os == 'Linux'
-        run: make test-rust
+        run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Test editor and installer (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -97,8 +196,8 @@ jobs:
         run: |
           args=()
           if [[ -n "$DEVYY_RUST_TARGET" ]]; then args+=(--target "$DEVYY_RUST_TARGET"); fi
-          cargo test --manifest-path src-tauri/Cargo.toml "${args[@]}"
-          cargo test --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
+          cargo test --locked --manifest-path src-tauri/Cargo.toml "${args[@]}"
+          cargo test --locked --manifest-path installer/src-tauri/Cargo.toml "${args[@]}"
       - run: bun install --frozen-lockfile
         if: inputs.release_build
       - name: Build editor
@@ -156,7 +255,8 @@ jobs:
           path: release-assets/
 
   macos:
-    if: inputs.release_build
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -174,38 +274,51 @@ jobs:
         with:
           persist-credentials: false
       - name: Fetch pinned documentation
+        if: inputs.release_build
         run: git submodule update --init --checkout -- docs
       - uses: actions/setup-node@v7
+        if: inputs.release_build
         with:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
+        if: inputs.release_build
         with:
           bun-version: 1.4.3
       - uses: ./.github/actions/fetch-hit
         with:
           token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Test editor on macOS
+        if: ${{ !inputs.release_build }}
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Build and stage ad hoc signed macOS release
+        if: inputs.release_build
         shell: bash
         env:
           DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
         run: bash scripts/build-local-release.sh --ad-hoc
       - uses: actions/upload-artifact@v7
+        if: inputs.release_build
         with:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
           path: release-assets/v*/${{ matrix.artifact }}/
 
   interface:
+    needs: scope
+    if: needs.scope.outputs.browser == 'true' || needs.scope.outputs.installer == 'true'
     runs-on: ubuntu-24.04
-    env:
-      CAN_FETCH_HIT: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     timeout-minutes: 30
+    env:
+      FULL: ${{ needs.scope.outputs.full }}
+      BROWSER: ${{ needs.scope.outputs.browser }}
+      INSTALLER: ${{ needs.scope.outputs.installer }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Fetch pinned documentation
+        if: env.FULL == 'true'
         run: git submodule update --init --checkout -- docs
       - uses: actions/setup-node@v7
         with:
@@ -213,24 +326,26 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-      - uses: ./.github/actions/fetch-hit
-        if: env.CAN_FETCH_HIT == 'true'
-        with:
-          token: ${{ secrets.HIT_READ_PAT }}
-      - uses: dtolnay/rust-toolchain@stable
-        if: env.CAN_FETCH_HIT == 'true'
-        with:
-          components: rustfmt
       - run: bun install --frozen-lockfile
       - run: bun install --cwd installer --frozen-lockfile
-      - run: make format-check-rust
-        if: env.CAN_FETCH_HIT == 'true'
-      - run: make format-check-js test-js
-      - name: Build browser workspace
-        run: bun run build
+        if: env.INSTALLER == 'true'
+      - run: make format-check-js
+      - name: Check editor types and unit tests
+        if: env.BROWSER == 'true'
+        run: |
+          bun run assets:generate
+          bun x tsc -b
+          make test-js
       - run: bun x playwright install --with-deps --only-shell chromium
-      - run: bun x playwright test --workers=2
-      - run: bun run --cwd installer test:e2e --workers=2
+      - name: Browser smoke tests
+        if: env.BROWSER == 'true' && env.FULL != 'true'
+        run: bun x playwright test tests/workbench-redesign.spec.ts tests/editor.spec.ts tests/ai.spec.ts --workers=2 --grep 'desktop panels use compact|create and rename files|rapid editor jumps'
+      - name: Full editor browser suite
+        if: env.FULL == 'true'
+        run: bun x playwright test --workers=2
+      - name: Installer browser tests
+        if: env.INSTALLER == 'true'
+        run: bun run --cwd installer test:e2e --workers=2
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

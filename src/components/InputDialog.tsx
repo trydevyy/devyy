@@ -13,9 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalActions, ModalHeader, ModalSurface } from "./ui/ModalSurface";
 import ErrorToast from "./ui/ErrorToast";
 import { useState } from "react";
-import { Braces, X } from "lucide-react";
+import { Braces } from "lucide-react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 
 export interface Dialog {
@@ -38,12 +39,13 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
 
   return (
     <ModalBackdrop className="modal-backdrop" onMouseDown={onClose}>
-      <form
+      <ModalSurface
+        as="form"
         noValidate
         className="input-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={dialog.title}
+        aria-labelledby="input-dialog-title"
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -55,19 +57,15 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
             .finally(() => setBusy(false));
         }}
       >
-        <div className="modal-heading">
-          <Braces size={24} />
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Close dialog"
-            onClick={onClose}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <h2>{dialog.title}</h2>
-        <p className="muted">{dialog.description}</p>
+        <ModalHeader
+          id="input-dialog-title"
+          title={dialog.title}
+          description={dialog.description}
+          icon={<Braces size={18} />}
+          onClose={onClose}
+          closeLabel="Close dialog"
+          busy={busy}
+        />
         <input
           className="text-input"
           autoFocus
@@ -77,7 +75,7 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
           required
         />
         {error && <ErrorToast message={error} />}
-        <div className="form-actions">
+        <ModalActions>
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
@@ -88,8 +86,8 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
           >
             {dialog.label}
           </button>
-        </div>
-      </form>
+        </ModalActions>
+      </ModalSurface>
     </ModalBackdrop>
   );
 }

@@ -125,7 +125,11 @@ import {
   commandUri,
 } from "./lib/extensionMenus";
 import { matchesContext } from "./lib/extensionContext";
-import { fileUri, sendExtensionEditorState } from "./lib/extensionWorkbench";
+import {
+  fileUri,
+  sendExtensionEditorState,
+  sendExtensionEditorViewport,
+} from "./lib/extensionWorkbench";
 import {
   hostRequest,
   extensionLanguageFeature,
@@ -1826,8 +1830,9 @@ export default function App() {
       window.removeEventListener("devyy-extension-host-reset", reset);
     };
   }, []);
-  const publishExtensionState = useRef(() => {});
-  publishExtensionState.current = () => {
+  const publishExtensionState = useRef((_viewportOnly?: boolean) => {});
+  publishExtensionState.current = (viewportOnly = false) => {
+    if (!native) return;
     const managedTabs =
       wsRef.current.root === "demo"
         ? tabsRef.current.filter((tab) => tab.extensionUri)
@@ -1840,6 +1845,27 @@ export default function App() {
     const toUri = (tab: Tab) =>
       tab.extensionUri ??
       fileUri(wsRef.current.root.replace(/[\\/]$/, "") + "/" + tab.path);
+    const isVisible = (tab: Tab) =>
+      !diffActive &&
+      (fileSplit
+        ? fileSplit.includes(tab.path)
+        : tab.path === activeRef.current) &&
+      markdownModes[tab.path] !== "preview";
+    const visibleRanges = (view: EditorView) =>
+      view.visibleRanges.map(({ from, to }) => ({
+        start: toPosition(view, from),
+        end: toPosition(view, to),
+      }));
+    if (viewportOnly) {
+      const editors = managedTabs.flatMap((tab) => {
+        const view = views.current.get(tab.path);
+        return view && isVisible(tab)
+          ? [{ uri: toUri(tab), visibleRanges: visibleRanges(view) }]
+          : [];
+      });
+      if (editors.length) sendExtensionEditorViewport(editors);
+      return;
+    }
     const current = managedTabs.find((tab) => tab.path === activeRef.current);
     const view = views.current.get(activeRef.current);
     const position = (value: number) => {
@@ -1849,12 +1875,7 @@ export default function App() {
     sendExtensionEditorState({
       documents: managedTabs.map((tab) => {
         const editor = views.current.get(tab.path);
-        const visible =
-          !diffActive &&
-          (fileSplit
-            ? fileSplit.includes(tab.path)
-            : tab.path === activeRef.current) &&
-          markdownModes[tab.path] !== "preview";
+        const visible = isVisible(tab);
         return {
           uri: toUri(tab),
           text: tab.content,
@@ -1866,10 +1887,7 @@ export default function App() {
             anchor: toPosition(editor, range.anchor),
             active: toPosition(editor, range.head),
           })),
-          visibleRanges: editor?.visibleRanges.map((range) => ({
-            start: toPosition(editor, range.from),
-            end: toPosition(editor, range.to),
-          })),
+          visibleRanges: editor && visible ? visibleRanges(editor) : undefined,
         };
       }),
       activeUri:
@@ -1903,7 +1921,7 @@ export default function App() {
     };
     const updateViewport = () => {
       clearTimeout(viewportTimer);
-      viewportTimer = setTimeout(update, 80);
+      viewportTimer = setTimeout(() => publishExtensionState.current(true), 80);
     };
     window.addEventListener("devyy-editor-viewport", updateViewport);
     window.addEventListener("focus", update);

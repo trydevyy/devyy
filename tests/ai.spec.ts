@@ -1749,6 +1749,40 @@ test("fast file-tree jumps refill the viewport without mounting the whole projec
   ).toBeVisible();
 });
 
+test("rapid editor jumps render the target lines without mounting the full file", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const ipc = Reflect.get(window, "__TAURI_INTERNALS__");
+    const invoke = ipc.invoke;
+    const content = Array.from(
+      { length: 8000 },
+      (_, index) => `// editor-scroll-line-${index + 1}`,
+    ).join("\n");
+    ipc.invoke = (command: string, args: unknown) =>
+      command === "read_file"
+        ? Promise.resolve({ content, modified: "1" })
+        : invoke(command, args);
+  });
+  await page.keyboard.press(`${mod}+o`);
+  const scroller = page.locator(".editor-document.visible .cm-scroller");
+  await expect(
+    scroller.getByText("// editor-scroll-line-1", { exact: true }),
+  ).toBeVisible();
+  for (const [position, line] of [
+    [1, "// editor-scroll-line-8000"],
+    [0, "// editor-scroll-line-1"],
+    [1, "// editor-scroll-line-8000"],
+  ] as const) {
+    await scroller.evaluate((element, position) => {
+      element.scrollTop = position * element.scrollHeight;
+    }, position);
+    await expect(scroller.getByText(line, { exact: true })).toBeInViewport();
+  }
+  expect(await scroller.locator(".cm-line").count()).toBeLessThan(300);
+});
+
 test("workspace shell and first document appear while indexing and services remain pending", async ({
   page,
 }) => {

@@ -13,12 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { NativeModal, ModalHeader } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
 import { useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, X } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import {
   aiAccount,
   aiProviderReady,
@@ -96,33 +97,22 @@ export default function AIProviders() {
   return (
     <div className="ai-provider-settings">
       {draft && (
-        <dialog
-          className="devyy-confirm port-dialog provider-add-dialog"
+        <NativeModal
+          className="devyy-modal-form provider-add-dialog"
           aria-labelledby="provider-dialog-title"
-          ref={(node) => {
-            if (node && !node.open) node.showModal();
-          }}
           onCancel={(event) => {
             event.preventDefault();
             setDraft(undefined);
           }}
         >
-          <div className="dialog-heading">
-            <div className="provider-add-title">
-              <AIProviderIcon kind={draft.kind} size={20} />
-              <div>
-                <h2 id="provider-dialog-title">Add custom provider</h2>
-                <p>Connect an API endpoint or a local command.</p>
-              </div>
-            </div>
-            <button
-              className="icon-button"
-              aria-label="Close provider form"
-              onClick={() => setDraft(undefined)}
-            >
-              <X size={16} />
-            </button>
-          </div>
+          <ModalHeader
+            id="provider-dialog-title"
+            title="Add custom provider"
+            description="Connect an API endpoint or a local command."
+            icon={<AIProviderIcon kind={draft.kind} size={18} />}
+            closeLabel="Close provider form"
+            onClose={() => setDraft(undefined)}
+          />
           <AIProviderDetail
             provider={draft}
             onRemoved={() => setDraft(undefined)}
@@ -132,7 +122,7 @@ export default function AIProviders() {
             }}
           />
           <DialogToastHost id="aiproviders" />
-        </dialog>
+        </NativeModal>
       )}
       <div className="ai-provider-pages">
         <motion.div

@@ -712,7 +712,8 @@ a {
   position: relative;
 }
 
-.tree-row[data-ignored]:not(:is(:hover, [data-current], [data-multi-selected])) .tree-file {
+.tree-row[data-ignored]:not(:is(:hover, [data-current], [data-multi-selected]))
+  .tree-file {
   opacity: 0.68;
 }
 
@@ -3184,8 +3185,12 @@ a {
   animation: update-progress 1.1s ease-in-out infinite;
 }
 @keyframes update-progress {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(350%); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .update-progress::after {
@@ -6967,10 +6972,6 @@ body {
 .scm-repository {
   display: grid;
   gap: 6px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
 }
 .scm-repository-name {
   overflow: hidden;
@@ -7540,11 +7541,6 @@ body {
   padding: 14px;
   display: grid;
   gap: 10px;
-}
-.ai-skill-import-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 .ai-skill-textarea {
   width: 100%;
@@ -10044,10 +10040,6 @@ body {
 .scm-composer {
   display: grid;
   gap: 7px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
 }
 .scm-composer > label {
   display: flex;
@@ -10062,6 +10054,7 @@ body {
 }
 .scm-composer .commit-message {
   margin: 0;
+  resize: vertical;
   min-height: 50px;
 }
 .scm-commit-actions {
@@ -10079,7 +10072,7 @@ body {
   height: auto;
   background: var(--hover);
 }
-.scm-commit-actions > .icon-button:is(:hover,[data-state="open"]) {
+.scm-commit-actions > .icon-button:is(:hover, [data-state="open"]) {
   background: var(--raised);
 }
 @media (max-width: 800px) {
@@ -12891,12 +12884,6 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   flex: 1 1 140px;
 }
 
-.ports-inline-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .ports-action-btn {
   height: 24px;
   padding: 0 10px;
@@ -13867,64 +13854,36 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   color: var(--secondary);
   font-size: 11px;
 }
-dialog.port-dialog {
-  inset: 0;
-  margin: auto;
-  transform: none;
-  backdrop-filter: none;
-  padding: 22px;
-  width: min(455px, calc(100vw - 30px));
-  max-height: calc(100dvh - 30px);
-  overflow: auto;
-  background: var(--paper);
-  color: var(--ink);
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
+dialog.devyy-modal-form {
+  width: min(460px, calc(100vw - 32px));
+  padding: 16px;
 }
-dialog.port-dialog::backdrop {
-  background: #0009;
-  backdrop-filter: blur(5px);
-}
-.port-dialog h2 {
-  margin: 12px 0 4px;
-  font-size: 18px;
-}
-.port-dialog p {
-  margin: 0 0 12px;
-  color: var(--secondary);
-}
-.port-dialog .dialog-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-.port-dialog .port-dialog-fields {
+.devyy-modal-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin: 16px 0;
+  margin: 12px 0;
 }
-.port-dialog-fields label {
+.devyy-modal-fields label {
   display: grid;
   gap: 5px;
   color: var(--secondary);
-  font-size: 12px;
+  min-width: 0;
 }
-.port-dialog-fields :is(input, select) {
-  height: 34px;
+.devyy-modal-fields :is(input, .devyy-select) {
   width: 100%;
   min-width: 0;
-  border-radius: 6px;
+  min-height: 34px;
+  border-radius: 8px;
   border: 1px solid var(--border-strong);
-  background: var(--surface);
+  background: var(--hover);
   color: var(--ink);
-  padding: 0 9px;
+  padding: 6px 9px;
 }
-.port-dialog .ports-inline-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+@media (max-width: 420px) {
+  .devyy-modal-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .ai-workspace-heading {
   background: var(--surface);
@@ -13972,7 +13931,7 @@ dialog.port-dialog::backdrop {
   padding: 0 0 12px;
   border: 0;
 }
-.port-dialog .ai-skill-textarea {
+.devyy-modal-form .ai-skill-textarea {
   color: var(--ink);
 }
 .skill-review pre {
@@ -13990,30 +13949,10 @@ dialog.provider-add-dialog {
   width: min(475px, calc(100vw - 30px));
   padding: 0;
 }
-.provider-add-dialog .dialog-heading {
-  padding: 17px 19px;
+.provider-add-dialog .devyy-modal-heading {
+  padding: 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--shell);
-}
-.provider-add-title {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-}
-.provider-add-title > svg {
-  margin-top: 2px;
-  flex: none;
-  color: var(--muted);
-}
-.provider-add-title h2 {
-  margin: 0 0 3px;
-  font-size: calc(15px * var(--ui-text-scale, 1));
-  font-weight: 600;
-}
-.provider-add-title p {
   margin: 0;
-  color: var(--muted);
-  font-size: calc(11px * var(--ui-text-scale, 1));
 }
 .provider-add-dialog .ai-provider-detail {
   height: auto;
@@ -14030,7 +13969,10 @@ dialog.provider-add-dialog {
   border: 0;
   background: transparent;
 }
-.provider-add-dialog .ai-provider-detail-scroll > .ai-provider-section + .ai-provider-section {
+.provider-add-dialog
+  .ai-provider-detail-scroll
+  > .ai-provider-section
+  + .ai-provider-section {
   border-radius: 0;
   border-top: 1px solid var(--line);
   margin-top: 14px;
@@ -14056,9 +13998,8 @@ dialog.provider-add-dialog {
   margin: 0;
 }
 .provider-add-dialog .ai-provider-detail > footer {
-  padding: 12px 19px;
+  padding: 10px 16px;
   margin: 0;
-  background: var(--shell);
 }
 
 /* Shared workbench controls */
@@ -15625,4 +15566,87 @@ button[aria-busy="true"]::after {
   .settings-workbench .settings-tabs button svg {
     width: 13px;
   }
+}
+
+/* The palette and all dialogs share the same workbench surface. */
+.devyy-modal {
+  --modal-radius: 14px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--modal-radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.devyy-modal.palette {
+  max-height: min(640px, 80dvh);
+}
+dialog.devyy-modal {
+  inset: 0;
+  margin: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+dialog.devyy-modal::backdrop,
+.devyy-dialog-overlay,
+[data-motion-backdrop] {
+  background: color-mix(in srgb, var(--shell) 66%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+:root[data-vibrancy="off"] dialog.devyy-modal::backdrop,
+:root[data-vibrancy="off"] [data-motion-backdrop],
+:root[data-vibrancy="off"] .devyy-dialog-overlay,
+:root[data-platform="linux"] dialog.devyy-modal::backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.devyy-modal-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.devyy-modal-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+.devyy-modal-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: calc(15px * var(--ui-text-scale, 1));
+  font-weight: 600;
+  line-height: 1.45;
+}
+.devyy-modal-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: calc(11px * var(--ui-text-scale, 1));
+  line-height: 1.5;
+}
+.devyy-modal-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--hover);
+  color: var(--secondary);
+}
+.devyy-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.devyy-modal-actions > button {
+  min-height: 29px;
 }

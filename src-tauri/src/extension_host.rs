@@ -407,6 +407,7 @@ pub async fn extension_host_request(
         "closeWebview",
         "workbenchResponse",
         "editorState",
+        "editorViewport",
         "documentSaved",
         "readDocument",
         "saveVirtualDocument",

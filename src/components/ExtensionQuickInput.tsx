@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface } from "./ui/ModalSurface";
 import Skeleton from "./ui/Skeleton";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -304,7 +305,8 @@ function QuickInput({ input }: { input: QuickInputState }) {
           if (!input.ignoreFocusOut) send("hide");
         }}
       >
-        <form
+        <ModalSurface
+          as="form"
           ref={root}
           className="input-modal extension-prompt extension-live-input"
           role="dialog"
@@ -566,7 +568,7 @@ function QuickInput({ input }: { input: QuickInputState }) {
                 : "Confirm"}
             </button>
           </div>
-        </form>
+        </ModalSurface>
       </ModalBackdrop>
     </DarkIcons.Provider>
   );

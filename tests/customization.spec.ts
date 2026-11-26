@@ -444,6 +444,14 @@ test("custom providers can use a direct CLI without an API URL", async ({
   await preferences
     .getByRole("button", { name: "Add AI provider", exact: true })
     .click();
+  const add = page.getByRole("dialog", { name: "Add custom provider" });
+  await expect(add).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(add).toHaveCount(0);
+  await expect(preferences).toBeVisible();
+  await preferences
+    .getByRole("button", { name: "Add AI provider", exact: true })
+    .click();
   await chooseOption(
     preferences.getByRole("combobox", { name: "Connection type", exact: true }),
     "cli",

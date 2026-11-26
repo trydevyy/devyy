@@ -1,3 +1,4 @@
+import { MotionModalSection } from "./ui/ModalSurface";
 import HardwareAcceleration from "./HardwareAcceleration";
 // Copyright (C) 2026 Devyy contributors
 //
@@ -860,7 +861,8 @@ export default function Preferences({
       className="modal-backdrop preferences-backdrop"
       onMouseDown={onClose}
     >
-      <motion.section
+      <MotionModalSection
+        as="section"
         onUpdate={modalFrameUpdate}
         transition={transition}
         initial={{ scale: instant ? 1 : 0.98 }}
@@ -873,7 +875,7 @@ export default function Preferences({
         onMouseDown={(e) => e.stopPropagation()}
       >
         {body}
-      </motion.section>
+      </MotionModalSection>
     </ModalBackdrop>
   );
 }

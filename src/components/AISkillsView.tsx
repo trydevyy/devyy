@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { NativeModal, ModalHeader } from "./ui/ModalSurface";
 import Select from "./ui/Select";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { useState } from "react";
@@ -26,7 +27,6 @@ import {
   ChevronDown,
   Check,
   FileCode,
-  X,
 } from "lucide-react";
 import {
   useSkills,
@@ -107,31 +107,21 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
 
       {importing &&
         createPortal(
-          <dialog
-            className="devyy-confirm port-dialog ai-skill-import-modal"
+          <NativeModal
+            className="devyy-modal-form ai-skill-import-modal"
             aria-label="Import skill"
-            ref={(node) => {
-              if (node && !node.open) node.showModal();
-            }}
             onCancel={(event) => {
               event.preventDefault();
               closeImport();
             }}
           >
-            <div className="ai-skill-import-header">
-              <strong>Import SKILL.md</strong>
-              <button
-                className="icon-button"
-                onClick={closeImport}
-                aria-label="Close import"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <p className="muted">
-              Paste a <code>SKILL.md</code> file to review its instructions and
-              declared tools before installing it.
-            </p>
+            <ModalHeader
+              id="skill-import-title"
+              title="Import SKILL.md"
+              description="Paste the skill to review its instructions and tools before installing."
+              onClose={closeImport}
+              closeLabel="Close import"
+            />
             {review ? (
               <div className="skill-review">
                 <strong>
@@ -179,7 +169,7 @@ dependencies:
               </button>
             </div>
             <DialogToastHost id="aiskillsview" />
-          </dialog>,
+          </NativeModal>,
           document.body,
         )}
 

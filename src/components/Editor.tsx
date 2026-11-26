@@ -714,6 +714,8 @@ function Editor(props: EditorProps) {
               fontFamily: "var(--editor-mono, var(--mono))",
               lineHeight: "var(--editor-line-height, 1.8)",
               overflow: "auto",
+              overscrollBehavior: "contain",
+              contain: "layout paint",
             },
             ".cm-content": {
               caretColor: "var(--accent)",

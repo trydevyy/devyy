@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { MotionModalSurface } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
-import { motion, useIsPresent } from "motion/react";
+import { useIsPresent } from "motion/react";
 import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -112,7 +113,7 @@ export default function Palette({
       className="modal-backdrop palette-backdrop"
       onMouseDown={onClose}
     >
-      <motion.div
+      <MotionModalSurface
         onUpdate={modalFrameUpdate}
         transition={transition}
         initial={{ y: instant ? 0 : -8 }}
@@ -338,7 +339,7 @@ export default function Palette({
             esc <span>Close</span>
           </span>
         </div>
-      </motion.div>
+      </MotionModalSurface>
     </ModalBackdrop>
   );
 }

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { ModalSurface, ModalActions } from "./ModalSurface";
 import * as Alert from "@radix-ui/react-alert-dialog";
 import {
   createContext,
@@ -77,44 +78,46 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       >
         <Alert.Portal>
           <Alert.Overlay className="devyy-dialog-overlay" />
-          <Alert.Content className="devyy-confirm" data-escape-scope="active">
-            <span
-              className={`devyy-dialog-symbol ${current?.danger ? "danger" : ""}`}
-            >
-              <AlertTriangle size={21} />
-            </span>
-            <Alert.Title>{current?.title ?? "Confirm action"}</Alert.Title>
-            <Alert.Description>{current?.description}</Alert.Description>
-            {current?.rememberLabel && (
-              <label className="confirm-remember">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(event) => setRemember(event.target.checked)}
-                />
-                {current.rememberLabel}
-              </label>
-            )}
-            <footer>
-              <Alert.Cancel
-                className="devyy-button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  finish(false);
-                }}
+          <Alert.Content asChild>
+            <ModalSurface className="devyy-confirm" data-escape-scope="active">
+              <span
+                className={`devyy-dialog-symbol ${current?.danger ? "danger" : ""}`}
               >
-                Cancel
-              </Alert.Cancel>
-              <Alert.Action
-                className={`devyy-button ${current?.danger ? "danger" : "primary"}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  finish(true);
-                }}
-              >
-                {current?.confirmLabel ?? "Continue"}
-              </Alert.Action>
-            </footer>
+                <AlertTriangle size={21} />
+              </span>
+              <Alert.Title>{current?.title ?? "Confirm action"}</Alert.Title>
+              <Alert.Description>{current?.description}</Alert.Description>
+              {current?.rememberLabel && (
+                <label className="confirm-remember">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(event) => setRemember(event.target.checked)}
+                  />
+                  {current.rememberLabel}
+                </label>
+              )}
+              <ModalActions>
+                <Alert.Cancel
+                  className="devyy-button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    finish(false);
+                  }}
+                >
+                  Cancel
+                </Alert.Cancel>
+                <Alert.Action
+                  className={`devyy-button ${current?.danger ? "danger" : "primary"}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    finish(true);
+                  }}
+                >
+                  {current?.confirmLabel ?? "Continue"}
+                </Alert.Action>
+              </ModalActions>
+            </ModalSurface>
           </Alert.Content>
         </Alert.Portal>
       </Alert.Root>

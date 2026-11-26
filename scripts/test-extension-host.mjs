@@ -1064,7 +1064,7 @@ test(
       "documents",
       { activationEvents: ["onStartupFinished"] },
       `
-    const v=require('vscode');let emitter=new v.EventEmitter(),text='first',held;
+    const v=require('vscode');let emitter=new v.EventEmitter(),text='first',held,viewportEvents=0;
     exports.activate=context=>{
       v.workspace.registerFileSystemProvider('memory',{
         readFile:()=>Buffer.from('a\\r\\nb\\nend'),
@@ -1089,6 +1089,10 @@ test(
         if(v.window.activeTextEditor.viewColumn!==2)throw Error('Missing view column');
         if(held&&held!==v.window.activeTextEditor)throw Error('Editor identity changed');held=v.window.activeTextEditor;
       });
+      v.window.onDidChangeTextEditorVisibleRanges(({textEditor})=>{if(textEditor===held)viewportEvents++;});
+      v.commands.registerCommand('documents.viewport',()=>({
+        end: held.visibleRanges[0].end.character, text: held.document.getText(), events: viewportEvents,
+      }));
       v.commands.registerCommand('documents.select',()=>{held.selection=new v.Selection(0,0,0,1);});
     };
   `,
@@ -1126,6 +1130,26 @@ test(
     await f.request("command", { id: "documents.tabs" });
     await f.request("editorState", { documents, activeUri: "memory:/two.ts" });
     await f.request("command", { id: "documents.tabs" });
+    const viewport = {
+      editors: [
+        {
+          uri: "memory:/two.ts",
+          visibleRanges: [
+            {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 1 },
+            },
+          ],
+        },
+      ],
+    };
+    await f.request("editorViewport", viewport);
+    await f.request("editorViewport", viewport);
+    assert.deepEqual(await f.request("command", { id: "documents.viewport" }), {
+      end: 1,
+      text: "two",
+      events: 1,
+    });
     await f.request("command", { id: "documents.select" });
     const selection = f.events.find(
       (event) =>
