@@ -718,15 +718,19 @@ a {
   content-visibility: visible;
 }
 
-.tree-row:hover,
-.tree-row:has(> .tree-file[aria-expanded="true"]) {
+.tree-row:hover {
   background: var(--hover);
 }
 
-.tree-row.selected:not([data-folder]),
-.tree-row.selected[data-multi-selected] {
+.tree-row[data-current],
+.tree-row[data-multi-selected] {
   background: var(--accent-soft);
   color: var(--ink);
+}
+
+.file-tree:focus-visible .tree-row.selected {
+  outline: 1px solid var(--accent-line);
+  outline-offset: -1px;
 }
 
 .tree-file {
@@ -15506,4 +15510,154 @@ button[aria-busy="true"]::after {
 }
 .problems-window > button > small {
   max-width: 42%;
+}
+
+/* Settings use a shared workbench header above the category rail and page. */
+.settings-workbench {
+  display: grid;
+  grid-template-columns: clamp(164px, 23%, 216px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--paper);
+}
+.settings-workbench .settings-chrome {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 340px) 36px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.settings-workbench .settings-identity {
+  gap: 9px;
+  padding: 0;
+  color: var(--ink);
+}
+.settings-workbench .settings-identity > svg {
+  display: block;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.settings-workbench .settings-identity strong {
+  font-size: calc(14px * var(--ui-text-scale, 1));
+}
+.settings-workbench .settings-search {
+  margin: 0;
+  min-width: 0;
+  padding: 7px 10px;
+}
+.settings-workbench .settings-close {
+  justify-self: end;
+  color: var(--secondary);
+}
+.settings-workbench .settings-navigation {
+  width: auto;
+  padding: 12px 10px 10px;
+  background: var(--shell);
+}
+.settings-workbench .settings-tabs {
+  gap: 12px;
+  min-height: 0;
+}
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-nav-label {
+  padding: 5px 9px 3px;
+  color: var(--muted);
+  font-size: calc(10px * var(--ui-text-scale, 1));
+  font-weight: 600;
+}
+.settings-workbench .settings-tabs button {
+  min-height: 32px;
+  padding: 6px 9px;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--secondary);
+}
+.settings-workbench .settings-tabs button:last-child {
+  margin-top: 0;
+}
+.settings-workbench .settings-tabs button svg {
+  flex-shrink: 0;
+}
+.settings-workbench .settings-tabs button.active {
+  background: var(--accent-soft);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.settings-workbench .settings-brand {
+  padding: 10px 8px 0;
+}
+.settings-workbench .settings-content {
+  min-width: 0;
+}
+.settings-workbench .settings-heading {
+  height: auto;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 20px clamp(14px, 3vw, 34px);
+  background: var(--paper);
+}
+.settings-category-icon {
+  display: grid;
+  flex: 0 0 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--accent);
+}
+.settings-workbench .settings-heading .settings-current-category {
+  font-size: calc(20px * var(--ui-text-scale, 1));
+  font-weight: 600;
+  letter-spacing: -0.35px;
+}
+.settings-workbench .settings-heading p {
+  margin: 3px 0 0;
+  color: var(--secondary);
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  overflow-wrap: anywhere;
+}
+.settings-workbench .settings-scroll {
+  padding: 20px clamp(14px, 3vw, 34px) 26px;
+}
+.settings-workbench .settings-inner {
+  max-width: 920px;
+}
+.settings-workbench .settings-inner-ai {
+  max-width: none;
+}
+.settings-workbench .settings-footer {
+  padding-inline: clamp(14px, 3vw, 34px);
+  background: var(--paper);
+}
+@media (max-width: 670px) {
+  .settings-workbench {
+    grid-template-columns: minmax(105px, 29%) minmax(0, 1fr);
+  }
+  .settings-workbench .settings-chrome {
+    grid-template-columns: auto minmax(0, 1fr) 28px;
+    gap: 8px;
+    padding-inline: 10px;
+  }
+  .settings-workbench .settings-navigation {
+    padding-inline: 5px;
+  }
+  .settings-workbench .settings-tabs button {
+    font-size: calc(11px * var(--ui-text-scale, 1));
+    padding-inline: 5px;
+    gap: 5px;
+  }
+  .settings-workbench .settings-tabs button svg {
+    width: 13px;
+  }
+  .settings-category-icon {
+    display: none;
+  }
 }

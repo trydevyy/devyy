@@ -11,11 +11,12 @@ test("desktop panels use compact controls and report operations in toasts", asyn
     .click();
   const ssh = page.getByRole("region", { name: "SSH servers" });
   await expect(
-    ssh.getByRole("textbox", { name: "Filter SSH servers" }),
+    ssh.getByRole("heading", { name: "No SSH hosts" }),
   ).toBeVisible();
-  await ssh
-    .getByRole("button", { name: "Add SSH server", exact: true })
-    .click();
+  await expect(
+    ssh.getByRole("textbox", { name: "Filter SSH servers" }),
+  ).toHaveCount(0);
+  await ssh.getByRole("button", { name: "Add host", exact: true }).click();
   const server = page.getByRole("dialog", { name: "Add SSH server" });
   await server.getByLabel("Host", { exact: true }).fill("test.example.com");
   await server.getByLabel("Username").fill("dev");
@@ -23,6 +24,10 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await server.getByRole("button", { name: "Save server" }).click();
   await expect(
     ssh.getByRole("button", { name: "Dev server", exact: true }),
+  ).toBeVisible();
+
+  await expect(
+    ssh.getByRole("textbox", { name: "Filter SSH servers" }),
   ).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath("ssh.png") });

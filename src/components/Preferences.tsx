@@ -33,7 +33,6 @@ import {
 } from "react";
 import {
   Asterisk,
-  Settings2,
   Check,
   Minus,
   Plus,
@@ -92,6 +91,23 @@ function SettingsPage(props: HTMLMotionProps<"div">) {
     />
   );
 }
+
+const navigationGroups = [
+  {
+    label: "Workspace",
+    ids: ["appearance", "themes", "layout", "accessibility"],
+  },
+  { label: "Editing", ids: ["editor", "files", "keyboard", "terminal"] },
+  { label: "Tools", ids: ["extensions", "ai", "languages", "git"] },
+  {
+    label: "Devyy",
+    ids: ["account", "applications", "setup", "credits", "about"],
+  },
+].map(({ label, ids }) => ({
+  label,
+  entries: ids.map((id) => categories.find((entry) => entry.id === id)!),
+}));
+const navigationOrder = navigationGroups.flatMap(({ entries }) => entries);
 
 export default function Preferences({
   settings,
@@ -345,13 +361,11 @@ export default function Preferences({
     );
   }
   const body = (
-    <div className="settings-layout">
-      <aside className="settings-navigation">
+    <div className="settings-layout settings-workbench">
+      <div className="settings-chrome">
         <div className="settings-identity">
-          <Settings2 size={18} />
-          <div>
-            <strong>Settings</strong>
-          </div>
+          <Asterisk size={21} strokeWidth={2.2} />
+          <strong>Settings</strong>
         </div>
         <div className="settings-search">
           <Search size={15} />
@@ -381,44 +395,69 @@ export default function Preferences({
           )}
         </div>
 
+        <button
+          className="icon-button settings-close"
+          aria-label="Close preferences"
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <aside className="settings-navigation">
         <div
           className="settings-tabs"
           role="tablist"
           aria-label="Settings categories"
           aria-orientation="vertical"
         >
-          {categories.map((c, i) => (
-            <button
-              key={c.id}
-              id={`settings-tab-${c.id}`}
-              role="tab"
-              aria-selected={!searching && category === c.id}
-              aria-controls="settings-panel"
-              tabIndex={category === c.id ? 0 : -1}
-              className={!searching && category === c.id ? "active" : ""}
-              onClick={() => choose(c.id)}
-              onKeyDown={(e) => {
-                const n =
-                  e.key === "ArrowDown"
-                    ? (i + 1) % categories.length
-                    : e.key === "ArrowUp"
-                      ? (i + categories.length - 1) % categories.length
-                      : e.key === "Home"
-                        ? 0
-                        : e.key === "End"
-                          ? categories.length - 1
-                          : -1;
-                if (n < 0) return;
-                e.preventDefault();
-                choose(categories[n].id);
-                document
-                  .getElementById(`settings-tab-${categories[n].id}`)
-                  ?.focus();
-              }}
+          {navigationGroups.map(({ label, entries }) => (
+            <div
+              className="settings-nav-group"
+              key={label}
+              role="group"
+              aria-label={label}
             >
-              <c.icon size={16} />
-              {c.label}
-            </button>
+              <span className="settings-nav-label" aria-hidden="true">
+                {label}
+              </span>
+              {entries.map((c) => {
+                const i = navigationOrder.indexOf(c);
+                return (
+                  <button
+                    key={c.id}
+                    id={`settings-tab-${c.id}`}
+                    role="tab"
+                    aria-selected={!searching && category === c.id}
+                    aria-controls="settings-panel"
+                    tabIndex={category === c.id ? 0 : -1}
+                    className={!searching && category === c.id ? "active" : ""}
+                    onClick={() => choose(c.id)}
+                    onKeyDown={(e) => {
+                      const n =
+                        e.key === "ArrowDown"
+                          ? (i + 1) % navigationOrder.length
+                          : e.key === "ArrowUp"
+                            ? (i + navigationOrder.length - 1) %
+                              navigationOrder.length
+                            : e.key === "Home"
+                              ? 0
+                              : e.key === "End"
+                                ? navigationOrder.length - 1
+                                : -1;
+                      if (n < 0) return;
+                      e.preventDefault();
+                      choose(navigationOrder[n].id);
+                      document
+                        .getElementById(`settings-tab-${navigationOrder[n].id}`)
+                        ?.focus();
+                    }}
+                  >
+                    <c.icon size={16} />
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </div>
         <span className="settings-brand">
@@ -434,16 +473,22 @@ export default function Preferences({
         }
       >
         <header className="settings-heading">
-          <h3 id="settings-results-title" className="settings-current-category">
-            {searching ? "Search results" : selected.label}
-          </h3>
-          <button
-            className="icon-button"
-            aria-label="Close preferences"
-            onClick={onClose}
-          >
-            <X size={19} />
-          </button>
+          <span className="settings-category-icon" aria-hidden="true">
+            {searching ? <Search size={20} /> : <selected.icon size={20} />}
+          </span>
+          <div>
+            <h3
+              id="settings-results-title"
+              className="settings-current-category"
+            >
+              {searching ? "Search results" : selected.label}
+            </h3>
+            <p aria-live="polite">
+              {searching
+                ? `${matches.length + keys.length + matchingExtensionSettings(installed, query).length + (native && "hardware acceleration gpu graphics rendering".includes(query.trim().toLowerCase()) ? 1 : 0)} results for “${query.trim()}”`
+                : selected.description}
+            </p>
+          </div>
         </header>
         <div className="settings-scroll" ref={scrollRef}>
           <AnimatePresence mode="wait" initial={false} custom={direction}>
@@ -483,15 +528,6 @@ export default function Preferences({
             >
               {!searching && category === "about" ? (
                 <About onInstallUpdate={onInstallUpdate} />
-              ) : null}
-              {!["about", "ai", "credits"].includes(category) || searching ? (
-                <div className="settings-section-heading">
-                  <p aria-live="polite">
-                    {searching
-                      ? `${matches.length + keys.length + matchingExtensionSettings(installed, query).length + (native && "hardware acceleration gpu graphics rendering".includes(query.trim().toLowerCase()) ? 1 : 0)} results for “${query.trim()}”`
-                      : selected.description}
-                  </p>
-                </div>
               ) : null}
               {searching && <ExtensionConfiguration query={query} />}
               {!searching && category === "extensions" && <ExtensionManager />}

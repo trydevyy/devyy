@@ -1,3 +1,4 @@
+import Empty from "./Empty";
 import { requestId as newRequestId } from "../lib/requestId";
 import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
@@ -313,40 +314,43 @@ export default function RemoteExplorer({
   );
   return (
     <section className="ssh-explorer" aria-label="SSH servers">
-      <div className="ssh-toolbar">
-        <label className="ssh-filter">
-          <Search size={14} />
-          <input
-            aria-label="Filter SSH servers"
-            placeholder="Filter SSH servers"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <button
-          className="icon-button"
-          title="Add SSH server"
-          aria-label="Add SSH server"
-          onClick={() => startEdit()}
-        >
-          <Plus size={15} />
-        </button>
-        <button
-          className="icon-button"
-          title="Refresh SSH tunnels"
-          aria-label="Refresh SSH tunnels"
-          onClick={refresh}
-        >
-          <RefreshCw size={13} />
-        </button>
-      </div>
-      {!servers.length ? (
-        <div className="ssh-empty">
-          <p>Open files and a terminal on an SSH server.</p>
-          <button className="setting-action" onClick={() => startEdit()}>
-            <Plus size={13} /> Add server
+      {!!servers.length && (
+        <div className="ssh-toolbar">
+          <label className="ssh-filter">
+            <Search size={14} />
+            <input
+              aria-label="Filter SSH servers"
+              placeholder="Filter SSH servers"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <button
+            className="icon-button"
+            title="Add SSH server"
+            aria-label="Add SSH server"
+            onClick={() => startEdit()}
+          >
+            <Plus size={15} />
+          </button>
+          <button
+            className="icon-button"
+            title="Refresh SSH tunnels"
+            aria-label="Refresh SSH tunnels"
+            onClick={refresh}
+          >
+            <RefreshCw size={13} />
           </button>
         </div>
+      )}
+      {!servers.length ? (
+        <Empty
+          icon={<Server size={28} />}
+          title="No SSH hosts"
+          text="Add a host to browse its files and open a remote workspace over SSH."
+          actionLabel="Add host"
+          action={() => startEdit()}
+        />
       ) : !filtered.length ? (
         <p className="ssh-empty">No matching servers.</p>
       ) : (

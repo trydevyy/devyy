@@ -280,6 +280,7 @@ export default function FileTree(p: Props) {
         <div
           className={`tree-row ${isSelected ? "selected" : ""} ${dropTarget === file.path ? "tree-drop-target" : ""} ${dragging === file.path ? "tree-dragging" : ""}`}
           data-folder={file.directory || undefined}
+          data-current={p.active === file.path || undefined}
           data-multi-selected={(isSelected && selected.size > 1) || undefined}
           style={{ paddingLeft: 14 + depth * 16 }}
           onContextMenu={(e) => {
@@ -301,6 +302,7 @@ export default function FileTree(p: Props) {
           <button
             className="tree-file"
             aria-expanded={file.directory ? open : undefined}
+            aria-current={p.active === file.path ? "true" : undefined}
             draggable
             onDragStart={(event) => {
               setDragging(file.path);
