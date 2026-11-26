@@ -153,6 +153,7 @@ pub fn run() {
             ai::agent::ai_workspace_access,
             ai::ai_cancel,
             ai::ai_account,
+            ai::billing::ai_billing_snapshot,
             ai::ai_models,
             ai::ai_runtime,
             ai::ai_install_runtime,

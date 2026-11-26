@@ -104,13 +104,17 @@ describe("AI provider usage", () => {
     expect(
       remainingLimits({
         rateLimits: {
-          primary: { usedPercent: 25, resetsAt: 1800000000 },
-          secondary: { usedPercent: 110 },
+          primary: {
+            usedPercent: 25,
+            resetsAt: 1800000000,
+            windowDurationMins: 300,
+          },
+          secondary: { usedPercent: 110, windowDurationMins: 10080 },
         },
       }),
     ).toEqual([
-      { label: "Current window", remaining: 75, resetsAt: 1800000000 },
-      { label: "Weekly window", remaining: 0, resetsAt: undefined },
+      { label: "5-hour window", remaining: 75, resetsAt: 1800000000 },
+      { label: "Weekly", remaining: 0, resetsAt: undefined },
     ]);
     expect(remainingLimits({ "x-ratelimit-remaining-tokens": "5000" })).toEqual(
       [],
@@ -127,16 +131,52 @@ describe("AI provider usage", () => {
         "anthropic-ratelimit-requests-reset": "2027-01-15T00:00:00Z",
       }),
     ).toEqual([
-      { label: "Token rate limit", remaining: 50 },
+      { label: "Token rate limit", remaining: 50, total: 1000, available: 500 },
       {
         label: "Request rate limit",
         remaining: 25,
+        total: 40,
+        available: 10,
         resetsAt: Date.parse("2027-01-15T00:00:00Z") / 1000,
       },
     ]);
     expect(
       remainingLimits({ rateLimitType: "five_hour", utilization: 0.5 }),
-    ).toEqual([{ label: "five hour", remaining: 50, resetsAt: undefined }]);
+    ).toEqual([
+      { label: "5-hour allowance", remaining: 50, resetsAt: undefined },
+    ]);
+  });
+  it("anchors relative reset times to the request and retains separate allowance windows", () => {
+    const observedAt = 1800000000000;
+    expect(
+      remainingLimits(
+        {
+          "x-ratelimit-limit-tokens": "100",
+          "x-ratelimit-remaining-tokens": "2",
+          "x-ratelimit-reset-tokens": "1m30.5s",
+        },
+        observedAt,
+      )[0],
+    ).toMatchObject({ remaining: 2, resetsAt: 1800000090.5 });
+    const record = usageRecorder("claude-limit-fixture");
+    record("limits", { rateLimitType: "five_hour", utilization: 0.8 });
+    record("limits", { rateLimitType: "seven_day", utilization: 0.5 });
+    expect(
+      remainingLimits(aiSnapshot().usage["claude-limit-fixture"].limits).map(
+        ({ label }) => label,
+      ),
+    ).toEqual(["5-hour allowance", "Weekly allowance"]);
+  });
+  it("does not treat estimates as provider-reported spend or assume a currency", () => {
+    const record = usageRecorder("pricing-fixture");
+    record("cost", { amount: 0.02, currency: "USD", estimated: true });
+    record("cost", { amount: 0.02, currency: "USD", estimated: true });
+    record("cost", { amount: 12, currency: "EUR" });
+    record("cost", { amount: 0.01, currency: "USD" });
+    expect(aiSnapshot().usage["pricing-fixture"]).toMatchObject({
+      costUSD: 0.01,
+      estimatedCostUSD: 0.02,
+    });
   });
   it("routes the actual AI publishers while leaving unrelated extension panels alone", () => {
     expect(isAIExtension("OpenAI.ChatGPT")).toBe(true);

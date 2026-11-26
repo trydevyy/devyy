@@ -143,6 +143,8 @@ export interface AIUsage {
   limits?: Record<string, unknown>;
   observedAt?: number;
   costUSD?: number;
+  estimatedCostUSD?: number;
+  planLimitHitAt?: number;
   requests?: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;
@@ -309,8 +311,15 @@ function savedUsage(): Record<string, AIUsage> {
               requests: numeric(usage.requests),
               cachedInputTokens: numeric(usage.cachedInputTokens),
               reasoningTokens: numeric(usage.reasoningTokens),
-              ...(typeof usage.costUSD === "number" && usage.costUSD >= 0
+              ...(typeof usage.costUSD === "number" &&
+              Number.isFinite(usage.costUSD) &&
+              usage.costUSD >= 0
                 ? { costUSD: usage.costUSD }
+                : {}),
+              ...(typeof usage.estimatedCostUSD === "number" &&
+              Number.isFinite(usage.estimatedCostUSD) &&
+              usage.estimatedCostUSD >= 0
+                ? { estimatedCostUSD: usage.estimatedCostUSD }
                 : {}),
             },
           ];
@@ -397,10 +406,15 @@ function update(patch: Partial<AIState>) {
         JSON.stringify(
           Object.fromEntries(
             Object.entries(state.usage).map(
-              ([id, { limits: _limits, observedAt: _observed, ...usage }]) => [
+              ([
                 id,
-                usage,
-              ],
+                {
+                  limits: _limits,
+                  observedAt: _observed,
+                  planLimitHitAt: _hit,
+                  ...usage
+                },
+              ]) => [id, usage],
             ),
           ),
         ),
@@ -770,9 +784,10 @@ export function tokenUsage(data: Record<string, unknown>): {
       numeric(data.input_tokens ?? data.prompt_tokens ?? data.inputTokens) +
       numeric(data.cache_read_input_tokens) +
       numeric(data.cache_creation_input_tokens),
-    output: numeric(
-      data.output_tokens ?? data.completion_tokens ?? data.outputTokens,
-    ),
+    output:
+      numeric(
+        data.output_tokens ?? data.completion_tokens ?? data.outputTokens,
+      ) + numeric(data.thinking_tokens),
   };
 }
 export function usageRecorder(providerId: string) {
@@ -781,9 +796,11 @@ export function usageRecorder(providerId: string) {
     cached = 0,
     reasoning = 0,
     cost = 0,
+    estimatedCost = 0,
     counted = false;
   return (kind: string, value?: unknown) => {
-    if (!["usage", "cost", "limits", "request"].includes(kind)) return;
+    if (!["usage", "cost", "limits", "plan-limit", "request"].includes(kind))
+      return;
     const old = state.usage[providerId] ?? {
       tokens: 0,
       inputTokens: 0,
@@ -799,17 +816,43 @@ export function usageRecorder(providerId: string) {
       counted = true;
       next.requests = (old.requests ?? 0) + 1;
     }
-    if (kind === "limits")
-      next = { ...old, limits: data, observedAt: Date.now() };
+    if (
+      kind === "plan-limit" &&
+      state.providers.some((p) => p.id === providerId && p.kind === "chatgpt")
+    )
+      next.planLimitHitAt = data.exceeded === true ? Date.now() : undefined;
+    if (kind === "limits") {
+      const rateLimitType =
+        typeof data.rateLimitType === "string" ? data.rateLimitType : undefined;
+      if (rateLimitType && /^[a-z0-9_]{1,64}$/i.test(rateLimitType)) {
+        const windows = old.limits?.claudeWindows as
+          Record<string, unknown> | undefined;
+        next.limits = {
+          claudeWindows: {
+            ...windows,
+            [rateLimitType]: { ...data, observedAt: Date.now() },
+          },
+        };
+      } else next.limits = data;
+      next.observedAt = Date.now();
+    }
     if (kind === "cost") {
       if (
         typeof data.amount !== "number" ||
         !Number.isFinite(data.amount) ||
-        data.amount < 0
+        data.amount < 0 ||
+        (data.currency !== undefined && data.currency !== "USD")
       )
         return;
-      next.costUSD = (old.costUSD ?? 0) + Math.max(0, data.amount - cost);
-      cost = Math.max(cost, data.amount);
+      if (data.estimated === true) {
+        next.estimatedCostUSD =
+          (old.estimatedCostUSD ?? 0) +
+          Math.max(0, data.amount - estimatedCost);
+        estimatedCost = Math.max(estimatedCost, data.amount);
+      } else {
+        next.costUSD = (old.costUSD ?? 0) + Math.max(0, data.amount - cost);
+        cost = Math.max(cost, data.amount);
+      }
     }
     if (kind === "usage") {
       const normalized = tokenUsage(data),
@@ -823,6 +866,8 @@ export function usageRecorder(providerId: string) {
         numeric(
           (raw.input_tokens_details as Record<string, unknown> | undefined)
             ?.cached_tokens ??
+            (raw.prompt_tokens_details as Record<string, unknown> | undefined)
+              ?.cached_tokens ??
             raw.cached_input_tokens ??
             raw.cache_read_input_tokens ??
             raw.cache_read_tokens,
@@ -833,6 +878,10 @@ export function usageRecorder(providerId: string) {
         numeric(
           (raw.output_tokens_details as Record<string, unknown> | undefined)
             ?.reasoning_tokens ??
+            (
+              raw.completion_tokens_details as
+                Record<string, unknown> | undefined
+            )?.reasoning_tokens ??
             raw.reasoning_output_tokens ??
             raw.reasoning_tokens ??
             raw.thinking_tokens,
@@ -1185,6 +1234,9 @@ export async function aiAccount(
                 ...usage,
                 limits: reported,
                 observedAt: reported ? Date.now() : undefined,
+                planLimitHitAt: changedAccount
+                  ? undefined
+                  : usage.planLimitHitAt,
               },
             },
           }
@@ -1195,43 +1247,110 @@ export async function aiAccount(
     unlisten();
   }
 }
+type RemainingLimit = {
+  label: string;
+  remaining: number;
+  resetsAt?: number;
+  observedAt?: number;
+  total?: number;
+  available?: number;
+  approximate?: boolean;
+  status?: string;
+};
+
+function resetTime(value: unknown, observedAt?: number): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0)
+    return value;
+  if (typeof value !== "string") return;
+  if (/^\d{4}-/.test(value)) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed / 1000 : undefined;
+  }
+  // OpenAI reset headers contain durations (e.g. 1m30s or 125ms).
+  if (!observedAt || !/^(?:\d+(?:\.\d+)?(?:ms|s|m|h|d))+$/.test(value)) return;
+  const unitSeconds: Record<string, number> = {
+    ms: 0.001,
+    s: 1,
+    m: 60,
+    h: 3600,
+    d: 86400,
+  };
+  return (
+    observedAt / 1000 +
+    Array.from(value.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h|d)/g)).reduce(
+      (sum, [, count, unit]) => sum + Number(count) * unitSeconds[unit],
+      0,
+    )
+  );
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
 export function remainingLimits(
   raw?: Record<string, unknown>,
-): { label: string; remaining: number; resetsAt?: number }[] {
+  observedAt?: number,
+): RemainingLimit[] {
   if (!raw) return [];
+  if (raw.claudeWindows && typeof raw.claudeWindows === "object")
+    return Object.values(raw.claudeWindows).flatMap((value) =>
+      remainingLimits(value, value.observedAt),
+    );
   const data = (raw.rateLimits ?? raw) as Record<string, unknown>;
   const windows = (
     [
-      ["primary", "Current window"],
-      ["secondary", "Weekly window"],
+      ["primary", "Primary window"],
+      ["secondary", "Secondary window"],
     ] as const
-  ).flatMap(([key, label]) => {
+  ).flatMap(([key, fallback]) => {
     const window = data[key] as Record<string, unknown> | undefined;
     if (
-      !window ||
-      typeof window.usedPercent !== "number" ||
+      typeof window?.usedPercent !== "number" ||
       !Number.isFinite(window.usedPercent)
     )
       return [];
+    const minutes = window.windowDurationMins;
+    const label =
+      minutes === 10080
+        ? "Weekly"
+        : minutes === 1440
+          ? "Daily"
+          : typeof minutes === "number" &&
+              minutes > 0 &&
+              Number.isFinite(minutes)
+            ? minutes % 60 === 0
+              ? `${minutes / 60}-hour window`
+              : `${minutes}-minute window`
+            : fallback;
     return [
       {
         label,
-        remaining: Math.max(0, Math.min(100, 100 - window.usedPercent)),
-        resetsAt:
-          typeof window.resetsAt === "number" ? window.resetsAt : undefined,
+        remaining: clampPercent(100 - window.usedPercent),
+        resetsAt: resetTime(window.resetsAt),
       },
     ];
   });
   if (windows.length) return windows;
   if (typeof raw.utilization === "number" && Number.isFinite(raw.utilization)) {
+    const labels: Record<string, string> = {
+      five_hour: "5-hour allowance",
+      seven_day: "Weekly allowance",
+      seven_day_sonnet: "Weekly Sonnet allowance",
+      seven_day_opus: "Weekly Opus allowance",
+      overage: "Extra usage",
+    };
     return [
       {
         label:
           typeof raw.rateLimitType === "string"
-            ? raw.rateLimitType.replaceAll("_", " ")
-            : "Reported window",
-        remaining: Math.max(0, Math.min(100, (1 - raw.utilization) * 100)),
-        resetsAt: typeof raw.resetsAt === "number" ? raw.resetsAt : undefined,
+            ? (labels[raw.rateLimitType] ??
+              raw.rateLimitType.replaceAll("_", " "))
+            : "Reported allowance",
+        remaining: clampPercent((1 - raw.utilization) * 100),
+        resetsAt: resetTime(raw.resetsAt),
+        ...(observedAt ? { observedAt } : {}),
+        ...(raw.status === "rejected" ? { status: "Limit reached" } : {}),
       },
     ];
   }
@@ -1244,34 +1363,36 @@ export function remainingLimits(
     ["anthropic-ratelimit", "input-tokens", "Input token rate limit"],
     ["anthropic-ratelimit", "output-tokens", "Output token rate limit"],
   ].flatMap(([prefix, key, label]) => {
+    const anthropic = prefix === "anthropic-ratelimit";
     const header = (field: string) =>
-      prefix === "anthropic-ratelimit"
+      anthropic
         ? raw[`${prefix}-${key}-${field}`]
         : raw[`${prefix}-${field}-${key}`];
-    const total = header("limit");
-    const left = header("remaining");
+    const parse = (field: string) => {
+      const value = header(field);
+      return typeof value === "number" ||
+        (typeof value === "string" && !!value.trim())
+        ? Number(value)
+        : NaN;
+    };
+    const total = parse("limit"),
+      available = parse("remaining");
     if (
-      (typeof total !== "string" && typeof total !== "number") ||
-      (typeof left !== "string" && typeof left !== "number") ||
-      !Number.isFinite(Number(total)) ||
-      Number(total) <= 0 ||
-      !Number.isFinite(Number(left)) ||
-      String(left).trim() === ""
+      !Number.isFinite(total) ||
+      total <= 0 ||
+      !Number.isFinite(available) ||
+      available < 0
     )
       return [];
-    const reset = header("reset");
-    const date =
-      typeof reset === "string" && /^\d{4}-/.test(reset)
-        ? Date.parse(reset)
-        : NaN;
+    const resetsAt = resetTime(header("reset"), observedAt);
     return [
       {
         label,
-        remaining: Math.max(
-          0,
-          Math.min(100, (Number(left) / Number(total)) * 100),
-        ),
-        ...(Number.isFinite(date) ? { resetsAt: date / 1000 } : {}),
+        remaining: clampPercent((available / total) * 100),
+        total,
+        available,
+        ...(resetsAt !== undefined ? { resetsAt } : {}),
+        ...(anthropic && key !== "requests" ? { approximate: true } : {}),
       },
     ];
   });

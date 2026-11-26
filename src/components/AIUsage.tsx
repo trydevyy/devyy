@@ -21,10 +21,183 @@ import { useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Clock3, ExternalLink, RefreshCw, X } from "lucide-react";
-import { aiAccount, remainingLimits, useAI } from "../lib/ai";
+import { aiAccount, remainingLimits, useAI, type AIProvider } from "../lib/ai";
 import { invoke, native } from "../lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import AIProviderIcon from "./AIProviderIcon";
+type SpendingBudget = {
+  limit: number | null;
+  remaining: number | null;
+  period: string | null;
+  resetsAt?: string | null;
+  scope?: string | null;
+};
+
+type KeyUsage = SpendingBudget & {
+  usage: number | null;
+  usageDaily: number | null;
+  usageWeekly: number | null;
+  usageMonthly: number | null;
+  byokUsage: number | null;
+  effective: SpendingBudget | null;
+  freeRequests: { limit: number | null; remaining: number | null } | null;
+};
+
+const usd = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 6,
+});
+const money = (value: number) =>
+  value > 0 && value < 0.000001
+    ? `< ${usd.format(0.000001)}`
+    : usd.format(value);
+
+function isOpenRouter(provider: AIProvider): boolean {
+  try {
+    const endpoint = new URL(provider.endpoint);
+    return (
+      provider.kind === "custom" &&
+      endpoint.origin === "https://openrouter.ai" &&
+      endpoint.pathname.replace(/\/+$/, "") === "/api/v1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function providerUsageHelp(provider: AIProvider) {
+  if (isOpenRouter(provider))
+    return {
+      label: "OpenRouter activity",
+      url: "https://openrouter.ai/activity",
+      limits:
+        "Refresh to check the configured key’s spending cap and remaining budget.",
+    };
+  switch (provider.kind) {
+    case "chatgpt":
+      return {
+        url: "https://chatgpt.com/settings/usage",
+        label: "ChatGPT usage",
+        limits:
+          "Review shared allowance, app limits, reset times and credits in ChatGPT Settings.",
+      };
+    case "claude":
+      return {
+        url: "https://claude.ai/settings/usage",
+        label: "Claude plan usage",
+        limits:
+          "Claude Code reports some allowance windows after a request. Use /usage in Claude Code or open Claude Settings for the complete view.",
+      };
+    case "openai":
+      return {
+        url: "https://platform.openai.com/usage",
+        label: "OpenAI billing usage",
+        limits:
+          "API request and token limits are reported after inference. Check the provider dashboard for spend and organization limits.",
+      };
+    case "anthropic":
+      return {
+        url: "https://platform.claude.com/usage",
+        label: "Claude Console usage",
+        limits:
+          "API request and token limits are reported after inference. Check Claude Console for spend and organization limits.",
+      };
+    case "antigravity":
+      return {
+        url: "https://antigravity.google/docs/cli/commands/usage",
+        label: "Antigravity quota guide",
+        limits:
+          "Use /usage in Antigravity for model-group quotas and resets, or /credits for credit balance. Headless replies report token totals.",
+      };
+    case "opencode":
+      return {
+        url: "https://opencode.ai/docs/cli/commands/#stats",
+        label: "OpenCode stats guide",
+        limits:
+          "OpenCode uses the selected upstream provider’s limits. Use opencode stats --cost to view local OpenCode usage.",
+      };
+    default:
+      return {
+        limits:
+          "This connection hasn’t returned a supported limit. Check usage with the provider that supplies the model.",
+      };
+  }
+}
+
+function UsageLink({ url, label }: { url: string; label: string }) {
+  return (
+    <a
+      className="setting-action"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        if (native) {
+          event.preventDefault();
+          void openUrl(url).catch(() => {});
+        }
+      }}
+    >
+      {label} <ExternalLink size={12} />
+    </a>
+  );
+}
+
+function KeyBudget({
+  budget,
+  name,
+  now,
+}: {
+  budget: SpendingBudget;
+  name: string;
+  now: number;
+}) {
+  const { limit, remaining, period, resetsAt } = budget;
+  const reset = resetsAt ? Date.parse(resetsAt) : NaN;
+  const expired = reset <= now;
+  const capped = limit !== null && remaining !== null;
+  const percent =
+    capped && limit > 0
+      ? Math.max(0, Math.min(100, (remaining / limit) * 100))
+      : 0;
+  return (
+    <div className="ai-cost-card">
+      <span>{period ? `${name} (${period})` : name}</span>
+      <strong>
+        {expired
+          ? "Reset due"
+          : limit === null
+            ? "No spending cap"
+            : remaining === null
+              ? "Remaining unavailable"
+              : `${money(remaining)} left`}
+      </strong>
+      {capped && !expired && (
+        <div
+          className="ai-quota-track ai-usage-budget-meter"
+          role="meter"
+          aria-label={`${name} remaining`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          aria-valuetext={`${money(remaining)} of ${money(limit)} left`}
+        >
+          <i style={{ width: `${percent}%` }} />
+        </div>
+      )}
+      {limit !== null && <small>Key spending cap {money(limit)}</small>}
+      {Number.isFinite(reset) && (
+        <small>
+          {expired
+            ? "Refresh to check the new window"
+            : `Resets in ${timeUntil(reset / 1000, now)}`}
+        </small>
+      )}
+    </div>
+  );
+}
+
 export function timeUntil(timestamp?: number, now = Date.now()): string {
   if (!timestamp) return "";
   const minutes = Math.max(0, Math.ceil((timestamp * 1000 - now) / 60000));
@@ -50,7 +223,16 @@ export default function AIUsage({
     [busy, setBusy] = useState(false),
     [errors, setErrors] = useState<Record<string, string>>({}),
     [now, setNow] = useState(Date.now()),
-    [checked, setChecked] = useState<number>();
+    [keyUsage, setKeyUsage] = useState<
+      Record<
+        string,
+        {
+          snapshot: KeyUsage;
+          observedAt: number;
+          provider: AIProvider;
+        }
+      >
+    >({});
   const dialog = useRef<HTMLDivElement>(null),
     requests = useRef<string[]>([]),
     close = useRef(onClose);
@@ -88,7 +270,7 @@ export default function AIUsage({
       }
     };
     document.addEventListener("keydown", key, true);
-    const timer = setInterval(() => setNow(Date.now()), 30000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       clearInterval(timer);
       document.removeEventListener("keydown", key, true);
@@ -97,27 +279,57 @@ export default function AIUsage({
         void invoke("ai_cancel", { requestId }).catch(() => {});
     };
   }, [present]);
+  const refreshable = providers.filter(
+    (p) =>
+      p.enabled !== false &&
+      (p.kind === "chatgpt" ||
+        p.kind === "claude" ||
+        (isOpenRouter(p) && p.hasKey)),
+  );
+  const largestCost = Math.max(
+    0,
+    ...providers.flatMap(({ id }) => [
+      state.usage[id]?.costUSD ?? 0,
+      state.usage[id]?.estimatedCostUSD ?? 0,
+    ]),
+  );
+  const comparableCosts =
+    providers.filter(
+      ({ id }) =>
+        state.usage[id]?.costUSD !== undefined ||
+        state.usage[id]?.estimatedCostUSD !== undefined,
+    ).length > 1;
+
   async function refresh() {
     if (!native) return;
     setBusy(true);
     const failed: Record<string, string> = {};
     await Promise.allSettled(
-      providers
-        .filter((p) => ["chatgpt", "claude"].includes(p.kind))
-        .map(async (p) => {
-          const id = crypto.randomUUID();
-          requests.current.push(id);
-          try {
+      refreshable.map(async (p) => {
+        const id = crypto.randomUUID();
+        requests.current.push(id);
+        try {
+          if (isOpenRouter(p)) {
+            const snapshot = await invoke<KeyUsage>("ai_billing_snapshot", {
+              providerId: p.id,
+              requestId: id,
+            });
+            setKeyUsage((prev) => ({
+              ...prev,
+              [p.id]: { snapshot, observedAt: Date.now(), provider: p },
+            }));
+          } else {
             await aiAccount(p.id, "status", id);
-          } catch (e) {
-            failed[p.id] = String(e);
-          } finally {
-            requests.current = requests.current.filter((k) => k !== id);
           }
-        }),
+        } catch (e) {
+          failed[p.id] = String(e);
+        } finally {
+          requests.current = requests.current.filter((k) => k !== id);
+        }
+      }),
     );
     setErrors(failed);
-    setChecked(Date.now());
+    setNow(Date.now());
     setBusy(false);
   }
   const content = (
@@ -170,7 +382,8 @@ export default function AIUsage({
           className="icon-button"
           aria-label="Refresh AI usage"
           onClick={() => void refresh()}
-          disabled={busy || !native}
+          title="Check connections and supported live budgets"
+          disabled={busy || !native || !refreshable.length}
         >
           <RefreshCw size={15} />
         </button>
@@ -190,7 +403,26 @@ export default function AIUsage({
             account = state.accounts[provider.id],
             raw = (usage?.limits ?? account?.limits) as
               Record<string, unknown> | undefined,
-            limits = remainingLimits(raw),
+            limits = remainingLimits(raw, usage?.observedAt),
+            guide = providerUsageHelp(provider),
+            claudeRejection =
+              provider.kind === "claude" &&
+              [
+                raw,
+                ...Object.values(
+                  (raw?.claudeWindows as
+                    Record<string, Record<string, unknown>> | undefined) ?? {},
+                ),
+              ].some(
+                (event) =>
+                  event?.status === "rejected" &&
+                  typeof event.utilization !== "number" &&
+                  (typeof event.resetsAt !== "number" ||
+                    event.resetsAt * 1000 > now),
+              ),
+            keyResult = keyUsage[provider.id],
+            keySnapshot =
+              keyResult?.provider === provider ? keyResult.snapshot : undefined,
             identity = (
               ["chatgpt"].includes(provider.kind)
                 ? account?.account
@@ -206,98 +438,168 @@ export default function AIUsage({
               </h3>
               {tab === "limits" ? (
                 <>
-                  {limits.length ? (
-                    limits.map((limit, index) => (
-                      <div
-                        className="ai-quota-card"
-                        key={`${limit.label}:${index}`}
-                      >
-                        <div>
-                          <span>
-                            {limit.label === "Weekly window"
-                              ? "Weekly"
-                              : limit.label === "Current window"
-                                ? "Session"
-                                : limit.label}
-                          </span>
-                          <strong>
-                            {Math.round(limit.remaining)}% <small>left</small>
-                          </strong>
-                        </div>
-                        <div
-                          className="ai-quota-track"
-                          role="meter"
-                          aria-label={`${provider.name} ${limit.label === "Weekly window" ? "weekly" : limit.label === "Current window" ? "session" : limit.label} remaining`}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={limit.remaining}
-                        >
-                          <i style={{ width: `${limit.remaining}%` }} />
-                          {limit.resetsAt && (
-                            <span
-                              title={`Resets ${new Date(limit.resetsAt * 1000).toLocaleString()}`}
-                            >
-                              <Clock3 size={11} />
-                              {timeUntil(limit.resetsAt, now)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
+                  {provider.kind === "chatgpt" && (
                     <div className="ai-quota-unavailable">
-                      <strong>
-                        {provider.kind === "chatgpt"
-                          ? "ChatGPT plan usage"
-                          : "No reported limits"}
-                      </strong>
+                      <strong>ChatGPT plan allowance</strong>
                       <span>
-                        {provider.kind === "claude"
-                          ? "Remaining quota isn’t reported by Claude Code"
-                          : ["chatgpt"].includes(provider.kind)
-                            ? "Review your remaining allowance, app limits, and credits in ChatGPT."
-                            : "Account balance isn’t reported by this API"}
+                        {!identity
+                          ? "Connect a ChatGPT account in AI Providers."
+                          : account?.planEnabled === false
+                            ? "Plan access is off for Devyy."
+                            : usage?.planLimitHitAt
+                              ? `ChatGPT reported a usage limit for Devyy at ${new Date(usage.planLimitHitAt).toLocaleTimeString()}.`
+                              : guide.limits}
                       </span>
-                      {provider.kind === "chatgpt" && (
-                        <a
-                          className="setting-action"
-                          href="https://chatgpt.com/settings/usage"
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(event) => {
-                            if (!native) return;
-                            event.preventDefault();
-                            void openUrl(
-                              "https://chatgpt.com/settings/usage",
-                            ).catch((error) =>
-                              setErrors((previous) => ({
-                                ...previous,
-                                [provider.id]: String(error),
-                              })),
-                            );
-                          }}
-                        >
-                          Manage ChatGPT usage <ExternalLink size={12} />
-                        </a>
+                      {guide.url && (
+                        <UsageLink url={guide.url} label={guide.label} />
                       )}
                     </div>
                   )}
-                  {raw && usage?.observedAt && limits.length > 0 && (
-                    <small className="settings-note">
-                      Last reported at{" "}
-                      {new Date(usage.observedAt).toLocaleTimeString()}
-                      {provider.kind === "chatgpt" &&
-                        limits.some(({ label }) =>
-                          label.includes("rate limit"),
-                        ) &&
-                        ". Request rate limits are separate from your ChatGPT plan allowance."}
-                    </small>
+                  {keySnapshot && (
+                    <>
+                      <KeyBudget
+                        budget={keySnapshot}
+                        name="OpenRouter key budget"
+                        now={now}
+                      />
+                      {keySnapshot.effective && (
+                        <KeyBudget
+                          budget={keySnapshot.effective}
+                          name={
+                            keySnapshot.effective.scope
+                              ? `Effective OpenRouter budget (${keySnapshot.effective.scope})`
+                              : "Effective OpenRouter budget"
+                          }
+                          now={now}
+                        />
+                      )}
+                      {keySnapshot.freeRequests?.remaining != null &&
+                        keySnapshot.freeRequests.limit != null && (
+                          <div className="ai-quota-unavailable">
+                            <strong>Daily free-model requests</strong>
+                            <span>
+                              {keySnapshot.freeRequests.remaining.toLocaleString()}{" "}
+                              /{" "}
+                              {keySnapshot.freeRequests.limit.toLocaleString()}{" "}
+                              remaining
+                            </span>
+                          </div>
+                        )}
+                      <small className="ai-usage-observed">
+                        Checked{" "}
+                        {new Date(keyResult.observedAt).toLocaleTimeString()} ·
+                        Across apps using the configured key
+                      </small>
+                    </>
                   )}
+                  {claudeRejection && (
+                    <div className="ai-quota-unavailable">
+                      <strong>Claude Code reported a limit</strong>
+                      <span>
+                        Open Claude usage for the remaining allowance and reset
+                        information.
+                      </span>
+                    </div>
+                  )}
+                  {limits.length > 0 ? (
+                    limits.map((limit, index) => {
+                      const expired =
+                        limit.resetsAt !== undefined &&
+                        limit.resetsAt * 1000 <= now;
+                      const observedAt = limit.observedAt ?? usage?.observedAt;
+                      const displayPercent =
+                        limit.remaining >= 99.95 && limit.remaining < 100
+                          ? "<100"
+                          : limit.remaining > 0 && limit.remaining < 0.05
+                            ? "<0.1"
+                            : limit.remaining.toLocaleString(undefined, {
+                                maximumFractionDigits: 1,
+                              });
+                      return (
+                        <div
+                          className="ai-quota-card"
+                          key={`${limit.label}:${index}`}
+                        >
+                          <div>
+                            <span>{limit.label}</span>
+                            <strong>
+                              {expired ? (
+                                "Reset due"
+                              ) : (
+                                <>
+                                  {displayPercent}% <small>left</small>
+                                </>
+                              )}
+                            </strong>
+                            {limit.total !== undefined && !expired && (
+                              <small>
+                                {limit.approximate ? "≈ " : ""}
+                                {limit.available?.toLocaleString()} /{" "}
+                                {limit.total.toLocaleString()}
+                              </small>
+                            )}
+                            {limit.status && !expired && (
+                              <small>{limit.status}</small>
+                            )}
+                            {observedAt && (
+                              <small className="ai-usage-observed">
+                                Observed{" "}
+                                {new Date(observedAt).toLocaleTimeString()}
+                              </small>
+                            )}
+                          </div>
+                          <div
+                            className="ai-quota-track"
+                            role={expired ? undefined : "meter"}
+                            aria-label={`${provider.name} ${limit.label} remaining`}
+                            aria-valuemin={expired ? undefined : 0}
+                            aria-valuemax={expired ? undefined : 100}
+                            aria-valuenow={
+                              expired ? undefined : limit.remaining
+                            }
+                          >
+                            {!expired && (
+                              <i style={{ width: `${limit.remaining}%` }} />
+                            )}
+                            {limit.resetsAt !== undefined && (
+                              <span
+                                title={`Reset time ${new Date(limit.resetsAt * 1000).toLocaleString()}`}
+                              >
+                                <Clock3 size={11} />
+                                {expired
+                                  ? "Awaiting next report"
+                                  : timeUntil(limit.resetsAt, now)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : provider.kind !== "chatgpt" &&
+                    !keySnapshot &&
+                    !claudeRejection ? (
+                    <div className="ai-quota-unavailable">
+                      <strong>Limit data unavailable</strong>
+                      <span>{guide.limits}</span>
+                    </div>
+                  ) : null}
+                  {provider.kind === "chatgpt" &&
+                    limits.some(({ total }) => total !== undefined) && (
+                      <small className="settings-note">
+                        API request limits apply separately from the ChatGPT
+                        plan allowance.
+                      </small>
+                    )}
                   {raw && !limits.length && (
                     <details className="ai-raw-limits">
-                      <DisclosureSummary>Request limits</DisclosureSummary>
+                      <DisclosureSummary>
+                        Provider limit report
+                      </DisclosureSummary>
                       <pre>{JSON.stringify(raw, null, 2)}</pre>
                     </details>
+                  )}
+                  {provider.kind !== "chatgpt" && guide.url && (
+                    <UsageLink url={guide.url} label={guide.label} />
                   )}
                   {identity && (
                     <div className="ai-usage-account">
@@ -335,79 +637,176 @@ export default function AIUsage({
                   )}
                 </>
               ) : tab === "tokens" ? (
-                <div className="ai-token-card">
-                  <div>
-                    <span>Input</span>
-                    <strong>
-                      {(usage?.inputTokens ?? 0).toLocaleString()}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Output</span>
-                    <strong>
-                      {(usage?.outputTokens ?? 0).toLocaleString()}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Requests</span>
-                    <strong>{usage?.requests ?? 0}</strong>
-                  </div>
-                  {!!usage?.cachedInputTokens && (
+                usage?.tokens ? (
+                  <div className="ai-token-card">
                     <div>
-                      <span>Cached input (included)</span>
+                      <span>Input</span>
                       <strong>
-                        {usage.cachedInputTokens.toLocaleString()}
+                        {(usage?.inputTokens ?? 0).toLocaleString()}
                       </strong>
                     </div>
-                  )}
-                  {!!usage?.reasoningTokens && (
                     <div>
-                      <span>Reasoning (included in output)</span>
-                      <strong>{usage.reasoningTokens.toLocaleString()}</strong>
+                      <span>Output</span>
+                      <strong>
+                        {(usage?.outputTokens ?? 0).toLocaleString()}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Requests</span>
+                      <strong>{usage?.requests ?? 0}</strong>
+                    </div>
+                    {!!usage?.cachedInputTokens && (
+                      <div>
+                        <span>Cached input (included)</span>
+                        <strong>
+                          {usage.cachedInputTokens.toLocaleString()}
+                        </strong>
+                      </div>
+                    )}
+                    {!!usage?.reasoningTokens && (
+                      <div>
+                        <span>Reasoning (included in output)</span>
+                        <strong>
+                          {usage.reasoningTokens.toLocaleString()}
+                        </strong>
+                      </div>
+                    )}
+                    <div
+                      className="ai-token-bar"
+                      role="img"
+                      aria-label={`${usage?.inputTokens ?? 0} input tokens, ${usage?.outputTokens ?? 0} output tokens`}
+                    >
+                      <i
+                        style={{
+                          width: `${usage?.tokens ? (usage.inputTokens / usage.tokens) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ai-quota-unavailable">
+                    <strong>No token data recorded</strong>
+                    <span>
+                      {usage?.requests
+                        ? `${usage.requests.toLocaleString()} Devyy requests without recorded token totals.`
+                        : "Token totals appear after a provider reports usage."}
+                    </span>
+                  </div>
+                )
+              ) : (
+                <>
+                  {keySnapshot && (
+                    <div className="ai-cost-card">
+                      <span>OpenRouter key spending</span>
+                      <strong>
+                        {keySnapshot.usage === null
+                          ? "Unavailable"
+                          : money(keySnapshot.usage)}
+                      </strong>
+                      <div className="ai-usage-periods">
+                        {(
+                          [
+                            ["Today", keySnapshot.usageDaily],
+                            ["This week", keySnapshot.usageWeekly],
+                            ["This month", keySnapshot.usageMonthly],
+                          ] as const
+                        ).map(
+                          ([label, amount]) =>
+                            amount !== null && (
+                              <div key={label}>
+                                <span>{label}</span>
+                                <b>{money(amount)}</b>
+                              </div>
+                            ),
+                        )}
+                      </div>
+                      {keySnapshot.byokUsage !== null &&
+                        keySnapshot.byokUsage > 0 && (
+                          <small>
+                            Separate bring-your-own-key usage reported by
+                            OpenRouter {money(keySnapshot.byokUsage)}
+                          </small>
+                        )}
+                      <small>
+                        Across apps using this key · Checked{" "}
+                        {new Date(keyResult.observedAt).toLocaleTimeString()}
+                      </small>
                     </div>
                   )}
-                  <div
-                    className="ai-token-bar"
-                    role="img"
-                    aria-label={`${usage?.inputTokens ?? 0} input tokens, ${usage?.outputTokens ?? 0} output tokens`}
-                  >
-                    <i
-                      style={{
-                        width: `${usage?.tokens ? (usage.inputTokens / usage.tokens) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="ai-cost-card">
-                  <span>
-                    {provider.kind === "chatgpt"
-                      ? "ChatGPT plan usage"
-                      : "Reported usage cost"}
-                  </span>
-                  <strong>
-                    {provider.kind === "chatgpt"
-                      ? identity
-                        ? account?.planEnabled === false
-                          ? "Plan access off"
-                          : "Plan allowance"
-                        : "Not connected"
-                      : usage?.costUSD !== undefined
-                        ? new Intl.NumberFormat(undefined, {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 4,
-                          }).format(usage.costUSD)
-                        : "Unavailable"}
-                  </strong>
-                  <small>
-                    {provider.kind === "chatgpt"
-                      ? "Authorized ChatGPT requests use your plan allowance. This connection does not report a dollar cost; token totals appear under Tokens."
-                      : usage?.costUSD !== undefined
-                        ? "Provider-reported cost, separate from subscription billing"
-                        : "Not reported by this provider"}
-                  </small>
-                </div>
+                  {provider.kind === "chatgpt" ? (
+                    <div className="ai-cost-card">
+                      <span>ChatGPT plan billing</span>
+                      <strong>
+                        {identity
+                          ? account?.planEnabled === false
+                            ? "Plan access off"
+                            : "Plan and credits"
+                          : "Not connected"}
+                      </strong>
+                      <small>
+                        Devyy can record request tokens. ChatGPT Settings shows
+                        your allowance, credit use, and billing.
+                      </small>
+                    </div>
+                  ) : (
+                    <div className="ai-cost-card">
+                      {(
+                        [
+                          [
+                            provider.kind === "claude" ||
+                            provider.kind === "opencode"
+                              ? "CLI cost estimate"
+                              : "Reported request cost",
+                            usage?.costUSD,
+                          ],
+                          [
+                            "Estimated standard token cost",
+                            usage?.estimatedCostUSD,
+                          ],
+                        ] as const
+                      ).map(
+                        ([label, amount]) =>
+                          amount !== undefined && (
+                            <div className="ai-usage-spend" key={label}>
+                              <span>{label}</span>
+                              <strong>{money(amount)}</strong>
+                              {comparableCosts && largestCost > 0 && (
+                                <div
+                                  className="ai-quota-track"
+                                  aria-hidden="true"
+                                >
+                                  <i
+                                    style={{
+                                      width: `${(amount / largestCost) * 100}%`,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          ),
+                      )}
+                      {usage?.estimatedCostUSD !== undefined ||
+                      usage?.costUSD !== undefined ? (
+                        <small>
+                          {usage?.estimatedCostUSD !== undefined
+                            ? "Standard text-token estimates for supported models. Other models, usage, fees and discounts may be absent."
+                            : "Total from cost events recorded by Devyy. Subscription billing and requests without cost data are excluded."}
+                        </small>
+                      ) : (
+                        <>
+                          <span>Cost</span>
+                          <strong>Unavailable</strong>
+                          <small>
+                            No cost data has been recorded for this connection.
+                          </small>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {guide.url && (
+                    <UsageLink url={guide.url} label={guide.label} />
+                  )}
+                </>
               )}
               {errors[provider.id] && (
                 <ErrorToast message={errors[provider.id]} />
@@ -416,12 +815,7 @@ export default function AIUsage({
           );
         })}
         {tab !== "limits" && (
-          <p className="ai-usage-scope">
-            Recorded by Devyy on this device
-            {checked
-              ? ` / Checked ${new Date(checked).toLocaleTimeString()}`
-              : ""}
-          </p>
+          <p className="ai-usage-scope">Recorded by Devyy on this device</p>
         )}
       </div>
     </div>

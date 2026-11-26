@@ -32,6 +32,7 @@ use tokio::{
 };
 
 pub mod agent;
+pub(crate) mod billing;
 mod chatgpt;
 mod custom_cli;
 mod json_answer;
@@ -880,6 +881,14 @@ pub async fn ai_chat(
     let result = tokio::select! { result=future=>result, _=cancel.changed()=>{emit(&app,&request.request_id,"cancelled",Value::Null);return Ok(());} };
     match result {
         Ok(()) => {
+            if p.kind == "chatgpt" {
+                emit(
+                    &app,
+                    &request.request_id,
+                    "plan-limit",
+                    json!({"exceeded":false}),
+                );
+            }
             emit(&app, &request.request_id, "done", Value::Null);
             Ok(())
         }
@@ -1089,6 +1098,7 @@ async fn http_chat<R: tauri::Runtime>(
     let mut sse = Sse::default();
     let mut total = 0;
     let mut completed = false;
+    let mut billing_usage = json!({});
     while let Some(chunk) = response
         .chunk()
         .await
@@ -1118,10 +1128,20 @@ async fn http_chat<R: tauri::Runtime>(
                 emit(app, &r.request_id, "delta", json!(text));
             }
             if let Some(usage) = usage {
+                billing::merge_usage(&mut billing_usage, &usage);
+                billing::record_tier(&mut billing_usage, &value);
                 emit(app, &r.request_id, "usage", usage);
             }
         }
         if completed {
+            if let Some((amount, estimated)) = billing::cost(p, &billing_usage) {
+                emit(
+                    app,
+                    &r.request_id,
+                    "cost",
+                    json!({"amount":amount,"currency":"USD","estimated":estimated}),
+                );
+            }
             return Ok(());
         }
     }
@@ -1647,7 +1667,7 @@ async fn opencode_chat<R: tauri::Runtime>(
     let mut streamed = false;
     let mut finished = false;
     let mut total = 0;
-    let mut usage = json!({"input_tokens":0,"output_tokens":0,"reasoning_tokens":0,"cache_read_input_tokens":0});
+    let mut usage = json!({});
     let mut cost = 0.0;
     let mut completed_steps = HashSet::new();
     while let Some(line) = tokio::time::timeout(Duration::from_secs(180), lines.next_line())
@@ -1680,10 +1700,18 @@ async fn opencode_chat<R: tauri::Runtime>(
                     let tokens = &part["tokens"];
                     for (key, amount) in [
                         ("input_tokens", tokens["input"].as_u64().unwrap_or(0)),
-                        ("output_tokens", tokens["output"].as_u64().unwrap_or(0)),
+                        (
+                            "output_tokens",
+                            tokens["output"].as_u64().unwrap_or(0)
+                                + tokens["reasoning"].as_u64().unwrap_or(0),
+                        ),
                         (
                             "reasoning_tokens",
                             tokens["reasoning"].as_u64().unwrap_or(0),
+                        ),
+                        (
+                            "cache_creation_input_tokens",
+                            tokens["cache"]["write"].as_u64().unwrap_or(0),
                         ),
                         (
                             "cache_read_input_tokens",
@@ -1692,14 +1720,16 @@ async fn opencode_chat<R: tauri::Runtime>(
                     ] {
                         usage[key] = json!(usage[key].as_u64().unwrap_or(0) + amount);
                     }
-                    cost += part["cost"].as_f64().unwrap_or(0.0);
                     emit(app, &r.request_id, "usage", usage.clone());
-                    emit(
-                        app,
-                        &r.request_id,
-                        "cost",
-                        json!({"amount":cost,"currency":"USD"}),
-                    );
+                    if let Some(amount) = part["cost"].as_f64() {
+                        cost += amount;
+                        emit(
+                            app,
+                            &r.request_id,
+                            "cost",
+                            json!({"amount":cost,"currency":"USD"}),
+                        );
+                    }
                 }
             }
             "error" => return Err(opencode_error(&v)),

@@ -9393,6 +9393,39 @@ body {
   font-size: calc(10px * var(--ui-text-scale, 1));
   color: var(--muted);
 }
+.ai-usage-provider > .setting-action {
+  margin-top: 10px;
+}
+.ai-usage-budget-meter {
+  flex: none;
+  width: 100%;
+}
+.ai-usage-spend {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+.ai-usage-spend .ai-quota-track {
+  height: 6px;
+}
+.ai-usage-periods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.ai-usage-periods > div {
+  display: grid;
+  gap: 3px;
+}
+.ai-quota-card > div:first-child > small {
+  display: block;
+  margin-top: 4px;
+}
+.ai-usage-observed {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .ai-raw-limits {
   margin: 15px 0;
   color: var(--muted);

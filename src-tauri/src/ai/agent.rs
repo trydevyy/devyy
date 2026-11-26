@@ -731,7 +731,7 @@ async fn consume<R: tauri::Runtime>(
     let mut wire_bytes = 0usize;
     let mut calls: std::collections::BTreeMap<usize, Call> = Default::default();
     let mut blocks: std::collections::BTreeMap<usize, Value> = Default::default();
-    let mut usage = json!({"input_tokens":0,"output_tokens":0});
+    let mut usage = json!({});
     while let Some(chunk) = response
         .chunk()
         .await
@@ -748,6 +748,7 @@ async fn consume<R: tauri::Runtime>(
             }
             let value: Value =
                 serde_json::from_str(&data).map_err(|_| "Invalid agent stream event")?;
+            super::chatgpt::report_plan_limit(app, r, &value);
             let (text, reported, finished) = stream_event(&value)?;
             done |= finished;
             if value["type"] == "response.incomplete" {
@@ -768,36 +769,8 @@ async fn consume<R: tauri::Runtime>(
                 return Err("Agent response exceeded the size limit".into());
             }
             if let Some(reported) = reported {
-                let input = reported["input_tokens"]
-                    .as_u64()
-                    .or(reported["prompt_tokens"].as_u64())
-                    .unwrap_or(0)
-                    + reported["cache_read_input_tokens"].as_u64().unwrap_or(0)
-                    + reported["cache_creation_input_tokens"]
-                        .as_u64()
-                        .unwrap_or(0);
-                let output = reported["output_tokens"]
-                    .as_u64()
-                    .or(reported["completion_tokens"].as_u64())
-                    .unwrap_or(0);
-                usage["input_tokens"] =
-                    json!(usage["input_tokens"].as_u64().unwrap_or(0).max(input));
-                usage["output_tokens"] =
-                    json!(usage["output_tokens"].as_u64().unwrap_or(0).max(output));
-                for (target, pointer) in [
-                    ("cached_input_tokens", "/input_tokens_details/cached_tokens"),
-                    (
-                        "reasoning_output_tokens",
-                        "/output_tokens_details/reasoning_tokens",
-                    ),
-                ] {
-                    usage[target] = json!(usage[target].as_u64().unwrap_or(0).max(
-                        reported
-                            .pointer(pointer)
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0)
-                    ));
-                }
+                super::billing::merge_usage(&mut usage, &reported);
+                super::billing::record_tier(&mut usage, &value);
             }
             if protocol == "responses" && value["type"] == "response.completed" {
                 turn.output = value["response"]["output"]
@@ -915,6 +888,16 @@ async fn consume<R: tauri::Runtime>(
                 });
             }
             turn.output.push(block);
+        }
+    }
+    for (canonical, alias) in [
+        ("input_tokens", "prompt_tokens"),
+        ("output_tokens", "completion_tokens"),
+    ] {
+        if usage[canonical].is_null() {
+            if let Some(count) = usage[alias].as_u64() {
+                usage[canonical] = json!(count);
+            }
         }
     }
     Ok((turn, usage))
@@ -1227,10 +1210,18 @@ async fn opencode_turn<R: tauri::Runtime>(
                     let tokens = &part["tokens"];
                     for (name, count) in [
                         ("input_tokens", tokens["input"].as_u64().unwrap_or(0)),
-                        ("output_tokens", tokens["output"].as_u64().unwrap_or(0)),
+                        (
+                            "output_tokens",
+                            tokens["output"].as_u64().unwrap_or(0)
+                                + tokens["reasoning"].as_u64().unwrap_or(0),
+                        ),
                         (
                             "reasoning_tokens",
                             tokens["reasoning"].as_u64().unwrap_or(0),
+                        ),
+                        (
+                            "cache_creation_input_tokens",
+                            tokens["cache"]["write"].as_u64().unwrap_or(0),
                         ),
                         (
                             "cache_read_input_tokens",
@@ -1239,10 +1230,10 @@ async fn opencode_turn<R: tauri::Runtime>(
                     ] {
                         usage[name] = json!(usage[name].as_u64().unwrap_or(0) + count);
                     }
-                    usage["_costUSD"] = json!(
-                        usage["_costUSD"].as_f64().unwrap_or(0.0)
-                            + part["cost"].as_f64().unwrap_or(0.0)
-                    );
+                    if let Some(amount) = part["cost"].as_f64() {
+                        usage["_costUSD"] =
+                            json!(usage["_costUSD"].as_f64().unwrap_or(0.0) + amount);
+                    }
                 }
             }
             "error" => return Err(opencode_error(&value)),
@@ -1435,6 +1426,12 @@ pub async fn chat<R: tauri::Runtime>(
                 .send()
                 .await
                 .map_err(|_| "Could not reach the AI provider")?;
+            if p.kind == "chatgpt" && !response.status().is_success() {
+                let status = response.status().as_u16();
+                let value = super::chatgpt::read_json(response).await?;
+                super::chatgpt::report_plan_limit(app, r, &value);
+                return Err(super::chatgpt::api_error(&value, status));
+            }
             consume(app, r, response, protocol).await?
         };
         tokens_in += usage["input_tokens"]
@@ -1446,22 +1443,39 @@ pub async fn chat<R: tauri::Runtime>(
         tokens_out += usage["output_tokens"]
             .as_u64()
             .or(usage["completion_tokens"].as_u64())
-            .unwrap_or(0);
-        cached_in += usage["cached_input_tokens"]
-            .as_u64()
+            .unwrap_or(0)
+            + if p.kind == "antigravity" {
+                usage["thinking_tokens"].as_u64().unwrap_or(0)
+            } else {
+                0
+            };
+        cached_in += usage
+            .pointer("/input_tokens_details/cached_tokens")
+            .or_else(|| usage.pointer("/prompt_tokens_details/cached_tokens"))
+            .and_then(Value::as_u64)
+            .or_else(|| usage["cached_input_tokens"].as_u64())
             .or_else(|| usage["cache_read_input_tokens"].as_u64())
+            .or_else(|| usage["cache_read_tokens"].as_u64())
             .unwrap_or(0);
-        reasoning_out += usage["reasoning_output_tokens"]
-            .as_u64()
+        reasoning_out += usage
+            .pointer("/output_tokens_details/reasoning_tokens")
+            .or_else(|| usage.pointer("/completion_tokens_details/reasoning_tokens"))
+            .and_then(Value::as_u64)
+            .or_else(|| usage["reasoning_output_tokens"].as_u64())
             .or_else(|| usage["reasoning_tokens"].as_u64())
+            .or_else(|| usage["thinking_tokens"].as_u64())
             .unwrap_or(0);
-        if let Some(amount) = usage["_costUSD"].as_f64() {
+        if let Some((amount, estimated)) = usage["_costUSD"]
+            .as_f64()
+            .map(|amount| (amount, false))
+            .or_else(|| super::billing::cost(p, &usage))
+        {
             cost += amount;
             emit(
                 app,
                 &r.request_id,
                 "cost",
-                json!({"amount":cost,"currency":"USD"}),
+                json!({"amount":cost,"currency":"USD","estimated":estimated}),
             );
         }
         emit(

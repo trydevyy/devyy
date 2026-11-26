@@ -189,7 +189,7 @@ fn load_vault<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Vault, String> {
 fn save_vault<R: tauri::Runtime>(app: &AppHandle<R>, vault: &Vault) -> Result<(), String> {
     atomic_write(&vault_path(app)?, &seal(vault, &vault_key(true)?)?)
 }
-async fn read_json(mut response: reqwest::Response) -> Result<Value, String> {
+pub(super) async fn read_json(mut response: reqwest::Response) -> Result<Value, String> {
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -831,13 +831,25 @@ async fn access<R: tauri::Runtime>(app: &AppHandle<R>, state: &AiState) -> Resul
     save_vault(app, &vault)?;
     Ok(token)
 }
-fn api_error(value: &Value, status: u16) -> String {
-    let code = value
+fn api_error_code(value: &Value) -> &str {
+    value
         .pointer("/error/code")
         .or_else(|| value.pointer("/response/error/code"))
         .or_else(|| value.get("code"))
         .and_then(Value::as_str)
-        .unwrap_or("");
+        .unwrap_or("")
+}
+pub(super) fn report_plan_limit<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    r: &ChatRequest,
+    value: &Value,
+) {
+    if api_error_code(value) == "subscription_sharing_usage_limit_exceeded" {
+        emit(app, &r.request_id, "plan-limit", json!({"exceeded":true}));
+    }
+}
+pub(super) fn api_error(value: &Value, status: u16) -> String {
+    let code = api_error_code(value);
     match code {
         "subscription_sharing_user_not_eligible" => "ChatGPT plan access is unavailable for this account or workspace. Check its plan and workspace policy.",
         "subscription_sharing_usage_limit_exceeded" => "Devyy has reached its ChatGPT usage limit. Review app limits at chatgpt.com/settings/usage.",
@@ -942,7 +954,9 @@ async fn consume<R: tauri::Runtime>(
     }
     if !response.status().is_success() {
         let code = response.status().as_u16();
-        return Err(api_error(&read_json(response).await?, code));
+        let value = read_json(response).await?;
+        report_plan_limit(app, r, &value);
+        return Err(api_error(&value, code));
     }
     let mut total = 0;
     while let Some(chunk) = response
@@ -964,7 +978,10 @@ async fn consume<R: tauri::Runtime>(
                 emit(app, &r.request_id, "usage", usage.clone());
             }
             match event["type"].as_str().unwrap_or("") {
-                "response.failed" | "error" => return Err(api_error(&event, 400)),
+                "response.failed" | "error" => {
+                    report_plan_limit(app, r, &event);
+                    return Err(api_error(&event, 400));
+                }
                 "response.incomplete" => {
                     return Err(
                         "ChatGPT stopped before completing the reply. Try a smaller request."
