@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "../lib/requestId";
 import Skeleton from "./ui/Skeleton";
 import { InstallProgress } from "./ExtensionProgress";
 import DisclosureSummary from "./ui/DisclosureSummary";
@@ -280,7 +281,7 @@ export default function AIProviderDetail({
     action: "login" | "add" | "select" | "logout" | "status",
     accountId?: string,
   ) {
-    request.current = crypto.randomUUID();
+    request.current = newRequestId();
     try {
       if (action === "login" || action === "add")
         await saveAIProvider(form, "");
@@ -292,7 +293,7 @@ export default function AIProviderDetail({
       );
       if (typeof result.notice === "string") setNotice(result.notice);
       if (form.kind === "claude" && action !== "status") {
-        request.current = crypto.randomUUID();
+        request.current = newRequestId();
         await aiAccount(form.id, "status", request.current);
       }
     } finally {
@@ -350,7 +351,7 @@ export default function AIProviderDetail({
   }
 
   async function installRuntime() {
-    const id = crypto.randomUUID();
+    const id = newRequestId();
     request.current = id;
     installCancelled.current = false;
     let unlisten: (() => void) | undefined;

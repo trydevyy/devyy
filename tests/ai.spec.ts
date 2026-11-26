@@ -1047,7 +1047,7 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
   ).toHaveAttribute("aria-checked", "false");
   await detail.getByRole("button", { name: "Usage", exact: true }).click();
   await expect(
-    page.getByRole("meter", { name: "ChatGPT session remaining" }),
+    page.getByRole("meter", { name: "ChatGPT Primary window remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
   await page.evaluate(() => {
     const w = window as any;
@@ -1064,7 +1064,7 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     page.getByRole("button", { name: "Refresh AI usage" }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("meter", { name: "ChatGPT session remaining" }),
+    page.getByRole("meter", { name: "ChatGPT Primary window remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
   await page
     .locator(".ai-usage-dialog")
@@ -1077,9 +1077,13 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     );
   await page.screenshot({ path: "artifacts/devyy-ai-usage.png" });
   await page.getByRole("tab", { name: "cost", exact: true }).click();
-  await expect(page.getByText("Plan allowance", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Plan and credits", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "tokens", exact: true }).click();
-  await expect(page.getByText("Requests", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("No token data recorded", { exact: true }),
+  ).toBeVisible();
 });
 
 test("problem rows and the Problems tab drag live diagnostic snapshots into the composer", async ({

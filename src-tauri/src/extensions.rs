@@ -390,12 +390,18 @@ fn install_bytes(
     install_package(root, std::io::Cursor::new(bytes), expected)
 }
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .user_agent(concat!("devyy/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(90))
-        .connect_timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent(concat!("devyy/", env!("CARGO_PKG_VERSION")))
+                .timeout(Duration::from_secs(90))
+                .connect_timeout(Duration::from_secs(8))
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .clone()
 }
 async fn bounded(response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
     let mut response = response.error_for_status().map_err(|e| e.to_string())?;
@@ -480,20 +486,57 @@ fn platform() -> &'static str {
         _ => "linux-x64",
     }
 }
-#[tauri::command]
-pub async fn search_extensions(query: String, offset: Option<u32>) -> Result<Value, String> {
-    let response = client()?
-        .get(format!("{API}/-/search"))
+async fn registry_search(
+    client: reqwest::Client,
+    url: &str,
+    query: &str,
+    offset: u32,
+    service: &str,
+) -> Result<Value, String> {
+    let response = client
+        .get(url)
         .query(&[
-            ("query", query.chars().take(200).collect::<String>()),
+            ("query", query.to_owned()),
             ("size", "24".into()),
-            ("offset", offset.unwrap_or(0).min(10000).to_string()),
+            ("offset", offset.to_string()),
             ("targetPlatform", platform().into()),
         ])
+        .timeout(Duration::from_secs(9))
         .send()
         .await
-        .map_err(|e| format!("Open VSX is unavailable: {e}"))?;
-    serde_json::from_slice(&bounded(response, 4 * 1024 * 1024).await?).map_err(|e| e.to_string())
+        .map_err(|error| crate::account::connection_error(&error, service))?;
+    let value: Value = serde_json::from_slice(&bounded(response, 4 * 1024 * 1024).await?)
+        .map_err(|_| format!("{service} returned invalid JSON"))?;
+    if !value["extensions"].is_array() {
+        return Err(format!("{service} returned no extension catalog"));
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+pub async fn search_extensions(query: String, offset: Option<u32>) -> Result<Value, String> {
+    let query: String = query.chars().take(100).collect();
+    let offset = offset.unwrap_or(0).min(10000);
+    let direct = registry_search(
+        client()?,
+        &format!("{API}/-/search"),
+        &query,
+        offset,
+        "Open VSX",
+    )
+    .await;
+    match direct {
+        Ok(value) => Ok(value),
+        Err(registry_error) => registry_search(
+            crate::account::client()?,
+            &format!("{}/api/store/extensions", crate::store::catalog_origin()),
+            &query,
+            offset,
+            "Devyy Store",
+        )
+        .await
+        .map_err(|store_error| format!("{registry_error}. Devyy Store fallback: {store_error}")),
+    }
 }
 #[tauri::command]
 pub async fn extension_details(id: String) -> Result<Value, String> {
@@ -501,12 +544,14 @@ pub async fn extension_details(id: String) -> Result<Value, String> {
     let client = client()?;
     let response = client
         .get(format!("{API}/{publisher}/{name}/{}/latest", platform()))
+        .timeout(Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| e.to_string())?;
     let response = if response.status() == reqwest::StatusCode::NOT_FOUND {
         client
             .get(format!("{API}/{publisher}/{name}/universal/latest"))
+            .timeout(Duration::from_secs(15))
             .send()
             .await
             .map_err(|e| e.to_string())?

@@ -855,6 +855,12 @@ test("forwarded port status refreshes automatically and its menu does not resize
     });
   });
   await page.goto("/?playground=1");
+  const toggle = page.getByRole("button", { name: "Toggle bottom panel" });
+  await expect(toggle).toBeVisible();
+  if (
+    !(await page.getByRole("tab", { name: "ports", exact: true }).isVisible())
+  )
+    await toggle.click();
   await page.getByRole("tab", { name: "ports", exact: true }).click();
   const row = page.locator(".ports-workbench-list li").first();
   await expect(row.getByText("Connected", { exact: true })).toBeVisible();

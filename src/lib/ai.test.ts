@@ -13,10 +13,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { aiSnapshot, remainingLimits, tokenUsage, usageRecorder } from "./ai";
 import { cleanCompletion, completionModel } from "./aiCompletion";
 import { isAIExtension } from "./aiExtensions";
+import { requestId } from "./requestId";
+
+it("generates valid request IDs when WebKit withholds randomUUID", () => {
+  const original = globalThis.crypto;
+  vi.stubGlobal("crypto", {
+    getRandomValues: original.getRandomValues.bind(original),
+  });
+  try {
+    expect(requestId()).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(requestId()).not.toBe(requestId());
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 describe("AI provider usage", () => {
   it("records cumulative Responses usage once, including cached and reasoning tokens", () => {
     const record = usageRecorder("usage-fixture");
@@ -166,6 +183,26 @@ describe("AI provider usage", () => {
         ({ label }) => label,
       ),
     ).toEqual(["5-hour allowance", "Weekly allowance"]);
+  });
+  it("keeps CLI stream quota events even when fields use snake case or a later event is empty", () => {
+    const record = usageRecorder("quota-format-fixture");
+    record("limits", {
+      rate_limit_type: "five_hour",
+      utilization: "0.75",
+      resets_at: "1890000000",
+    });
+    record("limits", { rateLimitType: "seven_day", utilization: 0.5 });
+    record("limits", null);
+    expect(
+      remainingLimits(aiSnapshot().usage["quota-format-fixture"].limits),
+    ).toEqual([
+      expect.objectContaining({
+        label: "5-hour allowance",
+        remaining: 25,
+        resetsAt: 1890000000,
+      }),
+      expect.objectContaining({ label: "Weekly allowance", remaining: 50 }),
+    ]);
   });
   it("does not treat estimates as provider-reported spend or assume a currency", () => {
     const record = usageRecorder("pricing-fixture");

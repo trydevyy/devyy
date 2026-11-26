@@ -1,3 +1,4 @@
+import { requestId as newRequestId } from "../lib/requestId";
 import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -271,7 +272,7 @@ export default function RemoteExplorer({
     const text = (key: string) => String(values.get(key) ?? "").trim();
     const previous = editor.server;
     const server: SshServer = {
-      id: previous?.id ?? crypto.randomUUID(),
+      id: previous?.id ?? newRequestId(),
       label: text("label") || `${text("user")}@${text("host")}`,
       host: text("host"),
       user: text("user"),

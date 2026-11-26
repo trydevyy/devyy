@@ -395,12 +395,34 @@ pub fn close_ssh_workspace(path: String, state: State<'_, Workspace>) -> Result<
 }
 
 #[tauri::command]
-pub async fn refresh_workspace(state: State<'_, Workspace>) -> Result<WorkspaceInfo, String> {
+pub async fn refresh_workspace(
+    shallow: Option<bool>,
+    state: State<'_, Workspace>,
+) -> Result<WorkspaceInfo, String> {
     let base = root(&state)?;
+    let shallow = shallow.unwrap_or(false);
     if let Some(ssh) = crate::ssh::workspace(&base) {
-        return ssh.info(&base, 3, 2048).await;
+        return ssh.info(&base, if shallow { 1 } else { 3 }, 2048).await;
     }
-    background(move || workspace_info(&base)).await
+    background(move || {
+        if !shallow {
+            return workspace_info(&base);
+        }
+        // Polling only needs the root. Expanded folders are refreshed
+        // separately, and the frontend retains the full search index.
+        WorkspaceInfo {
+            root: display_path(&base),
+            name: base
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into(),
+            files: explorer_entries(&base, 1, 2048),
+            logo: None,
+            remote_path: None,
+        }
+    })
+    .await
 }
 #[tauri::command]
 pub async fn list_files(state: State<'_, Workspace>) -> Result<Vec<Entry>, String> {

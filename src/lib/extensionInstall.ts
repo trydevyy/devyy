@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "./requestId";
 import { useSyncExternalStore } from "react";
 import { invoke, listen } from "./native";
 import { refreshExtensions, type InstalledExtension } from "./extensions";
@@ -78,7 +79,7 @@ async function installBundle(id: string, localPath?: string, repair = false) {
     throw new Error("Wait for the current extension installation to finish.");
   active = {
     id: id.toLowerCase(),
-    requestId: crypto.randomUUID(),
+    requestId: newRequestId(),
     phase: localPath ? "installing" : "resolving",
     downloaded: 0,
     total: null,
@@ -111,7 +112,7 @@ async function installBundle(id: string, localPath?: string, repair = false) {
       active = {
         id: root.id.toLowerCase(),
         packageId,
-        requestId: crypto.randomUUID(),
+        requestId: newRequestId(),
         phase: "resolving",
         downloaded: 0,
         total: null,

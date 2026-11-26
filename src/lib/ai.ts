@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "./requestId";
 import { supportedEffort } from "./aiReasoning";
 import { useSyncExternalStore } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -481,7 +482,7 @@ export function loadAI(force = false): Promise<void> {
               (p) =>
                 p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
             )
-            .map((p) => aiAccount(p.id, "status", crypto.randomUUID())),
+            .map((p) => aiAccount(p.id, "status", newRequestId())),
         );
       }
     } catch (e) {
@@ -545,7 +546,7 @@ export async function removeAIProvider(providerId: string) {
   await loadAI(true);
 }
 export function newAIChat(providerId: string): string {
-  const id = crypto.randomUUID();
+  const id = newRequestId();
   const chat: AIConversation = {
     id,
     title: "New conversation",
@@ -660,7 +661,7 @@ export function forkAIChat(id: string, messageId: string): string | null {
   if (!source || index < 0) return null;
   const chat = {
     ...source,
-    id: crypto.randomUUID(),
+    id: newRequestId(),
     title: `${source.title} (branch)`,
     messages: source.messages.slice(0, index + 1).map((m) => ({ ...m })),
     updatedAt: Date.now(),
@@ -822,15 +823,15 @@ export function usageRecorder(providerId: string) {
     )
       next.planLimitHitAt = data.exceeded === true ? Date.now() : undefined;
     if (kind === "limits") {
-      const rateLimitType =
-        typeof data.rateLimitType === "string" ? data.rateLimitType : undefined;
-      if (rateLimitType && /^[a-z0-9_]{1,64}$/i.test(rateLimitType)) {
+      if (!Object.keys(data).length) return;
+      const window = claudeQuota(data);
+      if (window) {
         const windows = old.limits?.claudeWindows as
           Record<string, unknown> | undefined;
         next.limits = {
           claudeWindows: {
             ...windows,
-            [rateLimitType]: { ...data, observedAt: Date.now() },
+            [window.rateLimitType]: { ...window, observedAt: Date.now() },
           },
         };
       } else next.limits = data;
@@ -917,7 +918,7 @@ export async function sendAIMessage(
   if (!chat) return;
   if (!retry) {
     const user: AIMessage = {
-      id: crypto.randomUUID(),
+      id: newRequestId(),
       role: "user",
       content,
       context,
@@ -935,7 +936,7 @@ export async function sendAIMessage(
     chat = { ...chat, messages: chat.messages.slice(0, lastUser + 1) };
   }
   const assistant: AIMessage = {
-    id: crypto.randomUUID(),
+    id: newRequestId(),
     role: "assistant",
     content: "",
     startedAt: Date.now(),
@@ -953,7 +954,7 @@ export async function sendAIMessage(
     chatId,
   );
 
-  const requestId = crypto.randomUUID();
+  const requestId = newRequestId();
   const providerId = chat.providerId;
   const messages = chat.messages.map((m, idx) => {
     let text = contextPrompt(m);
@@ -1163,36 +1164,42 @@ export async function aiAccount(
 ) {
   if (!native)
     throw new Error("Account connections are available in the desktop app.");
-  const unlisten = await listen<{
-    requestId: string;
-    kind: string;
-    data: { authUrl?: string };
-  }>("devyy-ai", (event) => {
-    if (event.payload.requestId !== requestId || event.payload.kind !== "login")
-      return;
-    const url = event.payload.data.authUrl;
-    if (!url) return;
-    try {
-      const parsed = new URL(url);
-      if (
-        parsed.protocol !== "https:" ||
-        parsed.username ||
-        parsed.password ||
-        (parsed.port && parsed.port !== "443") ||
-        !["auth.openai.com", "chatgpt.com", "auth0.openai.com"].includes(
-          parsed.hostname,
-        )
-      )
-        return;
-      void openUrl(url).catch(() => {
-        void invoke("ai_cancel", { requestId }).catch(() => {});
-        update({
-          error:
-            "Could not open the sign-in browser. Check your default browser and try again.",
-        });
-      });
-    } catch {}
-  });
+  const unlisten =
+    action === "login" || action === "add"
+      ? await listen<{
+          requestId: string;
+          kind: string;
+          data: { authUrl?: string };
+        }>("devyy-ai", (event) => {
+          if (
+            event.payload.requestId !== requestId ||
+            event.payload.kind !== "login"
+          )
+            return;
+          const url = event.payload.data.authUrl;
+          if (!url) return;
+          try {
+            const parsed = new URL(url);
+            if (
+              parsed.protocol !== "https:" ||
+              parsed.username ||
+              parsed.password ||
+              (parsed.port && parsed.port !== "443") ||
+              !["auth.openai.com", "chatgpt.com", "auth0.openai.com"].includes(
+                parsed.hostname,
+              )
+            )
+              return;
+            void openUrl(url).catch(() => {
+              void invoke("ai_cancel", { requestId }).catch(() => {});
+              update({
+                error:
+                  "Could not open the sign-in browser. Check your default browser and try again.",
+              });
+            });
+          } catch {}
+        })
+      : undefined;
   try {
     const account = await invoke<Record<string, unknown>>("ai_account", {
       providerId,
@@ -1244,7 +1251,7 @@ export async function aiAccount(
     });
     return account;
   } finally {
-    unlisten();
+    unlisten?.();
   }
 }
 type RemainingLimit = {
@@ -1258,10 +1265,52 @@ type RemainingLimit = {
   status?: string;
 };
 
+function quotaNumber(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" || (typeof value === "string" && !!value.trim())
+      ? Number(value)
+      : NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function claudeQuota(raw: Record<string, unknown>) {
+  const nested = raw.rate_limit_info ?? raw.rateLimitInfo;
+  if (nested && typeof nested === "object")
+    raw = nested as Record<string, unknown>;
+  const type = raw.rateLimitType ?? raw.rate_limit_type;
+  if (typeof type !== "string" || !/^[a-z0-9_]{1,64}$/i.test(type)) return;
+  return {
+    rateLimitType: type,
+    utilization: quotaNumber(raw.utilization),
+    resetsAt: resetTime(raw.resetsAt ?? raw.resets_at),
+    status: raw.status,
+    isUsingOverage: raw.isUsingOverage ?? raw.is_using_overage,
+  };
+}
+
+export function quotaDenied(
+  raw: Record<string, unknown> | undefined,
+  now: number,
+): boolean {
+  if (!raw) return false;
+  if (raw.claudeWindows && typeof raw.claudeWindows === "object")
+    return Object.values(raw.claudeWindows).some((window) =>
+      quotaDenied(window, now),
+    );
+  const window = claudeQuota(raw);
+  const reset = window?.resetsAt ?? resetTime(raw.resetsAt ?? raw.resets_at);
+  return (
+    (window?.status ?? raw.status) === "rejected" &&
+    (window?.utilization ?? quotaNumber(raw.utilization)) === undefined &&
+    (reset === undefined || reset * 1000 > now)
+  );
+}
+
 function resetTime(value: unknown, observedAt?: number): number | undefined {
   if (typeof value === "number" && Number.isFinite(value) && value > 0)
     return value;
   if (typeof value !== "string") return;
+  if (/^\d{9,10}$/.test(value)) return Number(value);
   if (/^\d{4}-/.test(value)) {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed / 1000 : undefined;
@@ -1297,7 +1346,10 @@ export function remainingLimits(
     return Object.values(raw.claudeWindows).flatMap((value) =>
       remainingLimits(value, value.observedAt),
     );
-  const data = (raw.rateLimits ?? raw) as Record<string, unknown>;
+  const data = (raw.rateLimits ?? raw.rate_limits ?? raw) as Record<
+    string,
+    unknown
+  >;
   const windows = (
     [
       ["primary", "Primary window"],
@@ -1305,12 +1357,12 @@ export function remainingLimits(
     ] as const
   ).flatMap(([key, fallback]) => {
     const window = data[key] as Record<string, unknown> | undefined;
-    if (
-      typeof window?.usedPercent !== "number" ||
-      !Number.isFinite(window.usedPercent)
-    )
-      return [];
-    const minutes = window.windowDurationMins;
+    if (!window) return [];
+    const used = quotaNumber(window.usedPercent ?? window.used_percent);
+    if (used === undefined) return [];
+    const minutes =
+      quotaNumber(window.windowDurationMins ?? window.window_duration_mins) ??
+      (quotaNumber(window.limit_window_seconds) ?? 0) / 60;
     const label =
       minutes === 10080
         ? "Weekly"
@@ -1326,13 +1378,15 @@ export function remainingLimits(
     return [
       {
         label,
-        remaining: clampPercent(100 - window.usedPercent),
-        resetsAt: resetTime(window.resetsAt),
+        remaining: clampPercent(100 - used),
+        resetsAt: resetTime(window.resetsAt ?? window.resets_at),
       },
     ];
   });
   if (windows.length) return windows;
-  if (typeof raw.utilization === "number" && Number.isFinite(raw.utilization)) {
+  const claude = claudeQuota(raw);
+  const utilization = claude?.utilization ?? quotaNumber(raw.utilization);
+  if (utilization !== undefined && utilization >= 0) {
     const labels: Record<string, string> = {
       five_hour: "5-hour allowance",
       seven_day: "Weekly allowance",
@@ -1342,15 +1396,18 @@ export function remainingLimits(
     };
     return [
       {
-        label:
-          typeof raw.rateLimitType === "string"
-            ? (labels[raw.rateLimitType] ??
-              raw.rateLimitType.replaceAll("_", " "))
-            : "Reported allowance",
-        remaining: clampPercent((1 - raw.utilization) * 100),
-        resetsAt: resetTime(raw.resetsAt),
+        label: claude
+          ? (labels[claude.rateLimitType] ??
+            claude.rateLimitType.replaceAll("_", " "))
+          : "Reported allowance",
+        remaining: clampPercent((1 - utilization) * 100),
+        resetsAt: claude?.resetsAt ?? resetTime(raw.resetsAt ?? raw.resets_at),
         ...(observedAt ? { observedAt } : {}),
-        ...(raw.status === "rejected" ? { status: "Limit reached" } : {}),
+        ...((claude?.status ?? raw.status) === "rejected"
+          ? { status: "Limit reached" }
+          : claude?.isUsingOverage === true
+            ? { status: "Using extra usage" }
+            : {}),
       },
     ];
   }
@@ -1409,7 +1466,7 @@ export function setAIMode(chatId: string, mode: AIAgentMode) {
 
 export function addAICheckpoint(chatId: string, name: string, sha?: string) {
   const checkpoint: AICheckpoint = {
-    id: crypto.randomUUID(),
+    id: newRequestId(),
     name,
     timestamp: Date.now(),
     sha,
@@ -1433,7 +1490,7 @@ export function spawnAISubagent(
   role: string,
   task: string,
 ): string {
-  const subagentId = crypto.randomUUID();
+  const subagentId = newRequestId();
   const subagent: AISubagentTask = {
     id: subagentId,
     role,

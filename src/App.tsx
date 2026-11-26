@@ -93,7 +93,7 @@ import {
   X,
 } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
-import PortsPanel from "./components/PortsPanel";
+const PortsPanel = lazy(() => import("./components/PortsPanel"));
 import { supportsWindowVibrancy, useAppearance } from "./lib/appearance";
 import {
   activateStoreTheme,
@@ -134,8 +134,8 @@ import {
   type HostEvent,
 } from "./lib/extensionHost";
 import { initializeExtensions, useExtensions } from "./lib/extensions";
-import Preferences from "./components/Preferences";
-import RemoteExplorer from "./components/RemoteExplorer";
+const Preferences = lazy(() => import("./components/Preferences"));
+const RemoteExplorer = lazy(() => import("./components/RemoteExplorer"));
 import { useAccountSync } from "./lib/account";
 import AccountAvatar from "./components/AccountAvatar";
 import AIWorkspace from "./components/AIWorkspace";
@@ -263,6 +263,7 @@ function whenWorkspaceIdle(work: () => void) {
 
 export default function App() {
   const confirmAction = useConfirm();
+  const [portsVisited, setPortsVisited] = useState(false);
   const installedExtensions = useExtensions();
   const hostContexts = useExtensionHostValue((state) => state.contexts);
   const extensionWebviews = useExtensionHostValue((state) => state.webviews);
@@ -412,6 +413,8 @@ export default function App() {
       group.includes(active) &&
       group.every((path) => tabs.some((tab) => tab.path === path)),
   );
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
   const markdownSplit =
     !fileSplit && language(active) === "markdown" && markdownMode === "split";
   const split = Boolean(fileSplit || markdownSplit);
@@ -622,7 +625,11 @@ export default function App() {
   const workspaceOpenRequest = useRef(0);
   const fileOpenRequest = useRef(0);
   const workspaceRefreshRequest = useRef(0);
-  const backgroundRefresh = useRef<number | null>(null);
+  const backgroundRefresh = useRef<{
+    workspace: number;
+    request: number;
+    shallow: boolean;
+  } | null>(null);
   const workspaceServices = useRef<Promise<void>>(Promise.resolve());
   const terminalGroup = useRef<TerminalsHandle>(null);
   const [terminalToolbar, setTerminalToolbar] = useState<HTMLDivElement | null>(
@@ -969,6 +976,10 @@ export default function App() {
   ) {
     return confirmAction({ description: text, ...options });
   }
+  useEffect(() => {
+    if (panel && panelTab === "ports") setPortsVisited(true);
+  }, [panel, panelTab]);
+
   async function refreshGit() {
     if (!native || wsRef.current.root === "demo") return;
     const root = wsRef.current.root,
@@ -1013,23 +1024,31 @@ export default function App() {
       }
     }
   }
-  async function refresh(silent = false) {
+  async function refresh(silent = false, shallow = false) {
     const root = wsRef.current.root;
     const workspaceRequest = workspaceOpenRequest.current;
+    const pending = backgroundRefresh.current;
     if (
       root === "demo" ||
       busyRef.current ||
-      (silent && backgroundRefresh.current === workspaceRequest)
+      (silent &&
+        pending?.workspace === workspaceRequest &&
+        (!pending.shallow || shallow))
     )
       return;
     const request = ++workspaceRefreshRequest.current;
-    if (silent) backgroundRefresh.current = workspaceRequest;
+    if (silent)
+      backgroundRefresh.current = {
+        workspace: workspaceRequest,
+        request,
+        shallow,
+      };
     const isCurrent = () =>
       workspaceRequest === workspaceOpenRequest.current &&
       root === wsRef.current.root &&
       request === workspaceRefreshRequest.current;
     try {
-      const next = await invoke<Workspace>("refresh_workspace");
+      const next = await invoke<Workspace>("refresh_workspace", { shallow });
       if (!isCurrent() || next.root !== root) return;
 
       const nextTraversedDirs = new Set<string>([""]);
@@ -1044,7 +1063,10 @@ export default function App() {
 
       const currentExpanded = expandedFoldersRef.current;
       const untraversedExpanded = Array.from(currentExpanded).filter(
-        (dir) => dir && !nextTraversedDirs.has(dir),
+        (dir) =>
+          dir &&
+          !nextTraversedDirs.has(dir) &&
+          (!shallow || nextDirs.has(dir.split("/")[0])),
       );
 
       const dynamicFetches = await Promise.all(
@@ -1075,25 +1097,14 @@ export default function App() {
 
           const preservedChildren: FileEntry[] = [];
           const seenPaths = new Set(next.files.map((f) => f.path));
-
-          for (const f of prev.files) {
-            if (seenPaths.has(f.path)) continue;
-            const parent = f.path.includes("/")
-              ? f.path.slice(0, f.path.lastIndexOf("/"))
-              : "";
-            if (!nextTraversedDirs.has(parent)) {
-              if (!dynamicByDir.has(parent)) {
-                const topDir = f.path.split("/")[0];
-                if (nextDirs.has(topDir)) {
-                  preservedChildren.push(f);
-                  seenPaths.add(f.path);
-                }
-              }
-            }
-          }
-
+          const directories = new Set(nextDirs);
+          const refreshed = new Set([
+            ...nextTraversedDirs,
+            ...dynamicByDir.keys(),
+          ]);
           for (const children of dynamicByDir.values()) {
             for (const child of children) {
+              if (child.directory) directories.add(child.path);
               if (!seenPaths.has(child.path)) {
                 preservedChildren.push(child);
                 seenPaths.add(child.path);
@@ -1101,6 +1112,67 @@ export default function App() {
             }
           }
 
+          // A successful directory listing proves which immediate children
+          // still exist. Unvisited branches remain in the quick-open index.
+          const removed = new Set<string>();
+          for (const file of prev.files) {
+            if (!file.directory || directories.has(file.path)) continue;
+            const parent = file.path.slice(
+              0,
+              Math.max(0, file.path.lastIndexOf("/")),
+            );
+            if (refreshed.has(parent)) removed.add(file.path);
+          }
+          const visibleBranch = new Map<string, boolean>();
+          const survives = (dir: string): boolean => {
+            if (!dir) return true;
+            const known = visibleBranch.get(dir);
+            if (known !== undefined) return known;
+            const exists =
+              !removed.has(dir) &&
+              survives(dir.slice(0, Math.max(0, dir.lastIndexOf("/"))));
+            visibleBranch.set(dir, exists);
+            return exists;
+          };
+          for (const file of prev.files) {
+            if (seenPaths.has(file.path)) continue;
+            const parent = file.path.slice(
+              0,
+              Math.max(0, file.path.lastIndexOf("/")),
+            );
+            if (!refreshed.has(parent) && survives(parent)) {
+              preservedChildren.push(file);
+              seenPaths.add(file.path);
+            }
+          }
+
+          const name = prev.remotePath ? prev.name : next.name;
+          const logo = shallow ? prev.logo : next.logo;
+          // Skip sorting and React work on the common unchanged poll.
+          if (
+            prev.logo === logo &&
+            prev.name === name &&
+            prev.files.length === seenPaths.size
+          ) {
+            const fresh = new Map(
+              next.files.map((entry) => [entry.path, entry]),
+            );
+            for (const children of dynamicByDir.values())
+              for (const child of children)
+                if (!fresh.has(child.path)) fresh.set(child.path, child);
+            if (
+              prev.files.every((file) => {
+                const entry = fresh.get(file.path);
+                return (
+                  seenPaths.has(file.path) &&
+                  (!entry ||
+                    (entry.directory === file.directory &&
+                      entry.name === file.name))
+                );
+              })
+            )
+              return prev;
+          }
           const mergedFiles = preservedChildren.length
             ? [...next.files, ...preservedChildren].sort(
                 (a, b) =>
@@ -1109,32 +1181,20 @@ export default function App() {
               )
             : next.files;
 
-          const name = prev.remotePath ? prev.name : next.name;
-          if (
-            prev.logo === next.logo &&
-            prev.name === name &&
-            prev.files.length === mergedFiles.length &&
-            prev.files.every(
-              (f, i) =>
-                f.path === mergedFiles[i]?.path &&
-                f.directory === mergedFiles[i]?.directory,
-            )
-          ) {
-            return prev;
-          }
           return {
             ...next,
+            logo,
             name,
             files: mergedFiles,
           };
         });
       if (silent) startTransition(updateWorkspace);
       else updateWorkspace();
-      await refreshGit();
+      if (!shallow || sectionRef.current === "git") await refreshGit();
     } catch (e) {
       if (!silent && isCurrent()) notify(e);
     } finally {
-      if (silent && backgroundRefresh.current === workspaceRequest)
+      if (silent && backgroundRefresh.current?.request === request)
         backgroundRefresh.current = null;
     }
   }
@@ -1142,15 +1202,22 @@ export default function App() {
   useEffect(() => {
     if (workspace.root === "demo") return;
     let mounted = true;
+    let lastFullPoll = Date.now();
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refresh(true);
-      }
-    }, 3000);
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      const deep = now - lastFullPoll >= 30_000;
+      if (deep) lastFullPoll = now;
+      void refresh(true, !deep);
+    }, 5000);
 
-    const onFocus = () => void refresh(true);
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      void refresh(true, true);
+      void refreshGit();
+    };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void refresh(true);
+      if (document.visibilityState === "visible") void refresh(true, true);
     };
 
     window.addEventListener("focus", onFocus);
@@ -4635,21 +4702,29 @@ export default function App() {
         )}
         {t.path === "devyy:settings" ? (
           <div className="editor-settings-view">
-            <Preferences
-              embedded
-              initialQuery={settingsTabQuery}
-              settings={settings}
-              category={settingsPage}
-              onCategoryChange={setSettingsPage}
-              onViewUpdate={viewUpdate}
-              onSetup={() => {
-                void closeTab("devyy:settings");
-                setSetupOpen(true);
-              }}
-              onChange={setSettings}
-              onResetLayout={resetLayout}
-              onClose={() => void closeTab("devyy:settings")}
-            />
+            <Suspense
+              fallback={
+                <p className="sidebar-empty" role="status">
+                  Loading settings…
+                </p>
+              }
+            >
+              <Preferences
+                embedded
+                initialQuery={settingsTabQuery}
+                settings={settings}
+                category={settingsPage}
+                onCategoryChange={setSettingsPage}
+                onViewUpdate={viewUpdate}
+                onSetup={() => {
+                  void closeTab("devyy:settings");
+                  setSetupOpen(true);
+                }}
+                onChange={setSettings}
+                onResetLayout={resetLayout}
+                onClose={() => void closeTab("devyy:settings")}
+              />
+            </Suspense>
           </div>
         ) : t.webviewId ? (
           <ExtensionWebviews
@@ -5360,13 +5435,21 @@ export default function App() {
           )}
           {section === "remote" && (
             <div className="sidebar-content">
-              <RemoteExplorer
-                activeServerId={
-                  workspace.remotePath ? activeServerId : undefined
+              <Suspense
+                fallback={
+                  <p className="sidebar-empty" role="status">
+                    Loading remote explorer…
+                  </p>
                 }
-                onOpenFolder={openFolder}
-                onDisconnect={() => changeWorkspace({ disconnect: true })}
-              />
+              >
+                <RemoteExplorer
+                  activeServerId={
+                    workspace.remotePath ? activeServerId : undefined
+                  }
+                  onOpenFolder={openFolder}
+                  onDisconnect={() => changeWorkspace({ disconnect: true })}
+                />
+              </Suspense>
             </div>
           )}
           {section === "git" && !!git && (
@@ -6295,12 +6378,23 @@ export default function App() {
                 role="tabpanel"
                 aria-labelledby="panel-tab-ports"
               >
-                <PortsPanel
-                  onOpenAccount={() => {
-                    setSettingsPage("account");
-                    setSettingsOpen(true);
-                  }}
-                />
+                {(portsVisited || (panel && panelTab === "ports")) && (
+                  <Suspense
+                    fallback={
+                      <p className="sidebar-empty" role="status">
+                        Loading ports…
+                      </p>
+                    }
+                  >
+                    <PortsPanel
+                      active={panel && panelTab === "ports"}
+                      onOpenAccount={() => {
+                        setSettingsPage("account");
+                        setSettingsOpen(true);
+                      }}
+                    />
+                  </Suspense>
+                )}
               </div>
             </section>
             {settings.showStatusbar && (
@@ -6452,20 +6546,21 @@ export default function App() {
           />
         )}
         {settingsOpen && (
-          <Preferences
-            key="preferences"
-            settings={settings}
-            category={settingsPage}
-            onCategoryChange={setSettingsPage}
-            onViewUpdate={viewUpdate}
-            onSetup={() => {
-              setSettingsOpen(false);
-              setSetupOpen(true);
-            }}
-            onChange={setSettings}
-            onResetLayout={resetLayout}
-            onClose={() => setSettingsOpen(false)}
-          />
+          <Suspense key="preferences" fallback={null}>
+            <Preferences
+              settings={settings}
+              category={settingsPage}
+              onCategoryChange={setSettingsPage}
+              onViewUpdate={viewUpdate}
+              onSetup={() => {
+                setSettingsOpen(false);
+                setSetupOpen(true);
+              }}
+              onChange={setSettings}
+              onResetLayout={resetLayout}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </Suspense>
         )}
         {help && (
           <HelpModal

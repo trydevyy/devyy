@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "../lib/requestId";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
@@ -369,7 +370,7 @@ export default function AIChatPanel({
       const items = [...attached];
       setQueuedMessages((q) => [
         ...q,
-        { id: crypto.randomUUID(), content, attachments: items },
+        { id: newRequestId(), content, attachments: items },
       ]);
       setDraft("");
       setAttached([]);

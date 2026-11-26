@@ -96,17 +96,23 @@ export default function ThemeStore({
     setLoading(true);
     setCatalogError("");
     setRemote([]);
-    void themeCatalog(search, offset)
-      .then((themes) => {
-        if (current) setRemote(themes);
-      })
-      .catch((error) => {
-        if (current) setCatalogError(String(error));
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
+    const timer = window.setTimeout(
+      () => {
+        void themeCatalog(search, offset)
+          .then((themes) => {
+            if (current) setRemote(themes);
+          })
+          .catch((error) => {
+            if (current) setCatalogError(String(error));
+          })
+          .finally(() => {
+            if (current) setLoading(false);
+          });
+      },
+      search ? 180 : 0,
+    );
     return () => {
+      window.clearTimeout(timer);
       current = false;
     };
   }, [search, offset, tab, retry]);

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "./requestId";
 import { useSyncExternalStore } from "react";
 import type {
   CompletionContext,
@@ -154,7 +155,7 @@ export async function aiCompletion(
   await new Promise((resolve) => setTimeout(resolve, ctx.explicit ? 0 : 200));
   if (cancelled || ctx.aborted) return null;
   active?.cancel();
-  const id = crypto.randomUUID();
+  const id = newRequestId();
   active = { id, cancel };
   let unlisten: (() => void) | undefined,
     timer: ReturnType<typeof setTimeout> | undefined;

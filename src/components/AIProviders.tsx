@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { AnimatePresence, motion } from "motion/react";
 import { useSurfaceMotion } from "../lib/motion";
@@ -59,7 +60,7 @@ export default function AIProviders() {
         .filter(
           (p) => p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
         )
-        .map((p) => aiAccount(p.id, "status", crypto.randomUUID())),
+        .map((p) => aiAccount(p.id, "status", newRequestId())),
     );
     const failures = results.filter(
       (r) => r.status === "rejected",
@@ -81,7 +82,7 @@ export default function AIProviders() {
   }
   function add() {
     const provider: AIProvider = {
-      id: `custom-${crypto.randomUUID().slice(0, 8)}`,
+      id: `custom-${newRequestId().slice(0, 8)}`,
       name: "Custom provider",
       kind: "custom",
       endpoint: "http://127.0.0.1:11434/v1",

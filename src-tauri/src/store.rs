@@ -27,7 +27,7 @@ fn valid_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
 }
 
-fn catalog_origin() -> &'static str {
+pub(crate) fn catalog_origin() -> &'static str {
     #[cfg(debug_assertions)]
     if std::env::var("DEVYY_LOCAL_STORE").as_deref() == Ok("1") {
         return "http://127.0.0.1:8787";
@@ -40,7 +40,7 @@ async fn get(path: &str) -> Result<Value, String> {
         .get(format!("{}/api/store/{path}", catalog_origin()))
         .send()
         .await
-        .map_err(|_| "Could not connect to Devyy Store")?;
+        .map_err(|error| account::connection_error(&error, "Devyy Store"))?;
     if !response.status().is_success() {
         return Err(format!("Devyy Store returned {}", response.status()));
     }

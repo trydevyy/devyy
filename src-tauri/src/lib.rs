@@ -349,11 +349,26 @@ mod integration_tests {
             "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
         )
         .unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/offscreen.rs"), "").unwrap();
+        let shallow = call("refresh_workspace", json!({"shallow": true}));
+        assert!(shallow["logo"].is_null());
+        assert!(shallow["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| { !entry["path"].as_str().unwrap().contains('/') }));
         let refreshed = call("refresh_workspace", json!({}));
         assert!(refreshed["logo"]
             .as_str()
             .unwrap()
             .starts_with("data:image/svg+xml;base64,"));
+        assert!(refreshed["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "src/offscreen.rs"));
+        std::fs::remove_dir_all(base.join("src")).unwrap();
         std::fs::remove_file(base.join("logo.svg")).unwrap();
         assert!(opened["files"]
             .as_array()

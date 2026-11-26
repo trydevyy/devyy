@@ -54,8 +54,10 @@ const PORT_STATUS_INTERVAL_MS = 10_000;
 
 export default function PortsPanel({
   onOpenAccount,
+  active = true,
 }: {
   onOpenAccount?: () => void;
+  active?: boolean;
 }) {
   const [tunnels, setTunnels] = useState<ForwardedTunnel[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,10 +107,18 @@ export default function PortsPanel({
   );
 
   useEffect(() => {
-    void refresh();
-    if (!native || !signedIn) return;
-    let stop: (() => void) | undefined;
+    if (!active) return;
     let disposed = false;
+    // Opening the panel mounts it for the first time. Defer the initial read
+    // so an immediately disposed setup cannot issue a duplicate request.
+    queueMicrotask(() => {
+      if (!disposed) void refresh();
+    });
+    if (!native || !signedIn)
+      return () => {
+        disposed = true;
+      };
+    let stop: (() => void) | undefined;
     void listen("devyy-remote-changed", () => void refresh(true))
       .then((unlisten) => {
         if (disposed) unlisten();
@@ -116,7 +126,8 @@ export default function PortsPanel({
       })
       .catch(showError);
     const interval = window.setInterval(() => {
-      if (!polling.current) void refresh(true);
+      if (!polling.current && document.visibilityState === "visible")
+        void refresh(true);
     }, PORT_STATUS_INTERVAL_MS);
     return () => {
       disposed = true;
@@ -125,7 +136,7 @@ export default function PortsPanel({
       window.clearInterval(interval);
       stop?.();
     };
-  }, [refresh, signedIn]);
+  }, [active, refresh, signedIn]);
 
   async function work(fn: () => Promise<unknown>) {
     setBusy(true);

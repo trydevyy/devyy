@@ -30,7 +30,12 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: "react", test: /\/node_modules\/(react|react-dom)\// },
-            { name: "editor", test: /\/node_modules\/@codemirror\// },
+            // Keep dynamically imported language grammars in their own chunks.
+            // Putting all CodeMirror packages in an eager group loads every parser at launch.
+            {
+              name: "editor",
+              test: /\/node_modules\/@codemirror\/(?:state|view|language|commands|search|autocomplete|lint)\//,
+            },
           ],
         },
       },

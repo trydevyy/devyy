@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "../lib/requestId";
 import {
   useEffect,
   useRef,
@@ -148,7 +149,7 @@ export default function GitHubSettings({
   }
 
   async function login() {
-    const requestId = crypto.randomUUID();
+    const requestId = newRequestId();
     active.current = requestId;
     setBusy("login");
     setCode("");

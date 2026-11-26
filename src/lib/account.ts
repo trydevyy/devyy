@@ -114,6 +114,115 @@ export function accountRequest<T = any>(
 ): Promise<T> {
   return invoke("account_request", { path, method, body: body ?? null });
 }
+export interface AccountProfile {
+  id?: string;
+  name: string;
+  email: string;
+  avatar?: boolean;
+}
+
+interface ProfileState {
+  profile: AccountProfile | null | undefined;
+  error?: string;
+  avatarVersion: number;
+}
+
+let profileState: ProfileState = {
+  profile: native ? undefined : null,
+  avatarVersion: 0,
+};
+const profileListeners = new Set<() => void>();
+let pendingProfile: Promise<void> | undefined;
+let profileEpoch = 0;
+let profileCheckedAt = 0;
+
+function publishProfile(next: ProfileState) {
+  profileState = next;
+  profileListeners.forEach((listener) => listener());
+}
+
+export function refreshAccountProfile(force = false) {
+  if (!native) return;
+  if (pendingProfile && !force) return pendingProfile;
+  const epoch = ++profileEpoch;
+  const request = accountRequest<AccountProfile>("/me")
+    .then((profile) => {
+      if (epoch !== profileEpoch) return;
+      if (profile === null) {
+        publishProfile({ profile: null, avatarVersion: 0 });
+        return;
+      }
+      if (
+        !profile ||
+        typeof profile.name !== "string" ||
+        typeof profile.email !== "string"
+      ) {
+        throw Error("The Devyy API returned an invalid profile");
+      }
+      const previous = profileState.profile;
+      const same =
+        previous &&
+        previous.id === profile.id &&
+        previous.name === profile.name &&
+        previous.email === profile.email &&
+        previous.avatar === profile.avatar;
+      if (!same || force || profileState.error)
+        publishProfile({
+          profile,
+          avatarVersion:
+            !same || force ? Date.now() : profileState.avatarVersion,
+        });
+    })
+    .catch((error) => {
+      if (epoch !== profileEpoch) return;
+      const message = String(error);
+      const signedOut =
+        message === "Sign in to your Devyy account first" ||
+        message === "Sign in to continue";
+      publishProfile(
+        signedOut
+          ? { profile: null, avatarVersion: 0 }
+          : { ...profileState, error: message },
+      );
+    })
+    .finally(() => {
+      if (epoch !== profileEpoch) return;
+      pendingProfile = undefined;
+      profileCheckedAt = Date.now();
+    });
+  pendingProfile = request;
+  return request;
+}
+
+const profileSnapshot = () => profileState;
+function refreshProfileOnFocus() {
+  if (Date.now() - profileCheckedAt >= 30_000) void refreshAccountProfile();
+}
+function invalidateProfile() {
+  // A connection change can point to a different account. Drop the old
+  // identity immediately and discard any outstanding response.
+  publishProfile({ profile: undefined, avatarVersion: 0 });
+  void refreshAccountProfile(true);
+}
+function subscribeProfile(listener: () => void) {
+  profileListeners.add(listener);
+  if (native && profileListeners.size === 1) {
+    window.addEventListener("devyy-account-changed", invalidateProfile);
+    window.addEventListener("focus", refreshProfileOnFocus);
+    refreshProfileOnFocus();
+  }
+  return () => {
+    profileListeners.delete(listener);
+    if (!profileListeners.size) {
+      window.removeEventListener("devyy-account-changed", invalidateProfile);
+      window.removeEventListener("focus", refreshProfileOnFocus);
+      profileCheckedAt = 0;
+    }
+  };
+}
+export function useAccountProfileState() {
+  return useSyncExternalStore(subscribeProfile, profileSnapshot);
+}
 async function metadata() {
   const server = await accountOrigin();
   try {

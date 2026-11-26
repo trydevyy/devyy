@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -21,7 +22,13 @@ import { useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Clock3, ExternalLink, RefreshCw, X } from "lucide-react";
-import { aiAccount, remainingLimits, useAI, type AIProvider } from "../lib/ai";
+import {
+  aiAccount,
+  quotaDenied,
+  remainingLimits,
+  useAI,
+  type AIProvider,
+} from "../lib/ai";
 import { invoke, native } from "../lib/native";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import AIProviderIcon from "./AIProviderIcon";
@@ -80,7 +87,7 @@ function providerUsageHelp(provider: AIProvider) {
         url: "https://chatgpt.com/settings/usage",
         label: "ChatGPT usage",
         limits:
-          "Review shared allowance, app limits, reset times and credits in ChatGPT Settings.",
+          "This ChatGPT connection does not expose remaining plan quota or reset times. Check ChatGPT Usage for allowance, app limits, and credits.",
       };
     case "claude":
       return {
@@ -306,7 +313,7 @@ export default function AIUsage({
     const failed: Record<string, string> = {};
     await Promise.allSettled(
       refreshable.map(async (p) => {
-        const id = crypto.randomUUID();
+        const id = newRequestId();
         requests.current.push(id);
         try {
           if (isOpenRouter(p)) {
@@ -406,20 +413,7 @@ export default function AIUsage({
             limits = remainingLimits(raw, usage?.observedAt),
             guide = providerUsageHelp(provider),
             claudeRejection =
-              provider.kind === "claude" &&
-              [
-                raw,
-                ...Object.values(
-                  (raw?.claudeWindows as
-                    Record<string, Record<string, unknown>> | undefined) ?? {},
-                ),
-              ].some(
-                (event) =>
-                  event?.status === "rejected" &&
-                  typeof event.utilization !== "number" &&
-                  (typeof event.resetsAt !== "number" ||
-                    event.resetsAt * 1000 > now),
-              ),
+              provider.kind === "claude" && quotaDenied(raw, now),
             keyResult = keyUsage[provider.id],
             keySnapshot =
               keyResult?.provider === provider ? keyResult.snapshot : undefined,

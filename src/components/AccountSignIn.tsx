@@ -1,42 +1,17 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, LogIn } from "lucide-react";
-import { accountRequest } from "../lib/account";
+import {
+  refreshAccountProfile,
+  useAccountProfileState,
+  type AccountProfile,
+} from "../lib/account";
 import { invoke, native } from "../lib/native";
 import AccountAvatar from "./AccountAvatar";
 import { showError } from "./ui/ErrorToast";
 
-export interface AccountProfile {
-  name: string;
-  email: string;
-}
-
 export function useAccountProfile() {
-  const [profile, setProfile] = useState<AccountProfile | null | undefined>(
-    native ? undefined : null,
-  );
-  useEffect(() => {
-    if (!native) return;
-    let version = 0;
-    function refresh() {
-      const request = ++version;
-      void accountRequest<AccountProfile>("/me").then(
-        (user) => {
-          if (version === request) setProfile(user ?? null);
-        },
-        () => {
-          if (version === request) setProfile(null);
-        },
-      );
-    }
-    refresh();
-    window.addEventListener("devyy-account-changed", refresh);
-    return () => {
-      version++;
-      window.removeEventListener("devyy-account-changed", refresh);
-    };
-  }, []);
-  return profile;
+  return useAccountProfileState().profile;
 }
 
 export default function AccountSignIn({
@@ -45,6 +20,8 @@ export default function AccountSignIn({
   profile: AccountProfile | null | undefined;
 }) {
   const [opening, setOpening] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const { error } = useAccountProfileState();
   async function signIn() {
     setOpening(true);
     try {
@@ -57,7 +34,10 @@ export default function AccountSignIn({
     }
   }
   return (
-    <div className="workbench-account-header" aria-busy={profile === undefined}>
+    <div
+      className="workbench-account-header"
+      aria-busy={retrying || (profile === undefined && !error)}
+    >
       <AccountAvatar large />
       <div>
         <strong>{profile?.name ?? "Your Devyy account"}</strong>
@@ -65,8 +45,21 @@ export default function AccountSignIn({
           {profile?.email ??
             "Sync your preferences across devices and use private forwarded ports."}
         </p>
+        {error && <p role="status">{error}</p>}
       </div>
-      {profile === null && (
+      {error && (
+        <button
+          className="button"
+          disabled={retrying}
+          onClick={() => {
+            setRetrying(true);
+            void refreshAccountProfile(true)?.finally(() => setRetrying(false));
+          }}
+        >
+          Retry account
+        </button>
+      )}
+      {(profile === null || (!profile && error)) && (
         <button
           className="button primary"
           disabled={!native || opening}

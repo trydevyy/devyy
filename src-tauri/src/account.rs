@@ -112,7 +112,10 @@ pub fn token(_app: &tauri::AppHandle, server: &str) -> Result<String, String> {
     }
     entry(server)
         .and_then(|entry| entry.get_password())
-        .map_err(|_| "Sign in to your Devyy account first".into())
+        .map_err(|error| match error {
+            keyring::Error::NoEntry => "Sign in to your Devyy account first".into(),
+            error => format!("Could not read the Devyy credential store: {error}"),
+        })
 }
 
 fn save_token(_app: &tauri::AppHandle, server: &str, token: &str) -> Result<(), String> {
@@ -156,12 +159,31 @@ fn remove_credential_file(path: &std::path::Path) -> Result<bool, String> {
 }
 
 pub fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(35))
-        .build()
-        .map_err(|e| e.to_string())
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("devyy/", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(Duration::from_secs(8))
+                .timeout(Duration::from_secs(35))
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .clone()
 }
+
+pub(crate) fn connection_error(error: &reqwest::Error, service: &str) -> String {
+    if error.is_timeout() {
+        format!("{service} did not respond in time")
+    } else if error.is_connect() {
+        format!("Could not connect to {service}. Check your connection or proxy.")
+    } else {
+        format!("Could not complete the request to {service}")
+    }
+}
+
 async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
     let limit = if response.url().path() == "/api/sync" {
         8 * 1024 * 1024 + 4096
@@ -180,15 +202,17 @@ async fn decode(mut response: reqwest::Response) -> Result<Value, String> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| "The Devyy server returned an invalid response")?;
-    if !status.is_success() {
-        return Err(value["error"]
-            .as_str()
-            .unwrap_or("The Devyy server rejected this request")
-            .to_owned());
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Sign in to your Devyy account first".into());
     }
-    Ok(value)
+    let decoded = serde_json::from_slice::<Value>(&bytes);
+    if !status.is_success() {
+        return Err(decoded
+            .ok()
+            .and_then(|value| value["error"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| format!("The Devyy server returned HTTP {}", status.as_u16())));
+    }
+    decoded.map_err(|_| "The Devyy server returned invalid JSON".into())
 }
 #[tauri::command]
 pub fn account_begin(app: tauri::AppHandle) -> Result<Value, String> {
@@ -248,9 +272,25 @@ async fn poll(
             .filter(|token| token.len() <= 4096)
             .ok_or("Missing or invalid device credential")?;
         if current() {
-            save_token(app, account_origin(), token)
-                .map_err(|error| format!("Could not save the device credential: {error}"))?;
-            let _ = app.emit("devyy-account-changed", account_origin());
+            let credential_app = app.clone();
+            let token = token.to_owned();
+            tauri::async_runtime::spawn_blocking(move || {
+                if credential_app
+                    .state::<Accounts>()
+                    .attempt
+                    .load(Ordering::SeqCst)
+                    == attempt
+                {
+                    save_token(&credential_app, account_origin(), &token)?;
+                }
+                Ok::<_, String>(())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|error| format!("Could not save the device credential: {error}"))?;
+            if current() {
+                let _ = app.emit("devyy-account-changed", account_origin());
+            }
         }
         return Ok(());
     }
@@ -283,7 +323,14 @@ pub async fn account_request(
     if !allowed || !["GET", "PUT", "POST", "PATCH", "DELETE"].contains(&method.as_str()) {
         return Err("Unsupported account operation".into());
     }
-    let token = token(&app, &server)?;
+    // Linux Secret Service and OS keychains may block on IPC. Keep this off
+    // the async workers that also service requests from the webview.
+    let credential_app = app.clone();
+    let credential_server = server.clone();
+    let token =
+        tauri::async_runtime::spawn_blocking(move || token(&credential_app, &credential_server))
+            .await
+            .map_err(|e| e.to_string())??;
     let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut request = client()?
         .request(method, format!("{server}/api{path}"))
@@ -303,7 +350,7 @@ pub async fn account_request(
         request
             .send()
             .await
-            .map_err(|_| "Could not reach your Devyy server")?,
+            .map_err(|error| connection_error(&error, "the Devyy API"))?,
     )
     .await
 }
