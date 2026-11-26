@@ -9563,6 +9563,12 @@ body {
   flex-shrink: 0;
   vertical-align: middle;
 }
+.compact-file-icon {
+  background: var(--file-dark) center / contain no-repeat;
+}
+:root[data-theme="paper"] .compact-file-icon {
+  background-image: var(--file-light);
+}
 .material-file-icon img {
   display: block;
   object-fit: contain;

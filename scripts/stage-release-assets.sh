@@ -27,7 +27,6 @@ case "$platform" in
     copy_one "$editor.exe" "$root/Devyy.exe"
     ;;
   linux-*)
-    copy_one "$setup.AppImage" "$root/bundle/installer/Devyy-Setup.AppImage"
     copy_one "$editor.AppImage" "$root"/bundle/appimage/[Dd]evyy_*.AppImage
     copy_one "$editor.deb" "$root"/bundle/deb/*.deb
     copy_one "$editor" "$root/Devyy"

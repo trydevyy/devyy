@@ -8,7 +8,11 @@ const root = path.resolve(
 );
 const installer = path.join(root, "installer");
 const windows = process.platform === "win32";
-const linux = process.platform === "linux";
+if (!windows && process.platform !== "darwin") {
+  throw new Error(
+    "Linux releases distribute the editor AppImage directly. Run bun run desktop:build.",
+  );
+}
 const bun = "bun";
 const rustTarget = process.env.DEVYY_RUST_TARGET;
 const releaseRoot = path.join(
@@ -64,7 +68,6 @@ if (process.platform === "darwin") {
   const installerArgs = ["run", "desktop:build"];
   if (windows) installerArgs.push("--runner", "cargo", "--no-bundle");
   if (windows && rustTarget) installerArgs.push("--target", rustTarget);
-  if (linux) installerArgs.push("--", "--no-bundle");
   run(bun, installerArgs, {
     cwd: installer,
     env: {
@@ -72,32 +75,6 @@ if (process.platform === "darwin") {
       CARGO_TARGET_DIR: path.join(root, "src-tauri/target"),
     },
   });
-  if (linux) {
-    // Tauri clears its AppImage output directory when bundling. Use the shared
-    // Cargo cache to build, then bundle in the installer's own target directory.
-    const target = path.join(installer, "src-tauri/target");
-    const release = path.join(target, "release");
-    fs.mkdirSync(release, { recursive: true });
-    fs.copyFileSync(
-      path.join(root, "src-tauri/target/release/devyy-installer"),
-      path.join(release, "devyy-installer"),
-    );
-    run(path.join(installer, "node_modules/.bin/tauri"), ["bundle"], {
-      cwd: installer,
-      env: { ...process.env, CARGO_TARGET_DIR: target },
-    });
-    const bundle = path.join(release, "bundle/appimage");
-    const image = fs
-      .readdirSync(bundle)
-      .find((name) => name.endsWith(".AppImage"));
-    if (!image) throw new Error("Tauri did not produce an installer AppImage.");
-    const output = path.join(root, "src-tauri/target/release/bundle/installer");
-    fs.mkdirSync(output, { recursive: true });
-    fs.copyFileSync(
-      path.join(bundle, image),
-      path.join(output, "Devyy-Setup.AppImage"),
-    );
-  }
   if (windows) {
     const source = path.join(releaseRoot, "devyy-installer.exe");
     const output = path.join(releaseRoot, "bundle/installer");

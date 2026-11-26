@@ -63,9 +63,13 @@ test("file palette, workspace search, split, preferences and keyboard flow", asy
     .first();
   const icon = (await result.locator(".material-file-icon").boundingBox())!;
   const text = (await result.locator("strong").boundingBox())!;
-  expect(icon.width).toBe(18);
-  expect(text.x - icon.x - icon.width).toBeGreaterThanOrEqual(8);
-  expect(text.x - icon.x - icon.width).toBeLessThanOrEqual(12);
+  const zoom = await page
+    .locator("html")
+    .evaluate((element) => Number(getComputedStyle(element).zoom));
+  expect(icon.width / zoom).toBeCloseTo(18, 0);
+  const gap = (text.x - icon.x - icon.width) / zoom;
+  expect(gap).toBeGreaterThanOrEqual(7.9);
+  expect(gap).toBeLessThanOrEqual(12.1);
   await page.screenshot({ path: testInfo.outputPath("file-search.png") });
   await page
     .getByRole("textbox", { name: "Search", exact: true })

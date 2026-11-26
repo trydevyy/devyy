@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { memo, type CSSProperties } from "react";
 import manifest from "../lib/generated/file-icons.json";
 import { language } from "../lib/types";
 export type IconTheme = {
@@ -46,27 +47,43 @@ export function fileIconId(
   }
   return theme.languageIds?.[language(path)] ?? theme.file ?? "file";
 }
-export default function FileIcon({
+const lightTheme = { ...manifest, ...manifest.light } as IconTheme;
+
+export default memo(function FileIcon({
   path,
   size = 15,
   directory = false,
   expanded = false,
+  compact = false,
 }: {
   path: string;
   size?: number;
   directory?: boolean;
   expanded?: boolean;
+  compact?: boolean;
 }) {
   const dark = fileIconId(path, manifest as IconTheme, directory, expanded),
-    light = fileIconId(
-      path,
-      { ...manifest, ...manifest.light } as IconTheme,
-      directory,
-      expanded,
-    );
+    light = fileIconId(path, lightTheme, directory, expanded);
   const icons = manifest.icons as Record<string, string>,
     src = (id: string) =>
       `${import.meta.env.BASE_URL}file-icons/${icons[id] ?? icons.file}`;
+  // The tree already limits mounted rows. Paint one icon per row without
+  // asking the browser to schedule lazy image loads as the window moves.
+  if (compact) {
+    const style = {
+      width: size,
+      height: size,
+      "--file-dark": `url("${src(dark)}")`,
+      "--file-light": `url("${src(light)}")`,
+    } as CSSProperties;
+    return (
+      <span
+        className="file-icon material-file-icon compact-file-icon"
+        style={style}
+        aria-hidden="true"
+      />
+    );
+  }
   return (
     <span
       className="file-icon material-file-icon"
@@ -97,7 +114,7 @@ export default function FileIcon({
       )}
     </span>
   );
-}
+});
 
 export function LanguageIcon({ language: id }: { language: string }) {
   const aliases: Record<string, string> = { "c++": "cpp", "c#": "csharp" };

@@ -85,7 +85,12 @@ build: ## Build the production editor frontend and native binary without bundlin
 build-installer: ## Build the custom installer for the current platform.
 	$(BUN) run release:installer
 
-package: build-installer ## Build the editor and matching custom installer.
+ifeq ($(shell uname -s),Linux)
+package: ## Build the Linux editor packages.
+	$(BUN) run desktop:build
+else
+package: build-installer ## Build the editor and matching distribution package.
+endif
 
 verify: format-check lint test ## Run the fast release-readiness verification suite.
 	git diff --check

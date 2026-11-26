@@ -1,8 +1,8 @@
 # Devyy Installer
 
 An offline installer and uninstaller using Devyy's Rust/Tauri stack and interface
-style. Windows and Linux get a guided setup application; macOS uses the standard
-Finder drag-to-Applications disk image with Devyy artwork.
+style. Windows has guided setup. macOS uses a drag-to-Applications disk image,
+and Linux runs the editor AppImage directly.
 
 ## Development
 
@@ -30,13 +30,12 @@ bun run release:installer
 This first builds Devyy, then packages the installer for the host OS:
 
 - **Windows:** `src-tauri/target/release/bundle/installer/Devyy-Setup.exe`.
-- **Linux:** `Devyy-Setup.AppImage` in the release `bundle/installer` folder. Make it executable, then open it. On a system without FUSE, launch it with `APPIMAGE_EXTRACT_AND_RUN=1 ./Devyy-Setup.AppImage`.
 - **macOS:** the Devyy DMG in the release `bundle/dmg` folder. Opening it shows
   the actual Devyy app and Applications. Drag Devyy across to install; there is
   no intermediate setup app to open or install.
 
-Windows/Linux payloads are created with `node installer/scripts/prepare-payload.mjs`.
-Use `--app <file>`, `--platform windows|linux` and `--output <zip>` for explicit
+Windows payloads are created with `node installer/scripts/prepare-payload.mjs`.
+Use `--app <file>`, `--platform windows` and `--output <zip>` for explicit
 inputs. `DEVYY_INSTALLER_PAYLOAD` can select a prepared archive for native builds.
 Installer and app versions come from the root package version.
 
@@ -63,7 +62,7 @@ one is available in the keychain.
 
 ## Setup interface
 
-Windows and Linux use four steps: location, shortcuts, licenses, then installation.
+Windows uses four steps: location, shortcuts, licenses, then installation.
 The recommended account folder and a native folder picker replace a plain path
 prompt; an Edit action also permits typing a path. The destination is validated
 before continuing. Back navigation preserves options. Page transitions use
@@ -78,7 +77,7 @@ arrow; the app/folder icons and interaction are real Finder items. No separate
 installer, hidden app payload or setup ZIP is part of the macOS release path.
 The old custom macOS window remains a development surface only.
 
-Screenshots of Windows/Linux setup are captured from the actual React interface
+Screenshots of Windows setup are captured from the actual React interface
 with mocked native commands. The macOS layout preview is rendered with the same
 background and bundled app icon; it is explicitly a preview when screen recording
 permission is unavailable.
@@ -91,12 +90,6 @@ folder and choose Desktop and Start-menu shortcuts. Setup creates HKCU Installed
 apps registration, App Paths and Devyy's URL handler. If WebView2 is missing, a
 native bootstrap prompt offers Microsoft's runtime; its Authenticode signature is
 verified before execution. The app registration opens the branded uninstaller.
-
-Linux setup defaults to `~/.local/opt/devyy`, creates an application launcher,
-a `~/.local/bin/devyy` command, an uninstaller menu entry, and an optional Desktop
-shortcut. The launcher uses AppImage extraction mode so Devyy does not require
-FUSE at launch. To open the installer itself on a system without FUSE, use
-`APPIMAGE_EXTRACT_AND_RUN=1 ./Devyy\ Installer*.AppImage`.
 
 Installation is staged and committed with a manifest. An unrelated nonempty
 folder is refused; updates refuse added files rather than discarding them.
@@ -119,7 +112,7 @@ Windows Installed apps opens the GUI. PowerShell can also run:
 & "$env:LOCALAPPDATA\Programs\Devyy\uninstall.ps1" -Silent
 ```
 
-Linux exposes **Uninstall Devyy** in the application menu, or:
+For a legacy Linux setup installation, use **Uninstall Devyy** in the application menu, or:
 
 ```sh
 ~/.local/opt/devyy/uninstall.sh

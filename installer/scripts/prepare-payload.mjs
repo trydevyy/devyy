@@ -14,62 +14,25 @@ const option = (name, fallback) => {
 };
 const platform = option(
   "--platform",
-  process.platform === "win32"
-    ? "windows"
-    : process.platform === "linux"
-      ? "linux"
-      : "macos",
+  process.platform === "win32" ? "windows" : process.platform,
 );
-if (!["windows", "linux"].includes(platform))
-  throw Error("Use build-dmg.py to package Devyy on macOS.");
+if (platform !== "windows")
+  throw Error(
+    "Installer payloads are Windows-only. Use the editor AppImage on Linux or build-dmg.py on macOS.",
+  );
 const release = path.join(root, "src-tauri/target/release");
-const appimage =
-  platform === "linux" && !option("--app", undefined)
-    ? fs
-        .readdirSync(path.join(release, "bundle/appimage"))
-        .filter(
-          (name) =>
-            name.toLowerCase().startsWith("devyy_") &&
-            name.endsWith(".AppImage"),
-        )
-        .sort(
-          (a, b) =>
-            fs.statSync(path.join(release, "bundle/appimage", b)).mtimeMs -
-            fs.statSync(path.join(release, "bundle/appimage", a)).mtimeMs,
-        )[0]
-    : undefined;
-
-const source = path.resolve(
-  option(
-    "--app",
-    platform === "windows"
-      ? path.join(release, "Devyy.exe")
-      : path.join(release, "bundle/appimage", appimage ?? "devyy.AppImage"),
-  ),
-);
-const entries = [
-  {
-    name: platform === "windows" ? "devyy.exe" : "devyy.AppImage",
-    bytes: fs.readFileSync(source),
-  },
-];
+const source = path.resolve(option("--app", path.join(release, "Devyy.exe")));
+const entries = [{ name: "devyy.exe", bytes: fs.readFileSync(source) }];
 for (const name of [
   "WebView2Loader.dll",
   "vcruntime140.dll",
   "vcruntime140_1.dll",
-])
-  if (
-    platform === "windows" &&
-    fs.existsSync(path.join(path.dirname(source), name))
-  )
-    entries.push({
-      name,
-      bytes: fs.readFileSync(path.join(path.dirname(source), name)),
-    });
-if (platform === "windows") {
-  for (const { name, bytes } of explorerFileIcons()) {
-    entries.push({ name: `file-icons/${name}`, bytes });
-  }
+]) {
+  const file = path.join(path.dirname(source), name);
+  if (fs.existsSync(file)) entries.push({ name, bytes: fs.readFileSync(file) });
+}
+for (const { name, bytes } of explorerFileIcons()) {
+  entries.push({ name: `file-icons/${name}`, bytes });
 }
 entries.push({
   name: "THIRD_PARTY_NOTICES.json",

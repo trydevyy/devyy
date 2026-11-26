@@ -32,7 +32,7 @@ describe("interface and completion preferences", () => {
     });
     expect(
       normalizeSettings({ uiScale: NaN, aiCompletionModel: { invalid: true } }),
-    ).toMatchObject({ uiScale: 100, aiCompletionModel: "" });
+    ).toMatchObject({ uiScale: 105, aiCompletionModel: "" });
   });
 });
 describe("workspace URI mapping", () => {

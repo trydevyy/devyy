@@ -117,14 +117,14 @@ jobs:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
           DEVYY_CRASH_WEBHOOK_URL: ${{ inputs.release_build && secrets.DEVYY_CRASH_WEBHOOK_URL || '' }}
       - run: bun install --cwd installer --frozen-lockfile
-        if: inputs.release_build
+        if: inputs.release_build && runner.os == 'Windows'
       - name: Build custom installer
-        if: inputs.release_build
+        if: inputs.release_build && runner.os == 'Windows'
         env:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
           DEVYY_FEEDBACK_WEBHOOK_URL: ${{ inputs.release_build && secrets.DEVYY_FEEDBACK_WEBHOOK_URL || '' }}
         run: node installer/scripts/release.mjs --skip-editor-build
-      - name: Launch packaged editor and installer on Linux
+      - name: Launch packaged editor on Linux
         if: inputs.release_build && runner.os == 'Linux'
         run: |
           xvfb-run -a bash -eu -o pipefail <<'BASH'
@@ -140,7 +140,6 @@ jobs:
           )
           bundle=src-tauri/target/release/bundle/appimage
           smoke "$(find "$bundle" -iname 'devyy_*.AppImage' -print -quit)" Devyy
-          smoke src-tauri/target/release/bundle/installer/Devyy-Setup.AppImage 'Devyy Installer'
           BASH
       - name: Stage versioned installer and editor assets
         if: inputs.release_build

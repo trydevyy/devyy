@@ -112,6 +112,8 @@ if [[ "$platform" == macos-* ]]; then
   installer_args=()
   if $ad_hoc; then installer_args+=(--local-only); fi
   bun run release:installer --skip-editor-build --app "$app" --output "$DEVYY_DMG_PATH" "${installer_args[@]}"
+elif [[ "$platform" == linux-* ]]; then
+  bun run desktop:build
 else
   bun install --cwd installer --frozen-lockfile
   bun run release:installer

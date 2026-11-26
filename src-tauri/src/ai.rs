@@ -176,7 +176,7 @@ fn defaults() -> Vec<Provider> {
         args: Vec::new(),
         cli_json: false,
         has_key: false,
-        enabled: true,
+        enabled: false,
     })
     .collect()
 }

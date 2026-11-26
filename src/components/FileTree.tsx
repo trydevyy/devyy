@@ -189,7 +189,6 @@ export default function FileTree(p: Props) {
   const [range, setRange] = useState({ start: 0, end: 64 });
   const rendered = useRef(range);
   rendered.current = range;
-  const scrollFrame = useRef<number | undefined>(undefined);
   const viewportHeight = useRef(0);
   const virtual = rows.length > 150;
 
@@ -217,14 +216,6 @@ export default function FileTree(p: Props) {
     else setRange(next);
   }
 
-  function onTreeScroll() {
-    if (scrollFrame.current !== undefined) return;
-    scrollFrame.current = requestAnimationFrame(() => {
-      scrollFrame.current = undefined;
-      measure(true);
-    });
-  }
-
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!virtual || !element) return;
@@ -235,12 +226,7 @@ export default function FileTree(p: Props) {
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(element);
-    return () => {
-      observer.disconnect();
-      if (scrollFrame.current !== undefined)
-        cancelAnimationFrame(scrollFrame.current);
-      scrollFrame.current = undefined;
-    };
+    return () => observer.disconnect();
   }, [virtual, rows.length]);
   const start = virtual
     ? Math.min(range.start, Math.max(0, rows.length - 1))
@@ -363,12 +349,12 @@ export default function FileTree(p: Props) {
             {file.directory ? (
               <>
                 <ChevronRight size={12} className={open ? "rotated" : ""} />
-                <FileIcon path={file.path} directory expanded={open} />
+                <FileIcon path={file.path} directory expanded={open} compact />
               </>
             ) : (
               <>
                 <span className="tree-spacer" />
-                <FileIcon path={file.path} />
+                <FileIcon path={file.path} compact />
               </>
             )}
             <span className="filename">{filename(file.path)}</span>
@@ -425,7 +411,7 @@ export default function FileTree(p: Props) {
         aria-label="Project files"
         ref={viewport}
         data-virtual={virtual || undefined}
-        onScroll={virtual ? onTreeScroll : undefined}
+        onScroll={virtual ? () => measure(true) : undefined}
         tabIndex={0}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {

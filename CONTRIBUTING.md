@@ -49,7 +49,7 @@ Run this command on the target OS. The [installer guide](installer/README.md) li
 
 Set the GitHub Actions repository secret `HIT_READ_PAT` to a fine-grained personal access token with **Contents: Read** on `hit-scm/hit`. Native CI and release builds fetch both pinned submodules. The HIT token is scoped to its HTTPS checkout. Fork pull requests fetch the public docs and run formatting, JavaScript unit, extension-host, and browser tests.
 
-Editor assets use `Devyy-<version>-<platform>` plus the platform extension. Windows ships an executable, Linux ships an ELF binary, AppImage and Debian package, and macOS ships a ZIP with the complete app bundle. Installers use the `Devyy-Setup-` prefix. Linux builds require a glibc environment. Native musl builds require a compatible GTK/WebKitGTK stack.
+Editor assets use `Devyy-<version>-<platform>` plus the platform extension. Windows ships an executable, Linux ships an ELF binary, AppImage and Debian package, and macOS ships a ZIP with the complete app bundle. Windows setup and the macOS disk image use the `Devyy-Setup-` prefix. The Linux AppImage runs directly. Linux builds require a glibc environment. Native musl builds require a compatible GTK/WebKitGTK stack.
 
 Configure `DEVYY_CRASH_WEBHOOK_URL` and `DEVYY_FEEDBACK_WEBHOOK_URL` as separate GitHub Actions secrets if the release should enable these features. Export the variables in your shell for local packaging. Builds without these values can run locally and in CI. Both encrypted URLs can be recovered from their distributed binaries because each client includes its decryption key. Use dedicated webhooks.
 

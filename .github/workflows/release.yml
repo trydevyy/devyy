@@ -100,7 +100,6 @@ jobs:
             stage "$platform" "Devyy-$version-$platform.exe"
           done
           for platform in linux-x64 linux-arm64; do
-            stage "$platform" "Devyy-Setup-$version-$platform.AppImage"
             stage "$platform" "Devyy-$version-$platform.AppImage"
             stage "$platform" "Devyy-$version-$platform.deb"
             stage "$platform" "Devyy-$version-$platform"

@@ -137,6 +137,9 @@ test("installer passes location and shortcut choices, shows real progress and cl
     page.getByRole("heading", { name: "Devyy is installed" }),
   ).toBeVisible();
   await expect(page.locator(".done")).toHaveText("Devyy is installed");
+  await expect(
+    page.locator(".desktop-page :is(.page-mark, .progress-mark)"),
+  ).toHaveCount(1);
   await page.getByRole("button", { name: "Close setup", exact: true }).click();
 });
 test("uninstall sends optional feedback only after an explicit request", async ({

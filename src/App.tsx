@@ -5953,12 +5953,7 @@ export default function App() {
               ) : (
                 <div className="welcome">
                   <div className="welcome-eyebrow">
-                    <Asterisk
-                      size={64}
-                      width={34}
-                      viewBox="5.8 0 12.4 24"
-                      aria-hidden="true"
-                    />
+                    <Asterisk size={54} aria-hidden="true" />
                   </div>
                   <div className="welcome-layout">
                     <div className="welcome-intro">

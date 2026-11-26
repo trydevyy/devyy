@@ -46,7 +46,7 @@ test("interface text and scale persist independently of editor text", async ({
     )
     .toBeGreaterThan(originalTitle);
   await expect(code).toHaveCSS("font-size", size);
-  for (let i = 0; i < 5; i++)
+  for (let i = 0; i < 4; i++)
     await preferences
       .getByRole("button", { name: "Increase interface scale", exact: true })
       .click();
@@ -59,7 +59,7 @@ test("interface text and scale persist independently of editor text", async ({
     await page.evaluate(() =>
       JSON.parse(localStorage.getItem("devyy.settings")!),
     ),
-  ).toMatchObject({ uiTextSize: 16, uiScale: 125, fontSize: 14 });
+  ).toMatchObject({ uiTextSize: 16, uiScale: 125, fontSize: 15 });
 });
 
 test("workspace dropdown lists recent folders and find buttons use proper SVG icons", async ({

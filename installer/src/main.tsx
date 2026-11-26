@@ -400,7 +400,9 @@ function App() {
             transition={transition}
           >
             <div className={isMac ? "mac-page" : "desktop-page"}>
-              {!isMac && !busy && <Mark className="page-mark" />}
+              {!isMac && !busy && (step !== "done" || info?.uninstall) && (
+                <Mark className="page-mark" />
+              )}
               {!info ? (
                 <div className="center">
                   <LoaderCircle className="spin" />

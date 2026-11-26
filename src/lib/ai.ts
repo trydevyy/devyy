@@ -172,6 +172,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
   {
     id: "claude",
@@ -181,6 +182,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
   {
     id: "antigravity",
@@ -190,6 +192,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
   {
     id: "opencode",
@@ -199,6 +202,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
   {
     id: "openai",
@@ -208,6 +212,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
   {
     id: "anthropic",
@@ -217,6 +222,7 @@ const initialProviders: AIProvider[] = [
     model: "",
     executable: "",
     hasKey: false,
+    enabled: false,
   },
 ];
 function savedConversations(): AIConversation[] {

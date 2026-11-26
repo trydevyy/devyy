@@ -12,13 +12,12 @@ Open a folder and keep your editor, terminals, Git history, and AI tools within 
 
 Open the [latest release](https://github.com/trydevyy/devyy/releases/latest), expand **Assets**, and download the file for your system.
 
-| Platform                               | Download                                      | Install                                                                                                        |
-| -------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Windows x86, x64 or ARM64              | `Devyy-Setup-<version>-windows-<arch>.exe`    | Run Setup and choose your install location and shortcuts.                                                      |
-| macOS Intel or Apple silicon           | `Devyy-Setup-<version>-macos-<arch>.dmg`      | Open the disk image and drag Devyy into **Applications**. Choose `x64` for Intel or `arm64` for Apple silicon. |
-| Linux glibc x64 or ARM64, guided setup | `Devyy-Setup-<version>-linux-<arch>.AppImage` | Make Setup executable and follow the wizard.                                                                   |
-| Linux glibc x64 or ARM64, portable     | `Devyy-<version>-linux-<arch>.AppImage`       | Make the AppImage executable and run it directly.                                                              |
-| Debian or Ubuntu x64 or ARM64          | `Devyy-<version>-linux-<arch>.deb`            | Install the downloaded file with your package manager.                                                         |
+| Platform                           | Download                                   | Install                                                                                                        |
+| ---------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Windows x86, x64 or ARM64          | `Devyy-Setup-<version>-windows-<arch>.exe` | Run Setup and choose your install location and shortcuts.                                                      |
+| macOS Intel or Apple silicon       | `Devyy-Setup-<version>-macos-<arch>.dmg`   | Open the disk image and drag Devyy into **Applications**. Choose `x64` for Intel or `arm64` for Apple silicon. |
+| Linux glibc x64 or ARM64, portable | `Devyy-<version>-linux-<arch>.AppImage`    | Make the AppImage executable and run it directly.                                                              |
+| Debian or Ubuntu x64 or ARM64      | `Devyy-<version>-linux-<arch>.deb`         | Install the downloaded file with your package manager.                                                         |
 
 The latest release link becomes available when the first stable release is published. [All releases](https://github.com/trydevyy/devyy/releases) also lists prereleases when available. Automated packages currently ship unsigned. Compare your download’s SHA-256 hash with the entry in `SHA256SUMS.txt` from the same release.
 
@@ -26,14 +25,14 @@ macOS downloads are added separately when available and have their own `SHA256SU
 
 If macOS blocks the verified Devyy download on first launch, follow Apple’s [Open Anyway instructions](https://support.apple.com/en-us/102445).
 
-**Linux guided setup** from your Downloads directory, using the actual downloaded filename:
+**Linux AppImage** from your Downloads directory, using the actual downloaded filename:
 
 ```sh
-chmod +x Devyy-Setup-0.1.0-linux-x64.AppImage
-./Devyy-Setup-0.1.0-linux-x64.AppImage
+chmod +x Devyy-0.3.0-linux-x64.AppImage
+./Devyy-0.3.0-linux-x64.AppImage
 ```
 
-On a system without FUSE, prefix the AppImage command with `APPIMAGE_EXTRACT_AND_RUN=1`. For Debian or Ubuntu, run `sudo apt install ./Devyy-0.1.0-linux-x64.deb` with the actual downloaded filename.
+On a system without FUSE, prefix the AppImage command with `APPIMAGE_EXTRACT_AND_RUN=1`. For Debian or Ubuntu, run `sudo apt install ./Devyy-0.3.0-linux-x64.deb` with the actual downloaded filename.
 
 After installing, launch Devyy, choose **Continue as guest** or sign in, and select **Open a project**. Node.js is needed to run JavaScript extensions. Git and AI providers are set up separately when you use them.
 
