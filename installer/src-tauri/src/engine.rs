@@ -419,7 +419,10 @@ pub fn install(
         explorer_context_menu: options.explorer_context_menu,
         platform: environment.platform,
         uninstaller: uninstaller.into(),
-        payload_sha256: format!("{:x}", Sha256::digest(payload)),
+        payload_sha256: Sha256::digest(payload)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
     };
     let result = (|| {
         fs::write(
