@@ -259,7 +259,9 @@ fn unpack(
     let mut names = HashSet::new();
     for index in 0..archive.len() {
         let mut file = archive.by_index(index).map_err(|e| e.to_string())?;
-        let name = file.name().to_owned();
+        let name = file
+            .name()
+            .map_err(|e| format!("Invalid VSIX entry name: {e}"))?;
         let Some(relative) = name.strip_prefix("extension/") else {
             continue;
         };

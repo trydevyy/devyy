@@ -22,7 +22,6 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 ring = "0.17"
-jsonwebtoken = "9.3"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
 mime_guess = "2"
@@ -38,7 +37,7 @@ window-vibrancy = "0.8"
 tauri-plugin-opener = "2.7.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 semver = "1.0.28"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 json5 = "0.4"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "process", "sync", "time", "macros", "net"] }
@@ -92,6 +91,8 @@ tauri = { workspace = true, features = ["tray-icon"] }
 tauri = "2"
 
 [patch.crates-io]
+# GTK 3 requires glib 0.18. Carry the RUSTSEC-2024-0429 fix from 0.20.
+glib = { path = "../third_party/glib" }
 # portable-pty 0.9.0 with the Win32 calling convention for ConPTY exports.
 portable-pty = { path = "../third_party/portable-pty" }
 

@@ -30,6 +30,11 @@ Devyy starts and scrolls more smoothly, with a redesigned Settings and setup exp
 - Linux downloads use the editor AppImage directly, with Debian packages also available. Windows keeps its custom installer, and macOS uses a drag-to-Applications disk image.
 - Desktop CI scopes checks to changed files and reuses Rust dependencies. Release tests run alongside packaging and still gate publication. Intel macOS packages are built on Apple silicon and checked for the correct architecture.
 
+### Dependency security
+
+- The editor and installer require ZIP 9.0.5 or newer within the 9.x series. Extension installation now handles invalid archive entry names with the ZIP 9 API.
+- Backported the GLib variant-string iterator fix from 0.20 to the GTK 3-compatible GLib 0.18 used by the Linux desktop builds. Removed the unused `jsonwebtoken` dependency.
+
 ## v0.1.0
 
 First public release of Devyy, a desktop workspace for editing, running, and shipping code.
