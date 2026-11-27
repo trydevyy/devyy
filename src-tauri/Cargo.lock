@@ -1408,7 +1408,7 @@ dependencies = [
  "uuid",
  "webkit2gtk",
  "window-vibrancy",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
  "winreg 0.55.0",
  "zip",
 ]
