@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import {
   aiAccount,
+  isChatGPTAccount,
   aiProviderReady,
   loadAI,
   saveAIProvider,
@@ -60,7 +61,9 @@ export default function AIProviders() {
     const results = await Promise.allSettled(
       state.providers
         .filter(
-          (p) => p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
+          (p) =>
+            p.enabled !== false &&
+            (isChatGPTAccount(p.kind) || p.kind === "claude"),
         )
         .map((p) => aiAccount(p.id, "status", newRequestId())),
     );

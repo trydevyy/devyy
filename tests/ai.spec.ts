@@ -21,9 +21,10 @@ async function fixture(
   extension = false,
   oauth = false,
   missingRuntime = false,
+  codexRoutes = false,
 ) {
   await page.addInitScript(
-    ({ extension, oauth, missingRuntime }) => {
+    ({ extension, oauth, missingRuntime, codexRoutes }) => {
       const callbacks = new Map<number, (v: unknown) => void>(),
         handlers = new Map<string, Set<number>>();
       let serial = 0,
@@ -76,6 +77,28 @@ async function fixture(
           hasKey: false,
         },
       ];
+      if (codexRoutes) {
+        providers.push(
+          {
+            id: "codex-app",
+            name: "ChatGPT via Codex",
+            kind: "codex-app",
+            endpoint: "",
+            model: "",
+            executable: "",
+            hasKey: false,
+          },
+          {
+            id: "codex-api",
+            name: "Codex API",
+            kind: "codex-api",
+            endpoint: "http://127.0.0.1:19766/v1",
+            model: "",
+            executable: "",
+            hasKey: false,
+          },
+        );
+      }
       localStorage.setItem(
         "devyy.ai.verified",
         JSON.stringify({
@@ -432,6 +455,22 @@ async function fixture(
                   },
                 },
               };
+            if (command === "ai_account" && args.providerId === "codex-app")
+              return {
+                account: { email: "codex@example.test", planType: "plus" },
+                planEnabled: true,
+                limits: {
+                  rateLimitsByLimitId: {
+                    codex: {
+                      primary: { usedPercent: 28, windowDurationMins: 300 },
+                    },
+                    special: {
+                      limitName: "Special models",
+                      primary: { usedPercent: 52, windowDurationMins: 10080 },
+                    },
+                  },
+                },
+              };
             if (command === "ai_account")
               return args.providerId === "chatgpt"
                 ? {
@@ -481,7 +520,7 @@ async function fixture(
       });
       localStorage.setItem("devyy.ai.provider", "custom-test");
     },
-    { extension, oauth, missingRuntime },
+    { extension, oauth, missingRuntime, codexRoutes },
   );
   await page.goto("/?playground=1");
 }
@@ -1321,6 +1360,39 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
       .filter((c) => c.command === "plugin:opener|open_url")
       .every((c) => String(c.args.url).startsWith("https://auth.openai.com/")),
   ).toBe(true);
+});
+
+test("Codex subscription limits belong only to the signed-in route", async ({
+  page,
+}) => {
+  await fixture(page, false, false, false, true);
+  await start(page);
+  await page
+    .getByRole("button", { name: "AI provider settings", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^Codex API/ }).click();
+  const api = page.getByRole("region", { name: "Codex API", exact: true });
+  await api.getByRole("button", { name: "Load models" }).click();
+  await expect(api.getByText("2 models available")).toBeVisible();
+  await api.getByRole("button", { name: "Usage", exact: true }).click();
+  await expect(
+    page.getByText(/This endpoint handles API billing and quotas/),
+  ).toBeVisible();
+  await expect(page.getByRole("meter")).toHaveCount(0);
+  await chooseOption(
+    page.getByRole("combobox", { name: "Usage provider" }),
+    "codex-app",
+  );
+  await expect(
+    page.getByRole("meter", {
+      name: "ChatGPT via Codex 5-hour window remaining",
+    }),
+  ).toHaveAttribute("aria-valuenow", "72");
+  await expect(
+    page.getByRole("meter", {
+      name: "ChatGPT via Codex Special models · Weekly remaining",
+    }),
+  ).toHaveAttribute("aria-valuenow", "48");
 });
 
 test("header toggles the AI workspace and provider Usage navigates within Settings", async ({

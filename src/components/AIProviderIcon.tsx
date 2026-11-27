@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Server, TerminalSquare } from "lucide-react";
-import type { AIProvider } from "../lib/ai";
+import { isCodexRuntime, type AIProvider } from "../lib/ai";
 export default function AIProviderIcon({
   kind,
   size = 18,
@@ -23,7 +23,10 @@ export default function AIProviderIcon({
   size?: number;
 }) {
   const logo =
-    kind === "chatgpt" || kind === "codex" || kind === "openai"
+    kind === "chatgpt" ||
+    kind === "codex" ||
+    isCodexRuntime(kind) ||
+    kind === "openai"
       ? "codex"
       : kind === "claude" || kind === "anthropic"
         ? "claude"

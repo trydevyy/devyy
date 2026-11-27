@@ -98,7 +98,7 @@ pub fn context<R: tauri::Runtime>(
     }))
 }
 impl Context {
-    fn check<R: tauri::Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
+    pub(super) fn check<R: tauri::Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
         if workspace::root(&app.state::<workspace::Workspace>())? != self.base
             || mode_at(app, &self.base) != (self.mode.clone(), self.version)
         {
@@ -184,7 +184,7 @@ impl Context {
             .take(4000)
             .collect())
     }
-    fn execute(&self, name: &str, args: &Value) -> Result<Value, String> {
+    pub(super) fn execute(&self, name: &str, args: &Value) -> Result<Value, String> {
         if args.get("__devyy_invalid_arguments").is_some() {
             return Err("Tool arguments must be a valid JSON object. Correct the arguments and retry this tool.".into());
         }
@@ -670,7 +670,7 @@ fn strict_schema(schema: &mut Value) {
         }
     }
 }
-fn definitions(full: bool) -> Vec<Value> {
+pub(super) fn definitions(full: bool) -> Vec<Value> {
     let mut tools = vec![
         json!({"name":"list_files","description":"List workspace file paths, respecting the current workspace permission. Results are bounded; use path to narrow the directory.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative directory or empty string for the root"}},"required":["path"],"additionalProperties":false}}),
         json!({"name":"read_file","description":"Read lines of a UTF-8 workspace file up to 10 MiB. Each result is bounded to 256 KiB; start_line and end_line are optional (reads up to 2000 lines).","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Workspace-relative path to the file"},"start_line":{"type":"integer","description":"Optional 1-indexed start line (defaults to 1)"},"end_line":{"type":"integer","description":"Optional 1-indexed end line (defaults to start_line + 1999)"}},"required":["path"],"additionalProperties":false}}),

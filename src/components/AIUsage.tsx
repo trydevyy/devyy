@@ -26,6 +26,7 @@ import { ArrowLeft, Clock3, ExternalLink, RefreshCw } from "lucide-react";
 import {
   aiAccount,
   aiProviderReady,
+  isChatGPTAccount,
   refreshAIPlanLimits,
   quotaDenied,
   remainingLimits,
@@ -85,6 +86,18 @@ function providerUsageHelp(provider: AIProvider) {
         "Refresh to check the configured key’s spending cap and remaining budget.",
     };
   switch (provider.kind) {
+    case "codex-app":
+      return {
+        url: "https://chatgpt.com/settings/usage",
+        label: "ChatGPT usage",
+        limits:
+          "Codex hasn’t reported plan limits for this account yet. Refresh to check again.",
+      };
+    case "codex-api":
+      return {
+        limits:
+          "This endpoint handles API billing and quotas. Check the endpoint’s usage dashboard.",
+      };
     case "chatgpt":
       return {
         url: "https://chatgpt.com/settings/usage",
@@ -297,7 +310,7 @@ export default function AIUsage({
   const refreshable = providers.filter(
     (p) =>
       connectedIds.has(p.id) &&
-      (["chatgpt", "claude", "opencode"].includes(p.kind) ||
+      (["chatgpt", "codex-app", "claude", "opencode"].includes(p.kind) ||
         (isOpenRouter(p) && p.hasKey)),
   );
   const checkPlan = useCallback((providerId: string) => {
@@ -480,7 +493,7 @@ export default function AIUsage({
                   ? keyResult.snapshot
                   : undefined,
               identity = (
-                ["chatgpt"].includes(provider.kind)
+                isChatGPTAccount(provider.kind)
                   ? account?.account
                   : account?.loggedIn
                     ? account
@@ -674,7 +687,7 @@ export default function AIUsage({
                             {String(
                               identity.planType ??
                                 identity.subscriptionType ??
-                                (["chatgpt"].includes(provider.kind)
+                                (isChatGPTAccount(provider.kind)
                                   ? "Account usage"
                                   : "Connected account"),
                             )}
@@ -683,7 +696,7 @@ export default function AIUsage({
                         <button
                           onClick={() =>
                             void openUrl(
-                              ["chatgpt"].includes(provider.kind)
+                              isChatGPTAccount(provider.kind)
                                 ? "https://chatgpt.com/settings/usage"
                                 : "https://claude.ai",
                             ).catch(() => {})
@@ -791,7 +804,7 @@ export default function AIUsage({
                         </small>
                       </div>
                     )}
-                    {provider.kind === "chatgpt" ? (
+                    {isChatGPTAccount(provider.kind) ? (
                       <div className="ai-cost-card">
                         <span>ChatGPT plan billing</span>
                         <strong>

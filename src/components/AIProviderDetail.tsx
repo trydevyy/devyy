@@ -36,6 +36,8 @@ import {
 import {
   aiProviderReady,
   aiAccount,
+  isChatGPTAccount,
+  isCodexRuntime,
   discoverAIModels,
   removeAIProvider,
   saveAIProvider,
@@ -43,6 +45,7 @@ import {
   type AIProvider,
 } from "../lib/ai";
 import { invoke, listen, native } from "../lib/native";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import AIProviderIcon from "./AIProviderIcon";
 
 function CLIFields({
@@ -139,7 +142,7 @@ export function accountInfo(
 ) {
   const identity = (account?.account ?? account) as
     Record<string, unknown> | undefined;
-  const connected = ["chatgpt"].includes(provider.kind)
+  const connected = isChatGPTAccount(provider.kind)
     ? !!account?.account
     : account?.loggedIn === true;
   return {
@@ -166,7 +169,8 @@ export function accountInfo(
                   ? "Configured"
                   : account
                     ? "Signed out"
-                    : ["chatgpt", "claude"].includes(provider.kind)
+                    : isChatGPTAccount(provider.kind) ||
+                        provider.kind === "claude"
                       ? "Sign in"
                       : "Set up",
   };
@@ -231,9 +235,11 @@ export default function AIProviderDetail({
       provider,
       state.accounts[provider.id],
     ),
-    accountProvider = ["chatgpt", "claude"].includes(form.kind),
+    accountProvider = isChatGPTAccount(form.kind) || form.kind === "claude",
     custom = ![
       "chatgpt",
+      "codex-app",
+      "codex-api",
       "claude",
       "antigravity",
       "opencode",
@@ -241,8 +247,11 @@ export default function AIProviderDetail({
       "anthropic",
     ].includes(provider.id);
   const builtInCLI = ["claude", "antigravity", "opencode"].includes(form.kind);
-  const runtimeMissing = builtInCLI && Boolean(runtimeError);
-  const providerDefault = builtInCLI || form.kind === "cli";
+  const codexRuntime = isCodexRuntime(form.kind);
+  const runtimeSettings = builtInCLI || codexRuntime;
+  const runtimeMissing = runtimeSettings && Boolean(runtimeError);
+  const providerDefault =
+    builtInCLI || form.kind === "codex-app" || form.kind === "cli";
 
   async function action(name: string, work: () => Promise<unknown>) {
     setBusy(name);
@@ -303,7 +312,8 @@ export default function AIProviderDetail({
   useEffect(() => {
     if (
       !active ||
-      !["claude", "antigravity", "opencode"].includes(provider.kind) ||
+      (!["claude", "antigravity", "opencode"].includes(provider.kind) &&
+        !isCodexRuntime(provider.kind)) ||
       !native
     )
       return;
@@ -441,7 +451,7 @@ export default function AIProviderDetail({
               Looking for {form.name} on this computer...
             </p>
           )}
-          {runtimeMissing && (
+          {runtimeMissing && !codexRuntime && (
             <div className="ai-runtime-install">
               <div>
                 <strong>{form.name} could not start</strong>
@@ -487,6 +497,19 @@ export default function AIProviderDetail({
           {runtimeMissing && (
             <div className="ai-provider-runtime-error">
               <small>{runtimeError}</small>
+              {codexRuntime && (
+                <button
+                  className="ai-text-action"
+                  type="button"
+                  onClick={() =>
+                    void action("docs", () =>
+                      openUrl("https://developers.openai.com/codex/cli"),
+                    )
+                  }
+                >
+                  Install Codex CLI <ExternalLink size={12} />
+                </button>
+              )}
               <button
                 className="ai-text-action"
                 type="button"
@@ -496,20 +519,27 @@ export default function AIProviderDetail({
               </button>
             </div>
           )}
+          {codexRuntime && (
+            <p className="ai-provider-notice">
+              {form.kind === "codex-app"
+                ? "Uses the installed Codex CLI for ChatGPT sign-in and live plan limits."
+                : "Uses the installed Codex CLI with an OpenAI Responses-compatible endpoint. API traffic is billed by that endpoint."}
+            </p>
+          )}
           {accountProvider ? (
             <>
               <div className="ai-provider-account-row">
                 <span>
                   <strong>
-                    {form.kind === "chatgpt"
+                    {isChatGPTAccount(form.kind)
                       ? "ChatGPT account"
                       : "Claude Code account"}
                   </strong>
                   <small>
                     {connected
                       ? String(identity?.email ?? "Account connected")
-                      : form.kind === "chatgpt"
-                        ? "Authorize Devyy in your browser"
+                      : isChatGPTAccount(form.kind)
+                        ? "Sign in to ChatGPT in your browser"
                         : "Uses Claude Code’s browser sign-in"}
                   </small>
                 </span>
@@ -519,15 +549,14 @@ export default function AIProviderDetail({
                   disabled={
                     !!busy ||
                     !native ||
-                    (form.kind === "claude" &&
-                      (runtimeChecking || runtimeMissing))
+                    (runtimeSettings && (runtimeChecking || runtimeMissing))
                   }
                   onClick={() =>
                     void action("login", () => accountAction("login"))
                   }
                 >
                   <ExternalLink size={12} />{" "}
-                  {form.kind === "chatgpt"
+                  {isChatGPTAccount(form.kind)
                     ? connected
                       ? "Reconnect"
                       : "Continue with ChatGPT"
@@ -656,17 +685,18 @@ export default function AIProviderDetail({
                   <Select
                     id={`ai-protocol-${provider.id}`}
                     value={
-                      form.kind === "cli"
-                        ? "cli"
-                        : form.kind === "anthropic"
-                          ? "anthropic"
-                          : "custom"
+                      ["cli", "anthropic", "codex-api"].includes(form.kind)
+                        ? form.kind
+                        : "custom"
                     }
                     onChange={(e) =>
                       patch({ kind: e.target.value as AIProvider["kind"] })
                     }
                   >
                     <option value="custom">OpenAI compatible</option>
+                    <option value="codex-api">
+                      Codex App Server (Responses API)
+                    </option>
                     <option value="anthropic">Anthropic Messages</option>
                     <option value="cli">Command line (CLI)</option>
                   </Select>
@@ -722,8 +752,8 @@ export default function AIProviderDetail({
                         placeholder={
                           provider.hasKey
                             ? "Key saved"
-                            : form.kind === "custom"
-                              ? "Optional for some providers"
+                            : ["custom", "codex-api"].includes(form.kind)
+                              ? "Optional for local endpoints"
                               : "Enter API key"
                         }
                         autoComplete="new-password"
@@ -843,7 +873,7 @@ export default function AIProviderDetail({
             </button>
           </section>
         )}
-        {builtInCLI && (
+        {runtimeSettings && (
           <section className="ai-provider-section ai-provider-runtime">
             <button
               className="ai-runtime-heading"
@@ -866,7 +896,7 @@ export default function AIProviderDetail({
                   transition={transition}
                   style={{ overflow: "hidden" }}
                 >
-                  {builtInCLI && (
+                  {runtimeSettings && (
                     <div className="ai-provider-field">
                       <label htmlFor={`ai-cli-${provider.id}`}>
                         Executable path
@@ -878,13 +908,13 @@ export default function AIProviderDetail({
                         placeholder={
                           form.kind === "antigravity"
                             ? "agy (auto-detect)"
-                            : `${form.kind} (auto-detect)`
+                            : `${codexRuntime ? "codex" : form.kind} (auto-detect)`
                         }
                         spellCheck={false}
                       />
                     </div>
                   )}
-                  {builtInCLI && (
+                  {runtimeSettings && (
                     <button
                       className="setting-action"
                       aria-busy={busy === "runtime"}

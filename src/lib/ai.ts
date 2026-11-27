@@ -61,6 +61,8 @@ export interface AIProvider {
   kind:
     | "chatgpt"
     | "codex"
+    | "codex-app"
+    | "codex-api"
     | "claude"
     | "antigravity"
     | "opencode"
@@ -169,6 +171,26 @@ const initialProviders: AIProvider[] = [
     name: "ChatGPT",
     kind: "chatgpt",
     endpoint: "",
+    model: "",
+    executable: "",
+    hasKey: false,
+    enabled: false,
+  },
+  {
+    id: "codex-app",
+    name: "ChatGPT via Codex",
+    kind: "codex-app",
+    endpoint: "",
+    model: "",
+    executable: "",
+    hasKey: false,
+    enabled: false,
+  },
+  {
+    id: "codex-api",
+    name: "Codex API",
+    kind: "codex-api",
+    endpoint: "https://api.openai.com/v1",
     model: "",
     executable: "",
     hasKey: false,
@@ -356,14 +378,21 @@ function connectionSignature(provider: AIProvider) {
   ]);
 }
 
+export function isChatGPTAccount(kind: AIProvider["kind"]) {
+  return kind === "chatgpt" || kind === "codex-app";
+}
+export function isCodexRuntime(kind: AIProvider["kind"]) {
+  return kind === "codex-app" || kind === "codex-api";
+}
+
 export function aiProviderReady(provider: AIProvider, state: AIState) {
   if (provider.enabled === false) return false;
   const account = state.accounts[provider.id];
-  if (provider.kind === "chatgpt")
+  if (isChatGPTAccount(provider.kind))
     return !!account?.account && account.planEnabled !== false;
   if (provider.kind === "claude") return account?.loggedIn === true;
   if (
-    ["custom", "openai", "anthropic"].includes(provider.kind) &&
+    ["custom", "openai", "anthropic", "codex-api"].includes(provider.kind) &&
     !provider.hasKey
   ) {
     try {
@@ -486,7 +515,8 @@ export function loadAI(force = false): Promise<void> {
           state.providers
             .filter(
               (p) =>
-                p.enabled !== false && ["chatgpt", "claude"].includes(p.kind),
+                p.enabled !== false &&
+                (isChatGPTAccount(p.kind) || p.kind === "claude"),
             )
             .map((p) => aiAccount(p.id, "status", newRequestId())),
         );
@@ -526,7 +556,21 @@ export async function saveAIProvider(
     modelVersions.set(provider.id, (modelVersions.get(provider.id) ?? 0) + 1);
     const models = { ...state.models };
     delete models[provider.id];
-    update({ models });
+    const accounts = { ...state.accounts };
+    const usage = { ...state.usage };
+    if (
+      isCodexRuntime(provider.kind) ||
+      (previous && isCodexRuntime(previous.kind))
+    ) {
+      delete accounts[provider.id];
+      if (usage[provider.id])
+        usage[provider.id] = {
+          ...usage[provider.id],
+          limits: undefined,
+          observedAt: undefined,
+        };
+    }
+    update({ models, accounts, usage });
   }
   if (previous && previous.model !== provider.model) {
     const choice = state.choices[provider.id];
@@ -642,7 +686,11 @@ export async function discoverAIModels(
     )
     .filter((model) => model && typeof model.id === "string");
   if ((modelVersions.get(providerId) ?? 0) !== version) return [];
-  if (provider && !["chatgpt", "claude", "codex"].includes(provider.kind)) {
+  if (
+    provider &&
+    !isChatGPTAccount(provider.kind) &&
+    !["claude", "codex"].includes(provider.kind)
+  ) {
     const signedIn = ["antigravity", "opencode"].includes(provider.kind)
       ? confirmedSignIn || aiProviderReady(provider, state)
       : true;
@@ -838,6 +886,23 @@ export function usageRecorder(providerId: string) {
           claudeWindows: {
             ...windows,
             [window.rateLimitType]: { ...window, observedAt: Date.now() },
+          },
+        };
+      } else if (
+        data.rateLimits &&
+        typeof data.rateLimits === "object" &&
+        old.limits?.rateLimitsByLimitId &&
+        !data.rateLimitsByLimitId
+      ) {
+        const bucket = data.rateLimits as Record<string, unknown>;
+        const id =
+          typeof bucket.limitId === "string" ? bucket.limitId : "codex";
+        next.limits = {
+          ...old.limits,
+          ...data,
+          rateLimitsByLimitId: {
+            ...old.limits.rateLimitsByLimitId,
+            [id]: bucket,
           },
         };
       } else next.limits = data;
@@ -1413,6 +1478,21 @@ export function remainingLimits(
         },
       ];
     });
+  if (raw.rateLimitsByLimitId && typeof raw.rateLimitsByLimitId === "object") {
+    const buckets = Object.entries(raw.rateLimitsByLimitId).flatMap(
+      ([id, bucket]) =>
+        bucket && typeof bucket === "object"
+          ? remainingLimits(bucket, observedAt).map((window) => ({
+              ...window,
+              label:
+                id === "codex"
+                  ? window.label
+                  : `${bucket.limitName || id} · ${window.label}`,
+            }))
+          : [],
+    );
+    if (buckets.length) return buckets;
+  }
   const data = (raw.rateLimits ?? raw.rate_limits ?? raw) as Record<
     string,
     unknown
