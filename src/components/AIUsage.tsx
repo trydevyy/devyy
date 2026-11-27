@@ -342,6 +342,44 @@ export default function AIUsage({
   }
   const Surface = embedded ? "div" : ModalSurface;
   const Body = embedded ? "div" : ModalBody;
+  const controls = (
+    <>
+      <Select
+        aria-label="Usage provider"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+      >
+        <option value="all">All providers</option>
+        {state.providers.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </Select>
+      <div role="tablist" aria-label="Usage metrics">
+        {["cost", "tokens", "limits"].map((metric) => (
+          <button
+            role="tab"
+            key={metric}
+            aria-selected={tab === metric}
+            onClick={() => setTab(metric)}
+          >
+            {metric}
+          </button>
+        ))}
+      </div>
+      <button
+        aria-busy={busy}
+        className="icon-button"
+        aria-label="Refresh AI usage"
+        onClick={() => void refresh()}
+        title="Check connections and supported live budgets"
+        disabled={busy || !native || !refreshable.length}
+      >
+        <RefreshCw size={15} />
+      </button>
+    </>
+  );
   const content = (
     <Surface
       className={`ai-usage-dialog ${embedded ? "ai-usage-embedded" : ""}`}
@@ -356,6 +394,7 @@ export default function AIUsage({
           title="AI usage"
           onClose={onClose}
           closeLabel="Close AI usage"
+          actions={<div className="ai-usage-toolbar">{controls}</div>}
         />
       )}
       <Body
@@ -363,8 +402,8 @@ export default function AIUsage({
           embedded ? "ai-usage-embedded-body" : "devyy-modal-body-flush"
         }
       >
-        <header className="ai-usage-header">
-          {embedded && (
+        {embedded && (
+          <header className="ai-usage-header">
             <button
               className="icon-button"
               aria-label="Back to providers"
@@ -372,43 +411,10 @@ export default function AIUsage({
             >
               <ArrowLeft size={16} />
             </button>
-          )}
-          {embedded && <strong>Usage</strong>}
-          <Select
-            aria-label="Usage provider"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All providers</option>
-            {state.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-          <div role="tablist" aria-label="Usage metrics">
-            {["cost", "tokens", "limits"].map((metric) => (
-              <button
-                role="tab"
-                key={metric}
-                aria-selected={tab === metric}
-                onClick={() => setTab(metric)}
-              >
-                {metric}
-              </button>
-            ))}
-          </div>
-          <button
-            aria-busy={busy}
-            className="icon-button"
-            aria-label="Refresh AI usage"
-            onClick={() => void refresh()}
-            title="Check connections and supported live budgets"
-            disabled={busy || !native || !refreshable.length}
-          >
-            <RefreshCw size={15} />
-          </button>
-        </header>
+            <strong>Usage</strong>
+            {controls}
+          </header>
+        )}
         <div className="ai-usage-content" role="tabpanel" aria-label={tab}>
           {providers.map((provider) => {
             const usage = state.usage[provider.id],

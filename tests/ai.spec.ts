@@ -582,7 +582,16 @@ test("streams native chat, attaches explicit file context, reviews changes, and 
   expect(JSON.stringify(sent)).toContain("<devyy_file_context>");
   await page.getByLabel("Conversation actions", { exact: true }).click();
   await page.getByRole("button", { name: "AI usage", exact: true }).click();
-  await page.getByRole("tab", { name: "tokens", exact: true }).click();
+  const header = page
+    .getByRole("dialog", { name: "AI usage" })
+    .locator("header");
+  await expect(
+    header.getByRole("combobox", { name: "Usage provider" }),
+  ).toBeVisible();
+  await expect(
+    header.getByRole("button", { name: "Refresh AI usage" }),
+  ).toBeVisible();
+  await header.getByRole("tab", { name: "tokens", exact: true }).click();
   await expect(page.getByText("120", { exact: true })).toBeVisible();
   await expect(page.getByText("40", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close AI usage" }).click();

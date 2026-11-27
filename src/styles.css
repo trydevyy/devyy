@@ -8992,7 +8992,7 @@ body {
 .ai-header-slash {
   color: var(--faint);
 }
-.ai-usage-header > :is(select, .devyy-select) {
+:is(.ai-usage-header, .ai-usage-toolbar) > :is(select, .devyy-select) {
   max-width: 220px;
   min-width: 0;
   border: 0;
@@ -9000,7 +9000,7 @@ body {
   color: var(--secondary);
   font-size: calc(11px * var(--ui-text-scale, 1));
 }
-.ai-usage-header [role="tablist"] {
+:is(.ai-usage-header, .ai-usage-toolbar) [role="tablist"] {
   display: flex;
   margin-left: auto;
   gap: 2px;
@@ -9008,23 +9008,45 @@ body {
   border-radius: 7px;
   background: var(--hover);
 }
-.ai-usage-header [role="tab"] {
+:is(.ai-usage-header, .ai-usage-toolbar) [role="tab"] {
   padding: 5px 9px;
   border-radius: 5px;
   color: var(--muted);
   text-transform: capitalize;
   font-size: calc(11px * var(--ui-text-scale, 1));
 }
-.ai-usage-header [role="tab"][aria-selected="true"] {
+:is(.ai-usage-header, .ai-usage-toolbar) [role="tab"][aria-selected="true"] {
   background: var(--hover);
   color: var(--ink);
 }
-.ai-usage-header .icon-button {
+:is(.ai-usage-header, .ai-usage-toolbar) .icon-button {
   width: 26px;
   height: 26px;
   display: grid;
   place-items: center;
   border-radius: 4px;
+}
+.ai-usage-dialog > .devyy-modal-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.devyy-modal-heading > .ai-usage-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ai-usage-toolbar > .devyy-select {
+  max-width: min(220px, 100%);
+}
+@media (max-width: 650px) {
+  .ai-usage-dialog > .devyy-modal-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .devyy-modal-heading > .ai-usage-toolbar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 .ai-usage-content {
   padding: 30px clamp(20px, 5vw, 60px);
