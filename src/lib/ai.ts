@@ -1260,6 +1260,53 @@ export async function aiAccount(
     unlisten?.();
   }
 }
+export async function refreshAIPlanLimits(
+  providerId: string,
+  requestId: string,
+) {
+  const provider = state.providers.find((p) => p.id === providerId);
+  const account = state.accounts[providerId];
+  const startedAt = Date.now();
+  const limits = await invoke<Record<string, unknown> | null>("ai_account", {
+    providerId,
+    requestId,
+    action: "usage",
+  });
+  if (
+    !limits ||
+    !provider ||
+    !state.providers.includes(provider) ||
+    state.accounts[providerId] !== account ||
+    !aiProviderReady(provider, state)
+  )
+    return;
+  const observedAt = Date.now();
+  const usage = state.usage[providerId] ?? {
+    tokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+  };
+  if (limits.claudeWindows && typeof limits.claudeWindows === "object") {
+    const windows = limits.claudeWindows as Record<
+      string,
+      Record<string, unknown>
+    >;
+    for (const window of Object.values(windows)) window.observedAt = observedAt;
+    for (const [key, window] of Object.entries(
+      usage.limits?.claudeWindows ?? {},
+    )) {
+      if (
+        typeof window.observedAt === "number" &&
+        window.observedAt > startedAt
+      )
+        windows[key] = window;
+    }
+  }
+  update({
+    usage: { ...state.usage, [providerId]: { ...usage, limits, observedAt } },
+  });
+}
+
 type RemainingLimit = {
   label: string;
   remaining: number;
@@ -1350,8 +1397,22 @@ export function remainingLimits(
   if (!raw) return [];
   if (raw.claudeWindows && typeof raw.claudeWindows === "object")
     return Object.values(raw.claudeWindows).flatMap((value) =>
-      remainingLimits(value, value.observedAt),
+      remainingLimits(value, value.observedAt ?? observedAt),
     );
+  if (Array.isArray(raw.planWindows))
+    return raw.planWindows.flatMap((window) => {
+      if (typeof window?.label !== "string") return [];
+      const used = quotaNumber(window.usedPercent);
+      if (used === undefined) return [];
+      return [
+        {
+          label: window.label,
+          remaining: clampPercent(100 - used),
+          resetsAt: resetTime(window.resetsAt),
+          observedAt,
+        },
+      ];
+    });
   const data = (raw.rateLimits ?? raw.rate_limits ?? raw) as Record<
     string,
     unknown
@@ -1402,10 +1463,13 @@ export function remainingLimits(
     };
     return [
       {
-        label: claude
-          ? (labels[claude.rateLimitType] ??
-            claude.rateLimitType.replaceAll("_", " "))
-          : "Reported allowance",
+        label:
+          typeof raw.label === "string"
+            ? raw.label
+            : claude
+              ? (labels[claude.rateLimitType] ??
+                claude.rateLimitType.replaceAll("_", " "))
+              : "Reported allowance",
         remaining: clampPercent((1 - utilization) * 100),
         resetsAt: claude?.resetsAt ?? resetTime(raw.resetsAt ?? raw.resets_at),
         ...(observedAt ? { observedAt } : {}),

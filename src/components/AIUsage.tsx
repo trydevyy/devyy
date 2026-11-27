@@ -20,11 +20,13 @@ import DisclosureSummary from "./ui/DisclosureSummary";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
 import { useIsPresent } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Clock3, ExternalLink, RefreshCw } from "lucide-react";
 import {
   aiAccount,
+  aiProviderReady,
+  refreshAIPlanLimits,
   quotaDenied,
   remainingLimits,
   useAI,
@@ -95,7 +97,7 @@ function providerUsageHelp(provider: AIProvider) {
         url: "https://claude.ai/settings/usage",
         label: "Claude plan usage",
         limits:
-          "Claude Code reports some allowance windows after a request. Use /usage in Claude Code or open Claude Settings for the complete view.",
+          "Refresh to check the plan allowance reported by Claude Code. Availability depends on the CLI version and sign-in method.",
       };
     case "openai":
       return {
@@ -123,7 +125,7 @@ function providerUsageHelp(provider: AIProvider) {
         url: "https://opencode.ai/docs/cli/commands/#stats",
         label: "OpenCode stats guide",
         limits:
-          "OpenCode uses the selected upstream provider’s limits. Use opencode stats --cost to view local OpenCode usage.",
+          "Refresh to check Go allowances and Console budgets from the connected OpenCode workspace. Other upstream limits are managed by their providers.",
       };
     default:
       return {
@@ -243,12 +245,17 @@ export default function AIUsage({
     >({});
   const dialog = useRef<HTMLDivElement>(null),
     requests = useRef<string[]>([]),
+    planRequests = useRef(new Map<string, Promise<void>>()),
+    checked = useRef(new WeakSet<AIProvider>()),
     close = useRef(onClose);
   close.current = onClose;
+  const connected = state.providers.filter((p) => aiProviderReady(p, state));
+  const connectedIds = new Set(connected.map(({ id }) => id));
+  const selection = connectedIds.has(filter) ? filter : "all";
   const providers = state.providers.filter((p) =>
-    filter === "all"
-      ? p.enabled !== false || !!state.usage[p.id] || !!state.accounts[p.id]
-      : p.id === filter,
+    selection === "all"
+      ? connectedIds.has(p.id) || !!state.usage[p.id]
+      : p.id === selection,
   );
   useEffect(() => {
     if (!present) return;
@@ -289,11 +296,40 @@ export default function AIUsage({
   }, [present]);
   const refreshable = providers.filter(
     (p) =>
-      p.enabled !== false &&
-      (p.kind === "chatgpt" ||
-        p.kind === "claude" ||
+      connectedIds.has(p.id) &&
+      (["chatgpt", "claude", "opencode"].includes(p.kind) ||
         (isOpenRouter(p) && p.hasKey)),
   );
+  const checkPlan = useCallback((providerId: string) => {
+    const active = planRequests.current.get(providerId);
+    if (active) return active;
+    const id = newRequestId();
+    requests.current.push(id);
+    const request = refreshAIPlanLimits(providerId, id).finally(() => {
+      planRequests.current.delete(providerId);
+      requests.current = requests.current.filter((key) => key !== id);
+    });
+    planRequests.current.set(providerId, request);
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (!native || !present || tab !== "limits") return;
+    for (const provider of state.providers) {
+      if (
+        !["claude", "opencode"].includes(provider.kind) ||
+        (selection !== "all" && provider.id !== selection) ||
+        !aiProviderReady(provider, state) ||
+        checked.current.has(provider)
+      )
+        continue;
+      checked.current.add(provider);
+      if (Date.now() - (state.usage[provider.id]?.observedAt ?? 0) < 60_000)
+        continue;
+      void checkPlan(provider.id).catch(() => {});
+    }
+  }, [checkPlan, present, selection, state, tab]);
+
   const largestCost = Math.max(
     0,
     ...providers.flatMap(({ id }) => [
@@ -314,6 +350,12 @@ export default function AIUsage({
     const failed: Record<string, string> = {};
     await Promise.allSettled(
       refreshable.map(async (p) => {
+        if (p.kind === "claude" || p.kind === "opencode") {
+          await checkPlan(p.id).catch((error) => {
+            failed[p.id] = String(error);
+          });
+          return;
+        }
         const id = newRequestId();
         requests.current.push(id);
         try {
@@ -346,11 +388,12 @@ export default function AIUsage({
     <>
       <Select
         aria-label="Usage provider"
-        value={filter}
+        value={selection}
+        disabled={connected.length === 0}
         onChange={(e) => setFilter(e.target.value)}
       >
         <option value="all">All providers</option>
-        {state.providers.map((p) => (
+        {connected.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
           </option>
@@ -416,6 +459,12 @@ export default function AIUsage({
           </header>
         )}
         <div className="ai-usage-content" role="tabpanel" aria-label={tab}>
+          {providers.length === 0 && (
+            <div className="ai-quota-unavailable">
+              <strong>No connected AI providers</strong>
+              <span>Connect a provider in Settings to see its usage here.</span>
+            </div>
+          )}
           {providers.map((provider) => {
             const usage = state.usage[provider.id],
               account = state.accounts[provider.id],
@@ -445,23 +494,24 @@ export default function AIUsage({
                 </h3>
                 {tab === "limits" ? (
                   <>
-                    {provider.kind === "chatgpt" && (
-                      <div className="ai-quota-unavailable">
-                        <strong>ChatGPT plan allowance</strong>
-                        <span>
-                          {!identity
-                            ? "Connect a ChatGPT account in AI Providers."
-                            : account?.planEnabled === false
-                              ? "Plan access is off for Devyy."
-                              : usage?.planLimitHitAt
-                                ? `ChatGPT reported a usage limit for Devyy at ${new Date(usage.planLimitHitAt).toLocaleTimeString()}.`
-                                : guide.limits}
-                        </span>
-                        {guide.url && (
-                          <UsageLink url={guide.url} label={guide.label} />
-                        )}
-                      </div>
-                    )}
+                    {provider.kind === "chatgpt" &&
+                      !limits.some(({ total }) => total === undefined) && (
+                        <div className="ai-quota-unavailable">
+                          <strong>ChatGPT plan allowance</strong>
+                          <span>
+                            {!identity
+                              ? "Connect a ChatGPT account in AI Providers."
+                              : account?.planEnabled === false
+                                ? "Plan access is off for Devyy."
+                                : usage?.planLimitHitAt
+                                  ? `ChatGPT reported a usage limit for Devyy at ${new Date(usage.planLimitHitAt).toLocaleTimeString()}.`
+                                  : guide.limits}
+                          </span>
+                          {guide.url && (
+                            <UsageLink url={guide.url} label={guide.label} />
+                          )}
+                        </div>
+                      )}
                     {keySnapshot && (
                       <>
                         <KeyBudget

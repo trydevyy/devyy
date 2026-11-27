@@ -417,6 +417,21 @@ async function fixture(
                     },
                   ]
                 : ["fixture-model", "another-model"];
+            if (
+              command === "ai_account" &&
+              args.providerId === "claude" &&
+              args.action === "usage"
+            )
+              return {
+                claudeWindows: {
+                  seven_day: {
+                    rateLimitType: "seven_day",
+                    label: "Weekly allowance",
+                    utilization: 0.35,
+                    resetsAt: Math.floor(Date.now() / 1000) + 7 * 86400,
+                  },
+                },
+              };
             if (command === "ai_account")
               return args.providerId === "chatgpt"
                 ? {
@@ -666,7 +681,7 @@ test("provider settings save keys through native IPC, discover models, and show 
   await codex.getByRole("button", { name: "Check sign-in" }).click();
   await codex.getByRole("button", { name: "Usage", exact: true }).click();
   await expect(
-    page.getByRole("meter", { name: "ChatGPT session remaining" }),
+    page.getByRole("meter", { name: "ChatGPT Primary window remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
   const storage = await page.evaluate(() =>
     JSON.stringify({ ...localStorage }),
@@ -1048,6 +1063,25 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
       ),
     );
   await page.screenshot({ path: "artifacts/devyy-ai-providers.png" });
+  await detail.getByRole("button", { name: "Usage", exact: true }).click();
+  const providerPicker = page.getByRole("combobox", { name: "Usage provider" });
+  await providerPicker.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "All providers",
+    "Local test model",
+    "ChatGPT",
+    "Claude account",
+  ]);
+  await page
+    .getByRole("option", { name: "Claude account", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Refresh AI usage" }).click();
+  await expect(
+    page.getByRole("meter", {
+      name: "Claude account Weekly allowance remaining",
+    }),
+  ).toHaveAttribute("aria-valuenow", "65");
+  await page.getByRole("button", { name: "Back to providers" }).click();
   await page
     .getByRole("switch", { name: "Enable Claude account", exact: true })
     .click();
@@ -1055,6 +1089,13 @@ test("provider master/detail and usage tabs show real quotas and retain disabled
     page.getByRole("switch", { name: "Enable Claude account", exact: true }),
   ).toHaveAttribute("aria-checked", "false");
   await detail.getByRole("button", { name: "Usage", exact: true }).click();
+  await providerPicker.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "All providers",
+    "Local test model",
+    "ChatGPT",
+  ]);
+  await page.getByRole("option", { name: "ChatGPT", exact: true }).click();
   await expect(
     page.getByRole("meter", { name: "ChatGPT Primary window remaining" }),
   ).toHaveAttribute("aria-valuenow", "75");
