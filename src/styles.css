@@ -16310,16 +16310,16 @@ dialog.devyy-modal::backdrop,
 .cm-env-value {
   cursor: pointer;
 }
-/* Mask with a soft bar independent of the underlying glyph shapes. */
+/* Blur a generic texture while keeping the actual text transparent. */
 .cm-env-value:not(.cm-env-value-revealed) {
-  background: radial-gradient(
-    ellipse closest-side,
-    var(--secondary) 24%,
-    color-mix(in srgb, var(--secondary) 78%, transparent) 55%,
-    color-mix(in srgb, var(--secondary) 28%, transparent) 79%,
-    transparent 100%
-  );
-  border-radius: 5px;
+  background: repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--secondary) 40%, transparent) 0 4px,
+      color-mix(in srgb, var(--secondary) 65%, transparent) 4px 11px,
+      color-mix(in srgb, var(--secondary) 25%, transparent) 11px 15px
+    )
+    center / max(1px, calc(100% - 6px)) 55% no-repeat;
+  filter: blur(2.5px);
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   forced-color-adjust: none;
