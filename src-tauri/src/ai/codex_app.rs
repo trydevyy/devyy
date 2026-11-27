@@ -413,7 +413,7 @@ pub(super) async fn chat<R: Runtime>(
                         if let Some(model) = thread_model {
                             priced.model = model.into();
                         }
-                        if let Some((amount, estimated)) = super::billing::cost(&priced, &record) {
+                        if let Some((amount, estimated)) = super::billing::cost(&priced, &record).await {
                             emit(app, &request.request_id, "cost", json!({"amount":amount,"currency":"USD","estimated":estimated}));
                         }
                     }

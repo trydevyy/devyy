@@ -767,9 +767,9 @@ async fn consume<R: tauri::Runtime>(
             if total > 4 * 1024 * 1024 {
                 return Err("Agent response exceeded the size limit".into());
             }
+            super::billing::record_pricing_context(&mut usage, &value);
             if let Some(reported) = reported {
                 super::billing::merge_usage(&mut usage, &reported);
-                super::billing::record_tier(&mut usage, &value);
             }
             if protocol == "responses" && value["type"] == "response.completed" {
                 turn.output = value["response"]["output"]
@@ -1444,11 +1444,11 @@ pub async fn chat<R: tauri::Runtime>(
             .or_else(|| usage["reasoning_tokens"].as_u64())
             .or_else(|| usage["thinking_tokens"].as_u64())
             .unwrap_or(0);
-        if let Some((amount, estimated)) = usage["_costUSD"]
-            .as_f64()
-            .map(|amount| (amount, false))
-            .or_else(|| super::billing::cost(p, &usage))
-        {
+        let request_cost = match usage["_costUSD"].as_f64() {
+            Some(amount) if amount.is_finite() && amount >= 0.0 => Some((amount, false)),
+            _ => super::billing::cost(p, &usage).await,
+        };
+        if let Some((amount, estimated)) = request_cost {
             let total = if estimated { &mut estimated_cost } else { &mut cost };
             *total += amount;
             emit(

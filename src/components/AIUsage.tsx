@@ -908,11 +908,14 @@ export default function AIUsage({
                         usage?.costUSD !== undefined ? (
                           <small>
                             {usage?.estimatedCostUSD !== undefined
-                              ? "API-rate estimate for supported text models. Your subscription bill or endpoint charges may differ."
+                              ? "Estimated from published standard text-token rates. Subscription charges and fees may differ."
                               : "Total from cost events recorded by Devyy. Subscription billing and requests without cost data are excluded."}
                           </small>
                         ) : (
-                          <small>No request costs recorded.</small>
+                          <small>
+                            No request costs recorded. Estimates need a
+                            published rate and enough token detail.
+                          </small>
                         )}
                       </div>
                     )}

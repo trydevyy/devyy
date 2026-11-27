@@ -58,8 +58,13 @@ export function useDialogMotion() {
   return {
     onUpdate: modalFrameUpdate,
     transition,
-    initial: { scale: instant ? 1 : 0.98 },
-    animate: { scale: 1, y: 0 },
-    exit: { scale: instant ? 1 : 0.98, y: instant ? 0 : 6 },
+    initial: { scale: instant ? 1 : 0.98, opacity: instant ? 1 : 0 },
+    animate: { scale: 1, y: 0, opacity: 1 },
+    exit: {
+      scale: instant ? 1 : 0.98,
+      y: instant ? 0 : 6,
+      opacity: 0,
+      transition: { duration: instant ? 0 : 0.16, ease: "easeOut" as const },
+    },
   };
 }
