@@ -58,7 +58,7 @@ elif [[ "$platform" == macos-* ]]; then
   : "${APPLE_TEAM_ID:?Set the Apple Developer Team ID}"
 fi
 
-# Match the architecture reported by Node against the actual Rust toolchain.
+# Match Node to the Rust host before applying any explicit macOS bundle target.
 host="$(rustc -vV | sed -n 's/^host: //p')"
 case "$platform:$host" in
   macos-arm64:aarch64-apple-darwin|macos-x64:x86_64-apple-darwin|\
@@ -67,6 +67,15 @@ case "$platform:$host" in
   linux-x64:x86_64-unknown-linux-gnu) ;;
   *) echo "Rust host $host does not match supported platform $platform. Use matching Node and Rust toolchains." >&2; exit 1 ;;
 esac
+
+macos_target="${DEVYY_MACOS_TARGET:-}"
+if [[ -n "$macos_target" ]]; then
+  case "$host:$macos_target" in
+    *-apple-darwin:x86_64-apple-darwin) platform=macos-x64 ;;
+    *-apple-darwin:aarch64-apple-darwin) platform=macos-arm64 ;;
+    *) echo "Unsupported macOS target $macos_target on host $host." >&2; exit 1 ;;
+  esac
+fi
 
 if [[ ! -f third_party/hit/Cargo.toml ]]; then
   echo "Initialize HIT first: git submodule update --init --checkout -- third_party/hit" >&2
@@ -94,8 +103,13 @@ unset DEVYY_RUST_TARGET DEVYY_DMG_PATH
 bun install --frozen-lockfile
 if [[ "$platform" == macos-* ]]; then
   macos_config="$(node -p 'JSON.stringify({bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}})')"
-  bun run desktop:build --config "$macos_config"
-  app=src-tauri/target/release/bundle/macos/Devyy.app
+  macos_args=(--config "$macos_config")
+  if [[ -n "$macos_target" ]]; then
+    macos_args+=(--target "$macos_target")
+    export DEVYY_RUST_TARGET="$macos_target"
+  fi
+  bun run desktop:build "${macos_args[@]}"
+  app="src-tauri/target/${macos_target:+$macos_target/}release/bundle/macos/Devyy.app"
   arch="$(lipo -archs "$app/Contents/MacOS/Devyy")"
   if [[ "$platform:$arch" != macos-arm64:arm64 && "$platform:$arch" != macos-x64:x86_64 ]]; then
     echo "Built app architecture $arch does not match $platform." >&2

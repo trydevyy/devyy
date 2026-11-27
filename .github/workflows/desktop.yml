@@ -37,8 +37,9 @@ jobs:
       - uses: actions/checkout@v7
         if: ${{ !inputs.release_build && github.event_name != 'workflow_dispatch' }}
         with:
-          fetch-depth: 0
-          persist-credentials: false
+          fetch-depth: 2
+          # Only this metadata-only job needs credentials for a shallow base fetch.
+          persist-credentials: true
       - id: scope
         shell: bash
         env:
@@ -49,6 +50,10 @@ jobs:
           installer=false
           native=false
           installer_native=false
+          if [[ "$FULL" != true && "$BASE" =~ ^[0-9a-f]{40}$ && "$BASE" != 0000000000000000000000000000000000000000 ]] &&
+            ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE" || true
+          fi
           if [[ "$FULL" == true ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             browser=true
             installer=true
@@ -94,6 +99,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/fetch-hit
+        if: needs.scope.outputs.native == 'true'
         with:
           token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
@@ -101,12 +107,10 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: devyy-cargo-v1
+          prefix-key: devyy-native-check-v2
           shared-key: linux-x64
           workspaces: |
-            src-tauri -> target
-            installer/src-tauri -> ../../src-tauri/target
-          cache-targets: false
+            ${{ needs.scope.outputs.native == 'true' && 'src-tauri -> target' || 'installer/src-tauri -> ../../src-tauri/target' }}
           cache-bin: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -121,6 +125,45 @@ jobs:
         if: needs.scope.outputs.native == 'true'
       - run: cargo check --locked --tests --manifest-path installer/src-tauri/Cargo.toml
         if: needs.scope.outputs.installer_native == 'true'
+
+      - name: Remove private artifacts before saving the dependency cache
+        if: github.ref == 'refs/heads/main' && needs.scope.outputs.native == 'true'
+        run: cargo clean --locked --manifest-path src-tauri/Cargo.toml -p hit -p devyy
+
+  release-native-tests:
+    if: inputs.release_build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/fetch-hit
+        with:
+          token: ${{ secrets.HIT_READ_PAT }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux test libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev xvfb xauth
+      - name: Test editor (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test editor and installer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path installer/src-tauri/Cargo.toml
 
   desktop:
     needs: scope
@@ -186,10 +229,10 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libxdo-dev xvfb xdotool
           echo 'APPIMAGE_EXTRACT_AND_RUN=1' >> "$GITHUB_ENV"
       - name: Test editor (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !inputs.release_build
         run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Test editor and installer (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !inputs.release_build
         shell: bash
         env:
           DEVYY_RUST_TARGET: ${{ matrix.target }}
@@ -252,6 +295,7 @@ jobs:
         with:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
+          compression-level: 0
           path: release-assets/
 
   macos:
@@ -265,7 +309,7 @@ jobs:
             artifact: macos-arm64
           - os: macos-15-intel
             artifact: macos-x64
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ inputs.release_build && 'macos-15' || matrix.os }}
     timeout-minutes: 75
     env:
       DEVYY_PLATFORM: ${{ matrix.artifact }}
@@ -288,6 +332,9 @@ jobs:
         with:
           token: ${{ secrets.HIT_READ_PAT }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install the Intel macOS target
+        if: inputs.release_build && matrix.artifact == 'macos-x64'
+        run: rustup target add x86_64-apple-darwin
       - name: Test editor on macOS
         if: ${{ !inputs.release_build }}
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
@@ -296,12 +343,14 @@ jobs:
         shell: bash
         env:
           DEVYY_CRASH_WEBHOOK_URL: ${{ secrets.DEVYY_CRASH_WEBHOOK_URL }}
+          DEVYY_MACOS_TARGET: ${{ matrix.artifact == 'macos-x64' && 'x86_64-apple-darwin' || '' }}
         run: bash scripts/build-local-release.sh --ad-hoc
       - uses: actions/upload-artifact@v7
         if: inputs.release_build
         with:
           name: devyy-package-${{ matrix.artifact }}
           if-no-files-found: error
+          compression-level: 0
           path: release-assets/v*/${{ matrix.artifact }}/
 
   interface:
@@ -342,7 +391,10 @@ jobs:
         run: bun x playwright test tests/workbench-redesign.spec.ts tests/editor.spec.ts tests/ai.spec.ts --workers=2 --grep 'desktop panels use compact|create and rename files|rapid editor jumps'
       - name: Full editor browser suite
         if: env.FULL == 'true'
-        run: bun x playwright test --workers=2
+        run: |
+          workers=2
+          if [[ "$(nproc)" -ge 4 ]]; then workers=3; fi
+          bun x playwright test --workers="$workers"
       - name: Installer browser tests
         if: env.INSTALLER == 'true'
         run: bun run --cwd installer test:e2e --workers=2
