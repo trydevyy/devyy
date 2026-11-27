@@ -16335,11 +16335,6 @@ dialog.devyy-modal::backdrop,
   }
 }
 
-.ai-global-access {
-  min-height: 0;
-  padding-block: 8px;
-}
-
 .cm-env-value {
   cursor: pointer;
 }

@@ -34,7 +34,7 @@ function PickerSwitch({
 }) {
   const [checked, setChecked] = useState(() => aiPickerPreference(preference));
   return (
-    <div className="workbench-setting-line ai-global-access">
+    <div className="setting-row">
       <span>
         <strong>{label}</strong>
         <small>{description}</small>

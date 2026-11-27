@@ -45,7 +45,7 @@ export default function AIGlobalAccess() {
   }
 
   return (
-    <div className="workbench-setting-line ai-global-access">
+    <div className="setting-row">
       <span>
         <strong>Full workspace access by default</strong>
         <small>
