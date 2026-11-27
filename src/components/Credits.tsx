@@ -140,7 +140,7 @@ export default function Credits() {
             ))}
         </>
       ) : (
-        !error && <Skeleton label="Loading licenses" />
+        !error && <Skeleton variant="table" label="Loading licenses" />
       )}
     </section>
   );

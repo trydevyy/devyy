@@ -95,8 +95,8 @@ function TreeBranch({
     );
   if (loading)
     return (
-      <div className="extension-view-note" role="status">
-        <Skeleton label="Loading extension view" />
+      <div className="extension-view-note">
+        <Skeleton variant="sidebar" label="Loading extension view" />
       </div>
     );
   if (error)

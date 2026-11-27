@@ -59,12 +59,23 @@ export default function ExtensionManager({
   const [localBusy, setBusy] = useState<{ id: string; command: string }>();
   const installId = useExtensionInstallId();
   const busy = localBusy?.id || installId;
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(native);
+  const [installedPending, setInstalledPending] = useState(native);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const sequence = useRef(0);
   useEffect(() => {
-    void refreshExtensions().catch((e) => setError(String(e)));
+    let current = true;
+    void refreshExtensions()
+      .catch((e) => {
+        if (current) setError(String(e));
+      })
+      .finally(() => {
+        if (current) setInstalledPending(false);
+      });
+    return () => {
+      current = false;
+    };
   }, []);
   useEffect(() => {
     if (tab !== "browse" || !native) return;
@@ -244,7 +255,7 @@ export default function ExtensionManager({
           aria-busy={loading}
         >
           {loading && !results.length && (
-            <Skeleton variant="cards" label="Loading extensions" />
+            <Skeleton variant="extensions" label="Loading extensions" />
           )}
           {results.map((extension) => {
             const id = `${extension.namespace}.${extension.name}`;
@@ -457,7 +468,13 @@ export default function ExtensionManager({
               </article>
             );
           })}
-          {!filtered.length && (
+          {!filtered.length && installedPending && !installed.length && (
+            <Skeleton
+              variant="extensions"
+              label="Loading installed extensions"
+            />
+          )}
+          {!filtered.length && (!installedPending || installed.length > 0) && (
             <div className="extensions-empty">
               <Blocks size={28} />
               <strong>

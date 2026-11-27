@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import {
   NativeModal,
   ModalHeader,
@@ -67,6 +68,7 @@ export default function PortsPanel({
 }) {
   const [tunnels, setTunnels] = useState<ForwardedTunnel[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadedAccount, setLoadedAccount] = useState<string>();
   const [busy, setBusy] = useState(false);
   const profile = useAccountProfile();
   const account = profile?.email;
@@ -104,6 +106,7 @@ export default function PortsPanel({
         if (!quiet && version === refreshVersion.current) showError(cause);
       } finally {
         if (version === refreshVersion.current) {
+          setLoadedAccount(account);
           polling.current = false;
           setLoading(false);
         }
@@ -319,11 +322,16 @@ export default function PortsPanel({
           </button>
         </div>
       )}
-      {!tunnels.length ? (
+      {!tunnels.length &&
+      native &&
+      account &&
+      (loading || loadedAccount !== account) ? (
+        <Skeleton variant="table" label="Loading ports" />
+      ) : !tunnels.length ? (
         <Empty
           panel
           icon={<Radio size={28} />}
-          title={loading ? "Loading ports…" : "No forwarded ports"}
+          title="No forwarded ports"
           text={
             native && !signedIn
               ? "Sign in to your Devyy account to forward a local port."

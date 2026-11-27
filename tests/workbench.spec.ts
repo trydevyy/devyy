@@ -435,8 +435,14 @@ test("terminal sessions keep their processes through switching, splits, resizing
             ];
           if (cmd === "terminal_create") {
             bridge.profiles.push(args.profile as string);
-            bridge.created.push(++next);
-            return next;
+            const id = ++next;
+            bridge.created.push(id);
+            if (id === 1) {
+              await new Promise<void>((resolve) =>
+                Reflect.set(window, "finishTerminalStart", resolve),
+              );
+            }
+            return id;
           }
           if (cmd === "terminal_close") {
             bridge.closed.push(args.id as number);
@@ -478,6 +484,10 @@ test("terminal sessions keep their processes through switching, splits, resizing
         ).__bridge,
     );
   await expect.poll(async () => (await state()).created.length).toBe(1);
+  const starting = page.getByRole("status", { name: "Starting terminal" });
+  await expect(starting).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "finishTerminalStart")());
+  await expect(starting).toHaveCount(0);
   await page.getByRole("button", { name: "New terminal", exact: true }).click();
   await expect.poll(async () => (await state()).created.length).toBe(2);
   await page

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { NativeModal, ModalHeader, ModalBody } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
@@ -175,110 +176,114 @@ export default function AIProviders() {
           {(error || state.error) && (
             <ErrorToast message={error || state.error} />
           )}
-          <div className="ai-provider-workspace">
-            <nav className="ai-provider-list" aria-label="AI providers">
-              <div
-                role="tablist"
-                aria-label="Provider connections"
-                aria-orientation="vertical"
-                onKeyDown={(event) => {
-                  const tabs = Array.from(
-                      event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                        '[role="tab"]',
-                      ),
-                    ),
-                    index = providers.findIndex((p) => p.id === chosen),
-                    next = ["ArrowDown", "ArrowRight"].includes(event.key)
-                      ? (index + 1) % tabs.length
-                      : ["ArrowUp", "ArrowLeft"].includes(event.key)
-                        ? (index - 1 + tabs.length) % tabs.length
-                        : event.key === "Home"
-                          ? 0
-                          : event.key === "End"
-                            ? tabs.length - 1
-                            : -1;
-                  if (next >= 0) {
-                    event.preventDefault();
-                    setSelected(providers[next].id);
-                    tabs[next]?.focus();
-                  }
-                }}
-              >
-                {providers.map((provider) => {
-                  const { label } = accountInfo(
-                    provider,
-                    state.accounts[provider.id],
-                  );
-                  return (
-                    <div
-                      key={provider.id}
-                      className={provider.id === chosen ? "selected" : ""}
-                    >
-                      <button
-                        role="tab"
-                        aria-selected={provider.id === chosen}
-                        aria-controls={`provider-${provider.id}`}
-                        tabIndex={provider.id === chosen ? 0 : -1}
-                        onClick={() => setSelected(provider.id)}
-                      >
-                        <AIProviderIcon kind={provider.kind} />
-                        <span>
-                          <strong>{provider.name}</strong>
-                          <small>
-                            {aiProviderReady(provider, state) &&
-                            !["chatgpt", "claude"].includes(provider.kind)
-                              ? "Connection verified"
-                              : label}
-                          </small>
-                        </span>
-                      </button>
-                      <button
-                        role="switch"
-                        aria-checked={provider.enabled !== false}
-                        aria-label={`Enable ${provider.name}`}
-                        className="ai-provider-toggle"
-                        disabled={!native}
-                        onClick={() => void toggle(provider)}
-                      >
-                        <i />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <button
-                className="ai-add-provider"
-                aria-label="Add AI provider"
-                onClick={add}
-              >
-                <Plus size={15} /> Add provider
-              </button>
-            </nav>
-            <div className="ai-provider-details">
-              {providers.map((provider) => (
+          {!state.loaded && native ? (
+            <Skeleton variant="settings" label="Loading AI providers" />
+          ) : (
+            <div className="ai-provider-workspace">
+              <nav className="ai-provider-list" aria-label="AI providers">
                 <div
-                  key={provider.id}
-                  id={`provider-${provider.id}`}
-                  role="tabpanel"
-                  hidden={provider.id !== chosen}
-                  aria-label={provider.name}
+                  role="tablist"
+                  aria-label="Provider connections"
+                  aria-orientation="vertical"
+                  onKeyDown={(event) => {
+                    const tabs = Array.from(
+                        event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                          '[role="tab"]',
+                        ),
+                      ),
+                      index = providers.findIndex((p) => p.id === chosen),
+                      next = ["ArrowDown", "ArrowRight"].includes(event.key)
+                        ? (index + 1) % tabs.length
+                        : ["ArrowUp", "ArrowLeft"].includes(event.key)
+                          ? (index - 1 + tabs.length) % tabs.length
+                          : event.key === "Home"
+                            ? 0
+                            : event.key === "End"
+                              ? tabs.length - 1
+                              : -1;
+                    if (next >= 0) {
+                      event.preventDefault();
+                      setSelected(providers[next].id);
+                      tabs[next]?.focus();
+                    }
+                  }}
                 >
-                  <AIProviderDetail
-                    provider={provider}
-                    active={provider.id === chosen}
-                    onRemoved={() => {
-                      setDraft(undefined);
-                      setSelected(state.providers[0]?.id ?? "chatgpt");
-                    }}
-                    onUsage={(button) => {
-                      usageTrigger.current = button;
-                      setUsage(true);
-                    }}
-                  />
+                  {providers.map((provider) => {
+                    const { label } = accountInfo(
+                      provider,
+                      state.accounts[provider.id],
+                    );
+                    return (
+                      <div
+                        key={provider.id}
+                        className={provider.id === chosen ? "selected" : ""}
+                      >
+                        <button
+                          role="tab"
+                          aria-selected={provider.id === chosen}
+                          aria-controls={`provider-${provider.id}`}
+                          tabIndex={provider.id === chosen ? 0 : -1}
+                          onClick={() => setSelected(provider.id)}
+                        >
+                          <AIProviderIcon kind={provider.kind} />
+                          <span>
+                            <strong>{provider.name}</strong>
+                            <small>
+                              {aiProviderReady(provider, state) &&
+                              !["chatgpt", "claude"].includes(provider.kind)
+                                ? "Connection verified"
+                                : label}
+                            </small>
+                          </span>
+                        </button>
+                        <button
+                          role="switch"
+                          aria-checked={provider.enabled !== false}
+                          aria-label={`Enable ${provider.name}`}
+                          className="ai-provider-toggle"
+                          disabled={!native}
+                          onClick={() => void toggle(provider)}
+                        >
+                          <i />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+                <button
+                  className="ai-add-provider"
+                  aria-label="Add AI provider"
+                  onClick={add}
+                >
+                  <Plus size={15} /> Add provider
+                </button>
+              </nav>
+              <div className="ai-provider-details">
+                {providers.map((provider) => (
+                  <div
+                    key={provider.id}
+                    id={`provider-${provider.id}`}
+                    role="tabpanel"
+                    hidden={provider.id !== chosen}
+                    aria-label={provider.name}
+                  >
+                    <AIProviderDetail
+                      provider={provider}
+                      active={provider.id === chosen}
+                      onRemoved={() => {
+                        setDraft(undefined);
+                        setSelected(state.providers[0]?.id ?? "chatgpt");
+                      }}
+                      onUsage={(button) => {
+                        usageTrigger.current = button;
+                        setUsage(true);
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </motion.div>
         <AnimatePresence initial={false}>
           {usage && (

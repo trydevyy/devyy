@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ActionMenu, { ActionMenuItem } from "./ui/ActionMenu";
@@ -106,11 +107,13 @@ export default function SourceControl({
   const [branches, setBranches] = useState<GitBranchInfo[]>([]),
     [modules, setModules] = useState<GitSubmodule[]>([]),
     [history, setHistory] = useState<Commit[]>([]),
+    [historyPending, setHistoryPending] = useState(true),
     [page, setPage] = useState("changes"),
     [error, setError] = useState("");
   const menu = useContextMenu();
   useEffect(() => {
     let current = true;
+    if (page === "history") setHistoryPending(true);
     void Promise.allSettled([
       invoke<GitBranchInfo[]>("git_branch_details", { repository }),
       page === "history"
@@ -120,7 +123,10 @@ export default function SourceControl({
     ]).then(([branches, history, submodules]) => {
       if (!current) return;
       if (branches.status === "fulfilled") setBranches(branches.value ?? []);
-      if (history.status === "fulfilled") setHistory(history.value ?? []);
+      if (page === "history") {
+        if (history.status === "fulfilled") setHistory(history.value ?? []);
+        setHistoryPending(false);
+      }
       if (submodules.status === "fulfilled") setModules(submodules.value ?? []);
       setError(
         [branches, history, submodules]
@@ -501,7 +507,12 @@ export default function SourceControl({
               </button>
             </div>
           ))}
-          {!history.length && <p className="muted">No commits yet.</p>}
+          {!history.length &&
+            (historyPending ? (
+              <Skeleton variant="sidebar" label="Loading commit history" />
+            ) : (
+              !error && <p className="muted">No commits yet.</p>
+            ))}
         </section>
       </div>
       {error && <ErrorToast message={error} />}

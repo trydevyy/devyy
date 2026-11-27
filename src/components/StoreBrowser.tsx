@@ -134,7 +134,11 @@ export default function StoreBrowser({
             </button>
           )}
           {loading ? (
-            <Skeleton variant="cards" label="Loading language servers" />
+            <Skeleton
+              variant="servers"
+              count={12}
+              label="Loading language servers"
+            />
           ) : (
             <ul className="settings-store-list">
               {matching

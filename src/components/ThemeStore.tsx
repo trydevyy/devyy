@@ -323,7 +323,7 @@ export default function ThemeStore({
             </article>
           );
         })}
-        {pending && <Skeleton variant="cards" label="Loading themes" />}
+        {pending && <Skeleton variant="themes" label="Loading themes" />}
       </div>
       {!themes.length && !pending && (
         <p className="settings-note">No matching themes.</p>

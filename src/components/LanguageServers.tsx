@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
 import { useEffect, useState } from "react";
@@ -42,17 +43,28 @@ export default function LanguageServers() {
   const [config, setConfig] = useState("{}");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(native);
   const [error, setError] = useState("");
   useEffect(() => {
+    let current = true;
     function refresh() {
       void refreshLanguageServers()
-        .then(setServers)
-        .catch((e) => setError(String(e)));
+        .then((servers) => {
+          if (current) setServers(servers);
+        })
+        .catch((error) => {
+          if (current) setError(String(error));
+        })
+        .finally(() => {
+          if (current) setPending(false);
+        });
     }
     refresh();
     window.addEventListener("devyy-language-servers-changed", refresh);
-    return () =>
+    return () => {
+      current = false;
       window.removeEventListener("devyy-language-servers-changed", refresh);
+    };
   }, []);
   function choose(server: ServerConfig) {
     setEdit({ ...server });
@@ -214,6 +226,12 @@ export default function LanguageServers() {
       ) : (
         <div className="settings-store-list">
           {error && <ErrorToast message={error} />}
+          {pending && !servers.length && (
+            <Skeleton
+              variant="servers"
+              label="Loading configured language servers"
+            />
+          )}
           {servers
             .filter((s) =>
               `${s.language} ${s.command}`

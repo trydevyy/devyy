@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { aiMainView } from "../lib/aiExtensions";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -426,11 +427,7 @@ function Frame({
     };
   }, [view.id, html]);
   if (!prepared)
-    return (
-      <div className="preview-loading" role="status">
-        Opening extension…
-      </div>
-    );
+    return <Skeleton variant="workbench" label="Opening extension" />;
   return (
     <iframe
       ref={frame}
@@ -548,11 +545,7 @@ export default function ExtensionWebviews({
           </button>
         </div>
       )}
-      {!active && (
-        <p className="extension-view-note" role="status">
-          Opening extension…
-        </p>
-      )}
+      {!active && <Skeleton variant="workbench" label="Opening extension" />}
       {webviews.map((view) => (
         <div
           className="extension-frame-container"

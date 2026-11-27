@@ -14,6 +14,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import Skeleton from "./components/ui/Skeleton";
+import ModalBackdrop from "./components/ui/ModalBackdrop";
+import { ModalSurface } from "./components/ui/ModalSurface";
 import { readClipboardText, writeClipboardText } from "./lib/clipboard";
 import {
   DesktopMenuBar,
@@ -691,6 +693,7 @@ export default function App() {
   const workspaceWaiters = useRef<(() => void)[]>([]);
   const workspaceOpenRequest = useRef(0);
   const fileOpenRequest = useRef(0);
+  const [openingFile, setOpeningFile] = useState(false);
   const workspaceRefreshRequest = useRef(0);
   const backgroundRefresh = useRef<{
     workspace: number;
@@ -1455,6 +1458,7 @@ export default function App() {
       setActive("");
       activeRef.current = "";
       ++fileOpenRequest.current;
+      setOpeningFile(false);
       setGit(null);
       setGitRepository("");
       gitRepositoryRef.current = "";
@@ -1543,10 +1547,13 @@ export default function App() {
     const root = wsRef.current.root;
     const workspaceRequest = workspaceOpenRequest.current;
     const request = ++fileOpenRequest.current;
+    setOpeningFile(false);
     try {
       let existing = tabsRef.current.find((t) => t.path === path);
       if (!existing) {
         const previewKind = filePreviewKind(path);
+        if (root !== "demo" && (!previewKind || /\.svg$/i.test(path)))
+          setOpeningFile(true);
         const doc =
           previewKind && !/\.svg$/i.test(path)
             ? { content: "", modified: "" }
@@ -1599,6 +1606,8 @@ export default function App() {
         (!initial || request === fileOpenRequest.current)
       )
         notify(e);
+    } finally {
+      if (request === fileOpenRequest.current) setOpeningFile(false);
     }
   }
   useEffect(() => {
@@ -4647,6 +4656,8 @@ export default function App() {
     { id: "remote" as const, icon: Radio, label: "Remote Explorer" },
   ];
   const hasProject = workspace.root !== "demo" || playground;
+  const outputPending =
+    workspaceScan && !outputFilter.trim() && outputSource === "all";
   useEffect(() => {
     if (section === "search" && !hasProject) setSection("files");
   }, [section, hasProject, git, workspaceScan]);
@@ -4848,9 +4859,7 @@ export default function App() {
           <div className="editor-settings-view">
             <Suspense
               fallback={
-                <p className="sidebar-empty" role="status">
-                  Loading settings…
-                </p>
+                <Skeleton variant="settings" label="Loading settings" />
               }
             >
               <Preferences
@@ -5417,7 +5426,11 @@ export default function App() {
             </button>
           </div>
           {section === "files" &&
-            (workspace.root === "demo" && !playground ? (
+            (workspaceScan && !hasProject && !playground ? (
+              <div className="sidebar-content">
+                <Skeleton variant="sidebar" label="Opening project files" />
+              </div>
+            ) : workspace.root === "demo" && !playground ? (
               <div className="sidebar-content">
                 <Empty
                   icon={<Files size={28} />}
@@ -5562,11 +5575,13 @@ export default function App() {
                 )}
               </div>
               <p className="muted tiny">
-                {searching
-                  ? "Searching…"
-                  : query
-                    ? `${matches.length}${matches.length === 500 ? "+" : ""} results`
-                    : "Search across project files."}
+                {searching ? (
+                  <Skeleton variant="inline" label="Searching" />
+                ) : query ? (
+                  `${matches.length}${matches.length === 500 ? "+" : ""} results`
+                ) : (
+                  "Search across project files."
+                )}
               </p>
               <SearchResults
                 matches={matches}
@@ -5588,9 +5603,7 @@ export default function App() {
             <div className="sidebar-content">
               <Suspense
                 fallback={
-                  <p className="sidebar-empty" role="status">
-                    Loading remote explorer…
-                  </p>
+                  <Skeleton variant="sidebar" label="Loading remote explorer" />
                 }
               >
                 <RemoteExplorer
@@ -5689,9 +5702,7 @@ export default function App() {
                   }
                 />
               ) : !gitError && native ? (
-                <p className="sidebar-empty" role="status">
-                  Checking repository…
-                </p>
+                <Skeleton variant="sidebar" label="Checking repository" />
               ) : (
                 <Empty
                   icon={<GitBranch size={28} />}
@@ -5899,9 +5910,7 @@ export default function App() {
             {comparison && (
               <div className="comparison-workspace" hidden={!diffActive}>
                 <Suspense
-                  fallback={
-                    <div className="preview-loading">Opening diff…</div>
-                  }
+                  fallback={<Skeleton variant="diff" label="Opening diff" />}
                 >
                   <DiffEditor
                     onApply={() => {
@@ -6065,6 +6074,8 @@ export default function App() {
                     )}
                   </div>
                 </>
+              ) : openingFile ? (
+                <Skeleton variant="workbench" label="Opening file" />
               ) : (
                 <div className="welcome">
                   <div className="welcome-eyebrow">
@@ -6373,12 +6384,7 @@ export default function App() {
               >
                 <Suspense
                   fallback={
-                    <Empty
-                      panel
-                      icon={<TerminalSquare size={28} />}
-                      title="Preparing terminal"
-                      text="Loading the integrated terminal."
-                    />
+                    <Skeleton variant="terminal" label="Preparing terminal" />
                   }
                 >
                   <TerminalGroup
@@ -6491,6 +6497,8 @@ export default function App() {
                       )}
                     />
                   )
+                ) : workspaceScan ? (
+                  <Skeleton variant="table" label="Preparing diagnostics" />
                 ) : (
                   <Empty
                     panel
@@ -6520,8 +6528,18 @@ export default function App() {
                     );
                   }}
                 >
-                  {filteredOutputEntries.length > 0 ? (
-                    <pre className="output-log">{formattedOutputText}</pre>
+                  {filteredOutputEntries.length > 0 || outputPending ? (
+                    <>
+                      {filteredOutputEntries.length > 0 && (
+                        <pre className="output-log">{formattedOutputText}</pre>
+                      )}
+                      {outputPending && (
+                        <Skeleton
+                          variant="output"
+                          label="Preparing project output"
+                        />
+                      )}
+                    </>
                   ) : (
                     <Empty
                       panel
@@ -6556,12 +6574,7 @@ export default function App() {
                 {(portsVisited || (panel && panelTab === "ports")) && (
                   <Suspense
                     fallback={
-                      <Empty
-                        panel
-                        icon={<Radio size={28} />}
-                        title="Loading ports…"
-                        text="Loading the forwarded ports panel."
-                      />
+                      <Skeleton variant="table" label="Loading ports" />
                     }
                   >
                     <PortsPanel
@@ -6691,7 +6704,23 @@ export default function App() {
       )}
       <AnimatePresence>
         {graphSelection !== null && (
-          <Suspense key="commit-graph" fallback={null}>
+          <Suspense
+            key="commit-graph"
+            fallback={
+              <ModalBackdrop
+                className="modal-backdrop"
+                onMouseDown={() => setGraphSelection(null)}
+              >
+                <ModalSurface
+                  className="git-graph"
+                  role="dialog"
+                  aria-label="Loading commit graph"
+                >
+                  <Skeleton variant="diff" label="Loading commit graph" />
+                </ModalSurface>
+              </ModalBackdrop>
+            }
+          >
             <GitGraph
               repository={gitRepository}
               initialHash={graphSelection}
@@ -6724,7 +6753,23 @@ export default function App() {
           />
         )}
         {settingsOpen && (
-          <Suspense key="preferences" fallback={null}>
+          <Suspense
+            key="preferences"
+            fallback={
+              <ModalBackdrop
+                className="modal-backdrop"
+                onMouseDown={() => setSettingsOpen(false)}
+              >
+                <ModalSurface
+                  className="settings-modal"
+                  role="dialog"
+                  aria-label="Loading settings"
+                >
+                  <Skeleton variant="settings" label="Loading settings" />
+                </ModalSurface>
+              </ModalBackdrop>
+            }
+          >
             <Preferences
               settings={settings}
               category={settingsPage}

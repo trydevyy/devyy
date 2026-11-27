@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import {
   forwardRef,
@@ -107,6 +108,7 @@ export default forwardRef<
   callback.current = { onReady, onExit, onError };
   const [generation, setGeneration] = useState(0),
     [exited, setExited] = useState(false);
+  const [starting, setStarting] = useState(true);
   const exitedRef = useRef(exited);
   exitedRef.current = exited;
   useImperativeHandle(
@@ -144,6 +146,7 @@ export default forwardRef<
   useEffect(() => {
     if ((!preview && (!native || root === "demo")) || !host.current) return;
     setExited(false);
+    setStarting(!preview);
     const term = new XTerminal({
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize,
@@ -244,6 +247,7 @@ export default forwardRef<
       }
       for (const data of queued.get(id) ?? []) term.write(new Uint8Array(data));
       queued.clear();
+      setStarting(false);
       if (earlyExits.has(id)) finish(earlyExits.get(id));
       else callback.current.onReady(id);
       earlyExits.clear();
@@ -251,6 +255,7 @@ export default forwardRef<
     void init().catch((e) => {
       drainListeners();
       if (disposed) return;
+      setStarting(false);
       term.writeln(`Unable to start terminal: ${String(e)}`);
       callback.current.onError(e);
       callback.current.onExit?.();
@@ -369,7 +374,14 @@ export default forwardRef<
         />
       ) : (
         <>
-          <div className="xterm-host" ref={host} />
+          <div
+            className="xterm-host"
+            ref={host}
+            aria-busy={!preview && starting}
+          />
+          {!preview && starting && (
+            <Skeleton variant="terminal" label="Starting terminal" />
+          )}
           {exited && (
             <button
               className="restart-terminal"

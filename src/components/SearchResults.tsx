@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { FileIcon } from "./FileTree";
@@ -43,6 +44,9 @@ export default function SearchResults({
       aria-label="Workspace search results"
       aria-busy={busy}
     >
+      {busy && !groups.size && (
+        <Skeleton variant="table" label="Searching workspace" />
+      )}
       {Array.from(groups, ([path, rows]) => {
         const closed = collapsed.has(path),
           parent = path.split("/").slice(0, -1).join("/");

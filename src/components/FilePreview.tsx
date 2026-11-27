@@ -120,7 +120,7 @@ export default function FilePreview({
             <ErrorToast message={error} />
           </div>
         ) : !url ? (
-          <Skeleton label="Loading file preview" />
+          <Skeleton variant="media" label="Loading file preview" />
         ) : kind === "image" ? (
           <img
             src={url}

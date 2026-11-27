@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import Skeleton from "./ui/Skeleton";
 import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
@@ -20,13 +21,7 @@ import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  Copy,
-  GitCommitHorizontal,
-  LoaderCircle,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { Copy, GitCommitHorizontal, RefreshCw, Search } from "lucide-react";
 import { invoke } from "../lib/native";
 import {
   graphLanes,
@@ -59,7 +54,7 @@ export default function GitGraph({
     [selected, setSelected] = useState(initialHash ?? ""),
     [parent, setParent] = useState(initialParent),
     [files, setFiles] = useState<CommitFile[]>([]),
-    [busy, setBusy] = useState(false),
+    [busy, setBusy] = useState(true),
     [filesBusy, setFilesBusy] = useState(false),
     [error, setError] = useState(""),
     [query, setQuery] = useState("");
@@ -341,14 +336,13 @@ export default function GitGraph({
                 </button>
               )}
               {busy && (
-                <LoaderCircle
-                  className="spinning"
-                  size={16}
-                  aria-label="Loading commit graph"
-                />
+                <Skeleton variant="sidebar" label="Loading commit graph" />
               )}
             </section>
             <section className="git-commit-detail" aria-label="Commit details">
+              {!commit && busy && (
+                <Skeleton variant="table" label="Loading commit details" />
+              )}
               {commit && (
                 <>
                   <h2>{commit.subject}</h2>
@@ -392,7 +386,7 @@ export default function GitGraph({
                     Changed files <small>{files.length}</small>
                   </h3>
                   {filesBusy ? (
-                    <LoaderCircle className="spinning" size={14} />
+                    <Skeleton variant="sidebar" label="Loading changed files" />
                   ) : (
                     files.map((file) => (
                       <button

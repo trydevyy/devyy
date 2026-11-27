@@ -535,7 +535,7 @@ function QuickInput({ input }: { input: QuickInputState }) {
                 )}
                 {!choices.length &&
                   (input.busy ? (
-                    <Skeleton label="Loading choices" />
+                    <Skeleton variant="sidebar" label="Loading choices" />
                   ) : (
                     <p className="muted">No matching items</p>
                   ))}

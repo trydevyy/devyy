@@ -254,6 +254,51 @@ async function nativeFixture(page: import("@playwright/test").Page) {
   });
 }
 
+test("settings catalogs keep their card layouts while responses are pending", async ({
+  page,
+}) => {
+  await nativeFixture(page);
+  await page.goto("/?playground=1");
+  await page.evaluate(() => {
+    const ipc = Reflect.get(window, "__TAURI_INTERNALS__");
+    const invoke = ipc.invoke;
+    let release: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    Reflect.set(window, "releaseCatalogs", release);
+    ipc.invoke = async (command: string, args: unknown) => {
+      if (command === "store_catalog") {
+        await pending;
+        return [];
+      }
+      if (command === "search_extensions") await pending;
+      return invoke(command, args);
+    };
+  });
+  await page.keyboard.press(`${mod}+Shift+x`);
+  const settings = page.getByRole("dialog", { name: "Preferences" });
+  for (const [tab, status, count] of [
+    ["Extensions", "Loading extensions", 9],
+    ["Themes", "Loading themes", 9],
+    ["Language servers", "Loading language servers", 12],
+  ] as const) {
+    await settings.getByRole("tab", { name: tab, exact: true }).click();
+    const skeleton = settings.getByRole("status", { name: status });
+    await expect(skeleton).toBeVisible();
+    await expect(skeleton.locator(".skeleton-card")).toHaveCount(count);
+    await expect(skeleton.locator(".skeleton-card-action")).toHaveCount(count);
+  }
+  await settings.getByRole("tab", { name: "Extensions", exact: true }).click();
+  await page.evaluate(() => Reflect.get(window, "releaseCatalogs")());
+  await expect(
+    settings.getByRole("status", { name: "Loading extensions" }),
+  ).toHaveCount(0);
+  await expect(
+    settings.getByText("Fixture language", { exact: true }),
+  ).toBeVisible();
+});
+
 test("Open VSX install activates grammar, snippets and theme and can disable the extension", async ({
   page,
 }) => {

@@ -407,7 +407,7 @@ export default function AIModelPicker({
                 ))}
                 {busy && !options.length && (
                   <div className="ai-picker-status">
-                    <Skeleton label="Loading models" />
+                    <Skeleton variant="sidebar" label="Loading models" />
                   </div>
                 )}
                 {error && <ErrorToast message={error} />}
