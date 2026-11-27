@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import {
   useEffect,
   useLayoutEffect,
@@ -128,7 +128,14 @@ export default function AIPopover({
         width: `min(${width}px, calc(100vw - 24px))`,
       }}
     >
-      {children}
+      <ModalHeader
+        title={label}
+        onClose={onClose}
+        closeLabel={
+          label === "Attach context" ? "Close context picker" : "Close"
+        }
+      />
+      <ModalBody flush>{children}</ModalBody>
     </ModalSurface>,
     document.body,
   );

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
@@ -1346,32 +1346,33 @@ export default function AIChatPanel({
           role="dialog"
           aria-label="Attachment preview"
         >
-          <header>
-            <AttachmentIcon
-              kind={preview.kind}
-              path={preview.path ?? preview.id}
-            />
-            <strong>{preview.title}</strong>
-            <button
-              className="icon-button"
-              aria-label="Copy attachment"
-              onClick={() =>
-                void writeClipboardText(preview.content).catch(() =>
-                  setError("Could not copy attachment."),
-                )
-              }
-            >
-              <Copy size={13} />
-            </button>
-            <button
-              className="icon-button"
-              aria-label="Close attachment preview"
-              onClick={() => setPreview(undefined)}
-            >
-              <X size={14} />
-            </button>
-          </header>
-          <pre>{preview.content}</pre>
+          <ModalHeader
+            title={preview.title}
+            icon={
+              <AttachmentIcon
+                kind={preview.kind}
+                path={preview.path ?? preview.id}
+              />
+            }
+            onClose={() => setPreview(undefined)}
+            closeLabel="Close attachment preview"
+            actions={
+              <button
+                className="icon-button"
+                aria-label="Copy attachment"
+                onClick={() =>
+                  void writeClipboardText(preview.content).catch(() =>
+                    setError("Could not copy attachment."),
+                  )
+                }
+              >
+                <Copy size={13} />
+              </button>
+            }
+          />
+          <ModalBody>
+            <pre>{preview.content}</pre>
+          </ModalBody>
         </ModalSurface>
       )}
     </div>

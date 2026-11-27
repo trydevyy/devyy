@@ -25,7 +25,6 @@ import {
   TerminalSquare,
   TextCursorInput,
   Upload,
-  X,
   Braces,
 } from "lucide-react";
 import {
@@ -140,12 +139,6 @@ export default function AIContextPicker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              <button
-                aria-label="Close context picker"
-                onClick={() => setOpen(false)}
-              >
-                <X size={14} />
-              </button>
             </div>
             <div
               className="ai-context-filters"

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import Skeleton from "./ui/Skeleton";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -381,193 +381,191 @@ function QuickInput({ input }: { input: QuickInputState }) {
             }
           }}
         >
-          <div className="modal-header">
-            <span className="eyebrow">{input.extension}</span>
-            <div className="extension-input-actions">
-              {input.buttons.map((button, index) =>
-                renderButton(button, index),
-              )}
+          <ModalHeader
+            title={title}
+            description={input.extension}
+            onClose={() => send("hide")}
+            closeLabel="Cancel extension prompt"
+          />
+          <ModalBody>
+            {(input.step !== undefined || input.buttons.length > 0) && (
+              <div className="modal-header">
+                {input.step !== undefined && (
+                  <span className="muted">
+                    {input.step}
+                    {input.totalSteps ? ` / ${input.totalSteps}` : ""}
+                  </span>
+                )}
+                <div className="extension-input-actions">
+                  {input.buttons.map((button, index) =>
+                    renderButton(button, index),
+                  )}
+                </div>
+              </div>
+            )}
+            {input.prompt && (
+              <p className="muted" id={`${input.id}-prompt`}>
+                {input.prompt}
+              </p>
+            )}
+            <input
+              ref={textbox}
+              role={isPick ? "combobox" : undefined}
+              aria-label={isPick ? "Filter items" : title}
+              aria-expanded={isPick ? true : undefined}
+              aria-controls={isPick ? `${input.id}-choices` : undefined}
+              aria-autocomplete={isPick ? "list" : undefined}
+              aria-activedescendant={
+                isPick && activeItem
+                  ? `${input.id}-item-${activeItem.index}`
+                  : undefined
+              }
+              aria-invalid={!!validation?.message && validation.severity === 3}
+              aria-describedby={
+                validation?.message
+                  ? `${input.id}-validation`
+                  : input.prompt
+                    ? `${input.id}-prompt`
+                    : undefined
+              }
+              placeholder={input.placeholder}
+              type={input.password ? "password" : "text"}
+              value={value}
+              disabled={!input.enabled}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => {
+                setValue(event.target.value);
+                send("value", { value: event.target.value });
+              }}
+            />
+            {input.busy && (
+              <div
+                className="extension-input-busy"
+                role="progressbar"
+                aria-label="Loading choices"
+              >
+                <span />
+              </div>
+            )}
+            {validation?.message && (
+              <p
+                id={`${input.id}-validation`}
+                className={`extension-input-validation severity-${validation.severity}`}
+                role={validation.severity === 3 ? "alert" : "status"}
+              >
+                {validation.message}
+              </p>
+            )}
+            {isPick && (
+              <div
+                ref={list}
+                className="extension-quickpick extension-live-choices"
+                role="listbox"
+                tabIndex={input.canSelectMany ? 0 : -1}
+                id={`${input.id}-choices`}
+                aria-label="Extension choices"
+                aria-multiselectable={!!input.canSelectMany}
+              >
+                {items.map((item) =>
+                  item.kind === -1 ? (
+                    <div
+                      className="extension-input-separator"
+                      role="presentation"
+                      key={`separator-${item.index}`}
+                    >
+                      {quickInputText(item.label)}
+                    </div>
+                  ) : (
+                    <div
+                      className={`extension-input-item ${activeItem?.index === item.index ? "active" : ""}`}
+                      key={item.index}
+                      data-index={item.index}
+                    >
+                      <button
+                        type="button"
+                        role="option"
+                        id={`${input.id}-item-${item.index}`}
+                        tabIndex={-1}
+                        disabled={!input.enabled}
+                        aria-selected={
+                          input.canSelectMany
+                            ? selected.includes(item.index)
+                            : activeItem?.index === item.index
+                        }
+                        onMouseEnter={() => changeActive(item.index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() =>
+                          input.canSelectMany
+                            ? toggle(item.index)
+                            : accept(item.index)
+                        }
+                      >
+                        <span>
+                          {input.canSelectMany && (
+                            <span
+                              className={`extension-input-check ${selected.includes(item.index) ? "checked" : ""}`}
+                              aria-hidden="true"
+                            >
+                              {selected.includes(item.index) && (
+                                <Check size={12} />
+                              )}
+                            </span>
+                          )}
+                          <InputIcon
+                            icon={item.iconPath}
+                            extension={input.extension}
+                          />
+                          <span>{quickInputText(item.label)}</span>
+                          {item.description && (
+                            <small>{quickInputText(item.description)}</small>
+                          )}
+                        </span>
+                        {item.detail && <p>{quickInputText(item.detail)}</p>}
+                      </button>
+                      {!!item.buttons?.length && (
+                        <div className="extension-input-actions">
+                          {item.buttons.map((button, index) =>
+                            renderButton(button, index, item.index),
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ),
+                )}
+                {!choices.length &&
+                  (input.busy ? (
+                    <Skeleton label="Loading choices" />
+                  ) : (
+                    <p className="muted">No matching items</p>
+                  ))}
+              </div>
+            )}
+            <div className="dialog-actions">
               <button
                 type="button"
-                className="icon-button"
-                aria-label="Cancel extension prompt"
+                className="secondary"
                 onClick={() => send("hide")}
               >
-                <X size={16} />
+                Cancel
+              </button>
+              <button
+                className="primary"
+                type="submit"
+                disabled={
+                  !input.enabled ||
+                  (!isPick &&
+                    !!validation?.message &&
+                    validation.severity === 3) ||
+                  (isPick && !input.canSelectMany && !activeItem)
+                }
+              >
+                {input.canSelectMany && selected.length
+                  ? `Confirm (${selected.length})`
+                  : "Confirm"}
               </button>
             </div>
-          </div>
-          <div className="extension-input-heading">
-            <h2>{title}</h2>
-            {input.step !== undefined && (
-              <span>
-                {input.step}
-                {input.totalSteps ? ` / ${input.totalSteps}` : ""}
-              </span>
-            )}
-          </div>
-          {input.prompt && (
-            <p className="muted" id={`${input.id}-prompt`}>
-              {input.prompt}
-            </p>
-          )}
-          <input
-            ref={textbox}
-            role={isPick ? "combobox" : undefined}
-            aria-label={isPick ? "Filter items" : title}
-            aria-expanded={isPick ? true : undefined}
-            aria-controls={isPick ? `${input.id}-choices` : undefined}
-            aria-autocomplete={isPick ? "list" : undefined}
-            aria-activedescendant={
-              isPick && activeItem
-                ? `${input.id}-item-${activeItem.index}`
-                : undefined
-            }
-            aria-invalid={!!validation?.message && validation.severity === 3}
-            aria-describedby={
-              validation?.message
-                ? `${input.id}-validation`
-                : input.prompt
-                  ? `${input.id}-prompt`
-                  : undefined
-            }
-            placeholder={input.placeholder}
-            type={input.password ? "password" : "text"}
-            value={value}
-            disabled={!input.enabled}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => {
-              setValue(event.target.value);
-              send("value", { value: event.target.value });
-            }}
-          />
-          {input.busy && (
-            <div
-              className="extension-input-busy"
-              role="progressbar"
-              aria-label="Loading choices"
-            >
-              <span />
-            </div>
-          )}
-          {validation?.message && (
-            <p
-              id={`${input.id}-validation`}
-              className={`extension-input-validation severity-${validation.severity}`}
-              role={validation.severity === 3 ? "alert" : "status"}
-            >
-              {validation.message}
-            </p>
-          )}
-          {isPick && (
-            <div
-              ref={list}
-              className="extension-quickpick extension-live-choices"
-              role="listbox"
-              tabIndex={input.canSelectMany ? 0 : -1}
-              id={`${input.id}-choices`}
-              aria-label="Extension choices"
-              aria-multiselectable={!!input.canSelectMany}
-            >
-              {items.map((item) =>
-                item.kind === -1 ? (
-                  <div
-                    className="extension-input-separator"
-                    role="presentation"
-                    key={`separator-${item.index}`}
-                  >
-                    {quickInputText(item.label)}
-                  </div>
-                ) : (
-                  <div
-                    className={`extension-input-item ${activeItem?.index === item.index ? "active" : ""}`}
-                    key={item.index}
-                    data-index={item.index}
-                  >
-                    <button
-                      type="button"
-                      role="option"
-                      id={`${input.id}-item-${item.index}`}
-                      tabIndex={-1}
-                      disabled={!input.enabled}
-                      aria-selected={
-                        input.canSelectMany
-                          ? selected.includes(item.index)
-                          : activeItem?.index === item.index
-                      }
-                      onMouseEnter={() => changeActive(item.index)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() =>
-                        input.canSelectMany
-                          ? toggle(item.index)
-                          : accept(item.index)
-                      }
-                    >
-                      <span>
-                        {input.canSelectMany && (
-                          <span
-                            className={`extension-input-check ${selected.includes(item.index) ? "checked" : ""}`}
-                            aria-hidden="true"
-                          >
-                            {selected.includes(item.index) && (
-                              <Check size={12} />
-                            )}
-                          </span>
-                        )}
-                        <InputIcon
-                          icon={item.iconPath}
-                          extension={input.extension}
-                        />
-                        <span>{quickInputText(item.label)}</span>
-                        {item.description && (
-                          <small>{quickInputText(item.description)}</small>
-                        )}
-                      </span>
-                      {item.detail && <p>{quickInputText(item.detail)}</p>}
-                    </button>
-                    {!!item.buttons?.length && (
-                      <div className="extension-input-actions">
-                        {item.buttons.map((button, index) =>
-                          renderButton(button, index, item.index),
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ),
-              )}
-              {!choices.length &&
-                (input.busy ? (
-                  <Skeleton label="Loading choices" />
-                ) : (
-                  <p className="muted">No matching items</p>
-                ))}
-            </div>
-          )}
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => send("hide")}
-            >
-              Cancel
-            </button>
-            <button
-              className="primary"
-              type="submit"
-              disabled={
-                !input.enabled ||
-                (!isPick &&
-                  !!validation?.message &&
-                  validation.severity === 3) ||
-                (isPick && !input.canSelectMany && !activeItem)
-              }
-            >
-              {input.canSelectMany && selected.length
-                ? `Confirm (${selected.length})`
-                : "Confirm"}
-            </button>
-          </div>
+          </ModalBody>
         </ModalSurface>
       </ModalBackdrop>
     </DarkIcons.Provider>

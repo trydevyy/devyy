@@ -18,10 +18,33 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   ).toHaveCount(0);
   await ssh.getByRole("button", { name: "Add host", exact: true }).click();
   const server = page.getByRole("dialog", { name: "Add SSH server" });
-  await expect(server).toHaveClass(/devyy-modal/);
+  await expect(
+    server.getByRole("heading", { name: "Add SSH server" }),
+  ).toBeVisible();
+  await expect(
+    server.locator(".devyy-modal-body").getByLabel("Host", { exact: true }),
+  ).toBeVisible();
   const modalRadius = await server.evaluate(
     (dialog) => getComputedStyle(dialog).borderRadius,
   );
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: viewport.width, height: 330 });
+  const serverBody = server.locator(".devyy-modal-body");
+  await expect
+    .poll(() =>
+      serverBody.evaluate((body) => body.scrollHeight > body.clientHeight),
+    )
+    .toBe(true);
+  await serverBody.evaluate((body) => {
+    body.scrollTop = body.scrollHeight;
+  });
+  await expect(
+    server.getByRole("heading", { name: "Add SSH server" }),
+  ).toBeInViewport();
+  await expect(
+    server.getByRole("button", { name: "Save server" }),
+  ).toBeInViewport();
+  await page.setViewportSize(viewport);
   await server.getByLabel("Host", { exact: true }).fill("test.example.com");
   await server.getByLabel("Username").fill("dev");
   await server.getByLabel("Display name").fill("Dev server");
@@ -46,7 +69,13 @@ test("desktop panels use compact controls and report operations in toasts", asyn
     .getByRole("button", { name: "Forward a port", exact: true })
     .click();
   const port = page.getByRole("dialog", { name: "Forward a port" });
-  await expect(port).toHaveClass(/devyy-modal/);
+  await expect(
+    port.locator(".devyy-modal-body").getByLabel("Local port"),
+  ).toBeVisible();
+  await expect(port.locator(".devyy-modal-body")).toHaveCSS(
+    "border-radius",
+    "9px",
+  );
   await expect(port).toHaveCSS("border-radius", modalRadius);
   await port.getByLabel("Local port").fill("3000");
   const box = await port.boundingBox();
@@ -67,6 +96,10 @@ test("desktop panels use compact controls and report operations in toasts", asyn
 
   await page.getByRole("button", { name: "Devyy account" }).click();
   const settings = page.getByRole("dialog", { name: "Preferences" });
+  await expect(settings.locator(".settings-content")).toHaveCSS(
+    "border-radius",
+    "9px",
+  );
   await expect(settings.getByRole("button", { name: "Sign in" })).toBeVisible();
   await expect(
     settings.getByText("Account server", { exact: true }),

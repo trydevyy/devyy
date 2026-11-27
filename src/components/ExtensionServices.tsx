@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { AnimatePresence, useIsPresent } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -504,98 +504,94 @@ function ExtensionPrompt({
           }
         }}
       >
-        <div className="modal-header">
-          <span className="eyebrow">{prompt.extension}</span>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Cancel extension prompt"
-            onClick={() => onFinish(null)}
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <h2>{title}</h2>
-        {(options.prompt || options.detail) && (
-          <p className="muted">{options.prompt ?? options.detail}</p>
-        )}
-        {prompt.method !== "message" && (
-          <input
-            aria-label={isPick ? "Filter items" : title}
-            placeholder={options.placeHolder}
-            type={options.password ? "password" : "text"}
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setActive(0);
-            }}
-            autoComplete="off"
-          />
-        )}
-        {isPick && (
-          <div
-            className="extension-quickpick"
-            role="listbox"
-            aria-label="Extension choices"
-            aria-multiselectable={!!options.canPickMany}
-          >
-            {items.map((item, index) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={
-                  options.canPickMany
-                    ? selected.includes(item.index!)
-                    : active === index
-                }
-                key={item.index}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => choose(item.index!)}
-              >
-                <span>
-                  {options.canPickMany && (
-                    <input
-                      aria-label={`Select ${item.label}`}
-                      type="checkbox"
-                      tabIndex={-1}
-                      checked={selected.includes(item.index!)}
-                      readOnly
-                    />
-                  )}
-                  {item.label}
-                </span>
-                {item.description && <small>{item.description}</small>}
-                {item.detail && <p>{item.detail}</p>}
-              </button>
-            ))}
-            {!items.length && <p className="muted">No matching items</p>}
-          </div>
-        )}
-        <div className="dialog-actions">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => onFinish(null)}
-          >
-            Cancel
-          </button>
-          {prompt.method === "message"
-            ? items.map((item, index) => (
+        <ModalHeader
+          title={title}
+          description={prompt.extension}
+          onClose={() => onFinish(null)}
+          closeLabel="Cancel extension prompt"
+        />
+        <ModalBody>
+          {(options.prompt || options.detail) && (
+            <p className="muted">{options.prompt ?? options.detail}</p>
+          )}
+          {prompt.method !== "message" && (
+            <input
+              aria-label={isPick ? "Filter items" : title}
+              placeholder={options.placeHolder}
+              type={options.password ? "password" : "text"}
+              value={value}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setActive(0);
+              }}
+              autoComplete="off"
+            />
+          )}
+          {isPick && (
+            <div
+              className="extension-quickpick"
+              role="listbox"
+              aria-label="Extension choices"
+              aria-multiselectable={!!options.canPickMany}
+            >
+              {items.map((item, index) => (
                 <button
                   type="button"
-                  className="primary"
-                  key={index}
-                  onClick={() => onFinish(index)}
+                  role="option"
+                  aria-selected={
+                    options.canPickMany
+                      ? selected.includes(item.index!)
+                      : active === index
+                  }
+                  key={item.index}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => choose(item.index!)}
                 >
-                  {item.title}
+                  <span>
+                    {options.canPickMany && (
+                      <input
+                        aria-label={`Select ${item.label}`}
+                        type="checkbox"
+                        tabIndex={-1}
+                        checked={selected.includes(item.index!)}
+                        readOnly
+                      />
+                    )}
+                    {item.label}
+                  </span>
+                  {item.description && <small>{item.description}</small>}
+                  {item.detail && <p>{item.detail}</p>}
                 </button>
-              ))
-            : (!isPick || options.canPickMany) && (
-                <button className="primary" type="submit">
-                  Confirm
-                </button>
-              )}
-        </div>
+              ))}
+              {!items.length && <p className="muted">No matching items</p>}
+            </div>
+          )}
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => onFinish(null)}
+            >
+              Cancel
+            </button>
+            {prompt.method === "message"
+              ? items.map((item, index) => (
+                  <button
+                    type="button"
+                    className="primary"
+                    key={index}
+                    onClick={() => onFinish(index)}
+                  >
+                    {item.title}
+                  </button>
+                ))
+              : (!isPick || options.canPickMany) && (
+                  <button className="primary" type="submit">
+                    Confirm
+                  </button>
+                )}
+          </div>
+        </ModalBody>
       </ModalSurface>
     </ModalBackdrop>
   );

@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
-import { Asterisk, X } from "lucide-react";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { Asterisk } from "lucide-react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 
 export interface HelpModalProps {
@@ -40,29 +40,25 @@ export default function HelpModal({
         aria-label="About devyy and keyboard shortcuts"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="modal-heading">
-          <Asterisk size={34} className="devyy-modal-logo" />
-          <button
-            className="icon-button"
-            aria-label="Close help"
-            onClick={onClose}
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <h2>Keyboard shortcuts</h2>
-        <p className="muted">devyy 0.1</p>
-        <div className="shortcut-list">
-          {commandInfo
-            .filter(([id]) => bindings[id])
-            .map(([id, name]) => [name, displayBinding(bindings[id])])
-            .map(([name, key]) => (
-              <div key={name}>
-                <span>{name}</span>
-                <kbd>{key}</kbd>
-              </div>
-            ))}
-        </div>
+        <ModalHeader
+          title="Keyboard shortcuts"
+          icon={<Asterisk size={18} />}
+          onClose={onClose}
+          closeLabel="Close help"
+        />
+        <ModalBody>
+          <div className="shortcut-list">
+            {commandInfo
+              .filter(([id]) => bindings[id])
+              .map(([id, name]) => [name, displayBinding(bindings[id])])
+              .map(([name, key]) => (
+                <div key={name}>
+                  <span>{name}</span>
+                  <kbd>{key}</kbd>
+                </div>
+              ))}
+          </div>
+        </ModalBody>
       </ModalSurface>
     </ModalBackdrop>
   );

@@ -981,6 +981,10 @@ a {
   margin: 0 10px 10px 0;
 }
 
+:root {
+  --workbench-pane-radius: 9px;
+}
+
 .editor-surface {
   container: editor / inline-size;
   display: flex;
@@ -990,7 +994,7 @@ a {
   min-height: 0;
   background: var(--paper);
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
+  border-radius: var(--workbench-pane-radius);
   overflow: hidden;
   box-shadow: 0 4px 24px #0000000b;
 }
@@ -5983,82 +5987,32 @@ button.split-tab-indicator:hover {
     width 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
     height 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
 }
-.setup-rail {
+.setup-steps {
   display: flex;
-  flex-direction: column;
-  width: 264px;
-  flex-shrink: 0;
-  padding: 35px 28px 25px;
-  border-right: 1px solid var(--line);
+  flex: none;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
 }
-.setup-wordmark {
-  display: flex;
+.setup-steps button {
+  display: inline-flex;
+  flex: 1 0 auto;
   align-items: center;
-  gap: 8px;
-  font-size: calc(25px * var(--ui-text-scale, 1));
-  font-weight: 600;
-  letter-spacing: -1.2px;
-}
-.setup-introduction {
-  margin: 62px 0 38px;
-}
-.setup-introduction h1 {
-  margin: 0 0 18px;
-  font-size: calc(27px * var(--ui-text-scale, 1));
-  line-height: 1.25;
-  letter-spacing: -1px;
-  font-weight: 500;
-}
-.setup-introduction p {
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 8px;
   font-size: calc(11px * var(--ui-text-scale, 1));
   color: var(--muted);
-  line-height: 1.8;
+  border-radius: 5px;
 }
-.setup-rail nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.setup-rail nav button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 8px;
-  font-size: calc(12px * var(--ui-text-scale, 1));
-  color: var(--muted);
-  border-radius: 6px;
-  text-align: left;
-}
-.setup-rail nav button[aria-current="step"] {
-  color: var(--ink);
+.setup-steps button:is(:hover, [aria-current="step"]) {
   background: var(--hover);
-}
-.setup-rail nav button > svg:last-child {
-  margin-left: auto;
+  color: var(--ink);
 }
 .setup-step-number {
-  width: 21px;
-  height: 21px;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  font-size: calc(10px * var(--ui-text-scale, 1));
-  display: grid;
-  place-items: center;
-}
-.setup-rail nav button[aria-current="step"] .setup-step-number {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--shell);
-}
-.setup-skip {
-  margin-top: auto;
-  align-self: flex-start;
-  font-size: calc(11px * var(--ui-text-scale, 1));
   color: var(--muted);
-  padding: 20px 0 0;
-}
-.setup-skip:hover {
-  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 .setup-main {
   flex: 1;
@@ -6274,10 +6228,6 @@ button.split-tab-indicator:hover {
   animation: none;
 }
 @media (max-width: 1050px) {
-  .setup-rail {
-    width: 220px;
-    padding: 30px 20px 24px;
-  }
   .setup-scroll {
     padding: 20px 26px 30px;
   }
@@ -6285,17 +6235,11 @@ button.split-tab-indicator:hover {
     padding-left: 26px;
     padding-right: 26px;
   }
-  .setup-introduction h1 {
-    font-size: calc(24px * var(--ui-text-scale, 1));
-  }
   .setup-scroll h2 {
     font-size: calc(23px * var(--ui-text-scale, 1));
   }
 }
 @media (max-height: 700px) {
-  .setup-introduction {
-    margin: 34px 0 22px;
-  }
   .setup-dialog {
     height: calc(100dvh - 36px);
   }
@@ -8387,23 +8331,6 @@ body {
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-.ai-context-preview > header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px;
-  border-bottom: 1px solid var(--line);
-  color: var(--secondary);
-}
-.ai-context-preview strong {
-  font-size: calc(11px * var(--ui-text-scale, 1));
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
 .ai-context-preview pre {
   margin: 0;
   padding: 14px;
@@ -10158,7 +10085,7 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
-.git-graph > header label {
+.git-graph .devyy-modal-body > header label {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -10169,7 +10096,7 @@ body {
   border-radius: 6px;
   padding: 8px;
 }
-.git-graph > header input {
+.git-graph .devyy-modal-body > header input {
   background: transparent;
   border: 0;
   color: var(--ink);
@@ -13949,11 +13876,6 @@ dialog.provider-add-dialog {
   width: min(475px, calc(100vw - 30px));
   padding: 0;
 }
-.provider-add-dialog .devyy-modal-heading {
-  padding: 16px;
-  border-bottom: 1px solid var(--line);
-  margin: 0;
-}
 .provider-add-dialog .ai-provider-detail {
   height: auto;
 }
@@ -15507,11 +15429,11 @@ button[aria-busy="true"]::after {
 }
 .settings-workbench .settings-content {
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-right: 0;
-  border-bottom: 0;
-  border-radius: 12px 0 0;
+  margin: 0 9px 9px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--workbench-pane-radius);
   background: var(--paper);
 }
 .settings-workbench .settings-navigation {
@@ -15568,18 +15490,137 @@ button[aria-busy="true"]::after {
   }
 }
 
-/* The palette and all dialogs share the same workbench surface. */
+/* Dialog chrome and the inset work area use the same surfaces as Settings. */
 .devyy-modal {
-  --modal-radius: 14px;
   max-width: calc(100vw - 24px);
   max-height: calc(100dvh - 24px);
   color: var(--ink);
-  background: var(--paper);
+  background: var(--shell);
   border: 1px solid var(--border-strong);
-  border-radius: var(--modal-radius);
+  border-radius: 14px;
   box-shadow: var(--shadow);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+.devyy-modal:has(> .devyy-modal-body, > form > .devyy-modal-body) {
+  padding: 8px;
+}
+.devyy-modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 14px;
+  background: var(--paper);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--workbench-pane-radius);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.devyy-modal-body-flush {
+  padding: 0;
+  overflow: hidden;
+}
+.devyy-modal > .devyy-modal-heading,
+.devyy-modal > form > .devyy-modal-heading {
+  flex: none;
+  align-items: center;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 5px 8px;
+  background: transparent;
+  border: 0;
+}
+.devyy-modal > .devyy-modal-heading > .icon-button,
+.devyy-modal > form > .devyy-modal-heading > .icon-button {
+  flex: none;
+  margin-inline-start: auto;
+}
+.devyy-modal-heading .devyy-modal-icon,
+.devyy-modal-heading .devyy-dialog-symbol {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  flex: none;
+}
+.devyy-modal-heading h2 {
+  flex: 1;
+}
+.devyy-modal :is(.devyy-modal-fields, .devyy-modal-actions) {
+  margin-block-start: 0;
+}
+.devyy-modal-form .devyy-modal-actions,
+.devyy-modal-body > .devyy-modal-actions {
+  margin-block-start: 10px;
+}
+.palette-modes {
+  padding-top: 8px;
+}
+.palette-input {
+  margin-top: 7px;
+}
+.devyy-modal.git-graph .devyy-modal-body > header {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.devyy-modal.git-graph .devyy-modal-body > header label {
+  margin: 0;
+  width: auto;
+  flex: 1;
+}
+dialog.devyy-modal[open],
+.devyy-modal:is(
+  .setup-dialog,
+  .input-modal,
+  .help-modal,
+  .ai-access-dialog,
+  .devyy-confirm
+) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+dialog.devyy-modal > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.devyy-modal:is(.desktop-theme-preview, .provider-add-dialog)
+  .devyy-modal-body {
+  overflow: auto;
+}
+.devyy-modal .setup-main {
+  background: transparent;
+}
+.devyy-modal .setup-main > header {
+  padding-block: 10px 0;
+}
+.devyy-modal .provider-sign-in-terminal {
+  min-height: 100px;
+}
+.devyy-modal .provider-sign-in-terminal + .setting-action {
+  align-self: end;
+}
+.update-overlay .devyy-modal-body {
+  gap: 8px;
+}
+.ai-usage-embedded-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ai-context-preview .devyy-modal-body {
+  padding: 0;
+}
+.ai-context-preview .devyy-modal-body pre {
+  overflow: visible;
 }
 .devyy-modal.palette {
   max-height: min(640px, 80dvh);

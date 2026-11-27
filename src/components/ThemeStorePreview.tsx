@@ -1,8 +1,8 @@
-import { NativeModal } from "./ui/ModalSurface";
+import { NativeModal, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { InstallProgress } from "./ExtensionProgress";
 import Skeleton from "./ui/Skeleton";
 import { useEffect, useRef, useState } from "react";
-import { BadgeCheck, Copyright, Download, X } from "lucide-react";
+import { BadgeCheck, Copyright, Download } from "lucide-react";
 import { matchesPreviewOrigin, previewTargetOrigin } from "../lib/previewMode";
 import { ACCOUNT_ORIGIN } from "../lib/account";
 import {
@@ -94,95 +94,98 @@ export default function ThemeStorePreview({
         if (event.target === event.currentTarget) close();
       }}
     >
-      <div className="desktop-theme-preview-layout">
-        <div className="desktop-theme-preview-editor">
-          {(!theme || !ready) && !error && (
-            <Skeleton variant="workbench" label="Loading the theme preview" />
-          )}
-          {theme && (
-            <iframe
-              ref={frame}
-              data-ready={ready || undefined}
-              title="Devyy workbench preview"
-              src={`${import.meta.env.BASE_URL}index.html?playground=1&showcase=theme`}
-            />
-          )}
-        </div>
-        <div className="desktop-theme-preview-details">
-          <button
-            className="icon-button"
-            autoFocus
-            aria-label="Close theme preview"
-            onClick={close}
-          >
-            <X size={18} />
-          </button>
-          <h2 id="desktop-theme-preview-title">{entry.name}</h2>
-          <p>{entry.description}</p>
-          <p className="theme-preview-creator">
-            <Copyright size={14} aria-label="Copyright" />{" "}
-            {theme?.copyright || entry.copyright || name}
-          </p>
-          <div className="theme-preview-creator">
-            {creator?.official || creator?.avatarId ? (
-              <img
-                alt=""
-                src={
-                  creator.official
-                    ? `${import.meta.env.BASE_URL}devyy.svg`
-                    : `${ACCOUNT_ORIGIN}/api/avatar/${encodeURIComponent(creator.avatarId!)}`
-                }
-              />
-            ) : (
-              <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+      <ModalHeader
+        id="desktop-theme-preview-title"
+        title={entry.name}
+        onClose={close}
+        closeLabel="Close theme preview"
+      />
+      <ModalBody flush>
+        <div className="desktop-theme-preview-layout">
+          <div className="desktop-theme-preview-editor">
+            {(!theme || !ready) && !error && (
+              <Skeleton variant="workbench" label="Loading the theme preview" />
             )}
-            {name}
-            {creator?.verified && (
-              <BadgeCheck size={17} role="img" aria-label="Verified creator" />
+            {theme && (
+              <iframe
+                ref={frame}
+                data-ready={ready || undefined}
+                title="Devyy workbench preview"
+                src={`${import.meta.env.BASE_URL}index.html?playground=1&showcase=theme`}
+              />
             )}
           </div>
-          {error && <p role="alert">{error}</p>}
-          {!theme && error && (
+          <div className="desktop-theme-preview-details">
+            <p>{entry.description}</p>
+            <p className="theme-preview-creator">
+              <Copyright size={14} aria-label="Copyright" />{" "}
+              {theme?.copyright || entry.copyright || name}
+            </p>
+            <div className="theme-preview-creator">
+              {creator?.official || creator?.avatarId ? (
+                <img
+                  alt=""
+                  src={
+                    creator.official
+                      ? `${import.meta.env.BASE_URL}devyy.svg`
+                      : `${ACCOUNT_ORIGIN}/api/avatar/${encodeURIComponent(creator.avatarId!)}`
+                  }
+                />
+              ) : (
+                <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+              )}
+              {name}
+              {creator?.verified && (
+                <BadgeCheck
+                  size={17}
+                  role="img"
+                  aria-label="Verified creator"
+                />
+              )}
+            </div>
+            {error && <p role="alert">{error}</p>}
+            {!theme && error && (
+              <button
+                className="setting-action"
+                onClick={() => {
+                  setError("");
+                  setRetry((value) => value + 1);
+                }}
+              >
+                Try again
+              </button>
+            )}
             <button
-              className="setting-action"
-              onClick={() => {
+              className="extension-install"
+              aria-busy={working}
+              disabled={!theme || active || busy || working}
+              onClick={async () => {
+                if (!theme) return;
+                setWorking(true);
                 setError("");
-                setRetry((value) => value + 1);
+                try {
+                  await onApply(theme);
+                  close();
+                } catch (cause) {
+                  setError(String(cause));
+                } finally {
+                  setWorking(false);
+                }
               }}
             >
-              Try again
+              {!installed && <Download size={14} />}
+              {active
+                ? "Active theme"
+                : installed
+                  ? "Apply theme"
+                  : "Install theme"}
             </button>
-          )}
-          <button
-            className="extension-install"
-            aria-busy={working}
-            disabled={!theme || active || busy || working}
-            onClick={async () => {
-              if (!theme) return;
-              setWorking(true);
-              setError("");
-              try {
-                await onApply(theme);
-                close();
-              } catch (cause) {
-                setError(String(cause));
-              } finally {
-                setWorking(false);
-              }
-            }}
-          >
-            {!installed && <Download size={14} />}
-            {active
-              ? "Active theme"
-              : installed
-                ? "Apply theme"
-                : "Install theme"}
-          </button>
-          {working && !installed && (
-            <InstallProgress name={entry.name} status="Installing…" />
-          )}
+            {working && !installed && (
+              <InstallProgress name={entry.name} status="Installing…" />
+            )}
+          </div>
         </div>
-      </div>
+      </ModalBody>
     </NativeModal>
   );
 }

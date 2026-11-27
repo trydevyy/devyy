@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { MotionModalSurface } from "./ui/ModalSurface";
+import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useIsPresent } from "motion/react";
 import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
@@ -158,187 +158,188 @@ export default function Palette({
           }
         }}
       >
-        <div className="palette-modes">
-          <button
-            className={mode === "files" ? "active" : ""}
-            aria-pressed={mode === "files"}
-            onClick={() => onModeChange("files")}
-          >
-            <Search size={13} /> Files
-          </button>
-          <button
-            className={mode === "commands" ? "active" : ""}
-            aria-pressed={mode === "commands"}
-            onClick={() => onModeChange("commands")}
-          >
-            <Command size={13} /> Commands
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Close search"
-            onClick={onClose}
-          >
-            <X size={14} />
-          </button>
-        </div>
-        <div className="palette-input">
-          {mode === "files" ? <Search size={20} /> : <Command size={20} />}
-          <input
-            ref={input}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              mode === "files" ? "Search files…" : "Search commands…"
-            }
-            aria-label="Search"
-            aria-controls="palette-results"
-            aria-activedescendant={
-              filtered[selectedIndex]
-                ? `palette-option-${selectedIndex}`
-                : undefined
-            }
-            aria-autocomplete="list"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {query ? (
+        <ModalHeader
+          title={mode === "files" ? "Go to file" : "Command palette"}
+          icon={mode === "files" ? <Search size={16} /> : <Command size={16} />}
+          onClose={onClose}
+          closeLabel="Close search"
+        />
+        <ModalBody flush>
+          <div className="palette-modes">
             <button
-              className="icon-button"
-              aria-label="Clear search"
-              onClick={() => {
-                setQuery("");
-                input.current?.focus();
-              }}
+              className={mode === "files" ? "active" : ""}
+              aria-pressed={mode === "files"}
+              onClick={() => onModeChange("files")}
             >
-              <X size={14} />
+              <Search size={13} /> Files
             </button>
-          ) : (
-            <kbd>esc</kbd>
-          )}
-        </div>
-        <div
-          className="palette-results-heading"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span>
-            {query.trim()
-              ? "Results"
-              : mode === "files"
-                ? "Project files"
-                : "Commands"}
-          </span>
-          <span>{filtered.length === 80 ? "80 shown" : filtered.length}</span>
-        </div>
-        <div
-          className="palette-list"
-          id="palette-results"
-          role="listbox"
-          aria-label={mode === "files" ? "Files" : "Commands"}
-          ref={list}
-        >
-          {filtered.map((item, i) => (
             <button
-              role="option"
-              aria-selected={i === selectedIndex}
-              id={`palette-option-${i}`}
-              key={item.id}
-              data-index={i}
-              className={i === selectedIndex ? "active" : ""}
-              tabIndex={-1}
-              onMouseMove={() => setSelected(i)}
-              onClick={() => choose(item)}
+              className={mode === "commands" ? "active" : ""}
+              aria-pressed={mode === "commands"}
+              onClick={() => onModeChange("commands")}
             >
-              {mode === "files" ? (
-                <FileIcon path={item.id} size={18} />
-              ) : item.extension?.id === "openai.chatgpt" ? (
-                <AIProviderIcon kind="codex" size={18} />
-              ) : item.extension?.id === "anthropic.claude-code" ? (
-                <AIProviderIcon kind="claude" size={18} />
-              ) : item.extension ? (
-                <ExtensionIcon
-                  id={item.extension.id}
-                  fallback={item.extension.icon}
-                  size={18}
-                />
-              ) : (
-                <Command size={18} />
-              )}
-              <span className="palette-item-content">
-                <strong>
-                  <Highlighted
-                    text={
-                      mode === "files"
-                        ? (item.detail ?? item.label)
-                        : item.label
-                    }
-                    query={query}
-                    from={
-                      mode === "files" && item.detail
-                        ? item.detail.lastIndexOf("/") + 1
-                        : 0
-                    }
+              <Command size={13} /> Commands
+            </button>
+          </div>
+          <div className="palette-input">
+            {mode === "files" ? <Search size={20} /> : <Command size={20} />}
+            <input
+              ref={input}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                mode === "files" ? "Search files…" : "Search commands…"
+              }
+              aria-label="Search"
+              aria-controls="palette-results"
+              aria-activedescendant={
+                filtered[selectedIndex]
+                  ? `palette-option-${selectedIndex}`
+                  : undefined
+              }
+              aria-autocomplete="list"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {query ? (
+              <button
+                className="icon-button"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery("");
+                  input.current?.focus();
+                }}
+              >
+                <X size={14} />
+              </button>
+            ) : (
+              <kbd>esc</kbd>
+            )}
+          </div>
+          <div
+            className="palette-results-heading"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span>
+              {query.trim()
+                ? "Results"
+                : mode === "files"
+                  ? "Project files"
+                  : "Commands"}
+            </span>
+            <span>{filtered.length === 80 ? "80 shown" : filtered.length}</span>
+          </div>
+          <div
+            className="palette-list"
+            id="palette-results"
+            role="listbox"
+            aria-label={mode === "files" ? "Files" : "Commands"}
+            ref={list}
+          >
+            {filtered.map((item, i) => (
+              <button
+                role="option"
+                aria-selected={i === selectedIndex}
+                id={`palette-option-${i}`}
+                key={item.id}
+                data-index={i}
+                className={i === selectedIndex ? "active" : ""}
+                tabIndex={-1}
+                onMouseMove={() => setSelected(i)}
+                onClick={() => choose(item)}
+              >
+                {mode === "files" ? (
+                  <FileIcon path={item.id} size={18} />
+                ) : item.extension?.id === "openai.chatgpt" ? (
+                  <AIProviderIcon kind="codex" size={18} />
+                ) : item.extension?.id === "anthropic.claude-code" ? (
+                  <AIProviderIcon kind="claude" size={18} />
+                ) : item.extension ? (
+                  <ExtensionIcon
+                    id={item.extension.id}
+                    fallback={item.extension.icon}
+                    size={18}
                   />
-                </strong>
-                {item.detail &&
-                  (mode !== "files" || item.detail.includes("/")) && (
-                    <small title={item.detail}>
-                      <Highlighted
-                        text={item.detail}
-                        to={
-                          mode === "files"
-                            ? item.detail.lastIndexOf("/")
-                            : undefined
-                        }
-                        query={query}
-                      />
-                    </small>
-                  )}
-              </span>
-              {!query && recent.includes(item.id) && (
-                <Clock3
-                  className="palette-recent-icon"
-                  size={12}
-                  aria-label="Recently opened"
+                ) : (
+                  <Command size={18} />
+                )}
+                <span className="palette-item-content">
+                  <strong>
+                    <Highlighted
+                      text={
+                        mode === "files"
+                          ? (item.detail ?? item.label)
+                          : item.label
+                      }
+                      query={query}
+                      from={
+                        mode === "files" && item.detail
+                          ? item.detail.lastIndexOf("/") + 1
+                          : 0
+                      }
+                    />
+                  </strong>
+                  {item.detail &&
+                    (mode !== "files" || item.detail.includes("/")) && (
+                      <small title={item.detail}>
+                        <Highlighted
+                          text={item.detail}
+                          to={
+                            mode === "files"
+                              ? item.detail.lastIndexOf("/")
+                              : undefined
+                          }
+                          query={query}
+                        />
+                      </small>
+                    )}
+                </span>
+                {!query && recent.includes(item.id) && (
+                  <Clock3
+                    className="palette-recent-icon"
+                    size={12}
+                    aria-label="Recently opened"
+                  />
+                )}
+                {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                <CornerDownLeft
+                  className="palette-enter"
+                  size={14}
+                  aria-hidden={i !== selectedIndex}
                 />
-              )}
-              {item.shortcut && <kbd>{item.shortcut}</kbd>}
-              <CornerDownLeft
-                className="palette-enter"
-                size={14}
-                aria-hidden={i !== selectedIndex}
-              />
-            </button>
-          ))}
-          {!filtered.length && (
-            <div className="palette-empty">
-              <Search size={25} />
-              <strong>
-                {!items.length && mode === "files"
-                  ? "No project files"
-                  : "No matches found"}
-              </strong>
-              <span>
-                {!items.length && mode === "files"
-                  ? "Open a project to search its files."
-                  : `Try another ${mode === "files" ? "file name or path" : "command name"}.`}
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="palette-footer">
-          <span>
-            <ArrowUp size={12} />
-            <ArrowDown size={12} /> Navigate
-          </span>
-          <span>
-            <CornerDownLeft size={12} />{" "}
-            {mode === "files" ? "Open file" : "Run command"}
-          </span>
-          <span className="palette-escape">
-            esc <span>Close</span>
-          </span>
-        </div>
+              </button>
+            ))}
+            {!filtered.length && (
+              <div className="palette-empty">
+                <Search size={25} />
+                <strong>
+                  {!items.length && mode === "files"
+                    ? "No project files"
+                    : "No matches found"}
+                </strong>
+                <span>
+                  {!items.length && mode === "files"
+                    ? "Open a project to search its files."
+                    : `Try another ${mode === "files" ? "file name or path" : "command name"}.`}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="palette-footer">
+            <span>
+              <ArrowUp size={12} />
+              <ArrowDown size={12} /> Navigate
+            </span>
+            <span>
+              <CornerDownLeft size={12} />{" "}
+              {mode === "files" ? "Open file" : "Run command"}
+            </span>
+            <span className="palette-escape">
+              esc <span>Close</span>
+            </span>
+          </div>
+        </ModalBody>
       </MotionModalSurface>
     </ModalBackdrop>
   );

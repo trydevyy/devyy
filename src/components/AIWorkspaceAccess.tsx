@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import Select from "./ui/Select";
 import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
@@ -22,7 +22,7 @@ import * as Popover from "@radix-ui/react-popover";
 import type { AIAgentMode } from "../lib/ai";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ShieldCheck, X } from "lucide-react";
+import { ChevronDown, ShieldCheck } from "lucide-react";
 import { invoke, native } from "../lib/native";
 const modes = { agent: "Agent", ask: "Ask", plan: "Plan", review: "Review" };
 const permissions = {
@@ -220,53 +220,50 @@ export default function AIWorkspaceAccess({
                   }
                 }}
               >
-                <header>
-                  <ShieldCheck size={20} />
-                  <h2>
-                    {pending === "full"
+                <ModalHeader
+                  title={
+                    pending === "full"
                       ? "Allow full workspace access?"
-                      : "Allow workspace reading?"}
-                  </h2>
-                  <button
-                    className="icon-button"
-                    disabled={busy}
-                    aria-label="Cancel workspace access"
-                    onClick={() => setPending(undefined)}
-                  >
-                    <X size={17} />
-                  </button>
-                </header>
-                <p>
-                  {pending === "full"
-                    ? "Devyy can read saved text files throughout this workspace, including ignored files, and propose changes for your review."
-                    : "Devyy can list, search and read saved workspace text files. Common credential paths, such as .env and .ssh, require full workspace access."}
-                </p>
-                <code>{root}</code>
-                <p>
-                  File contents requested by the agent are sent to your selected
-                  provider. Changes require diff review. Access lasts for this
-                  Devyy session and can be revoked here.
-                </p>
-                {error && <ErrorToast message={error} />}
-                <footer>
-                  <button
-                    className="setting-action"
-                    disabled={busy}
-                    onClick={() => setPending(undefined)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="primary"
-                    aria-busy={busy}
-                    disabled={busy}
-                    onClick={() => void grant(pending)}
-                  >
+                      : "Allow workspace reading?"
+                  }
+                  icon={<ShieldCheck size={17} />}
+                  busy={busy}
+                  onClose={() => setPending(undefined)}
+                  closeLabel="Cancel workspace access"
+                />
+                <ModalBody>
+                  <p>
                     {pending === "full"
-                      ? "Allow full workspace access"
-                      : "Allow workspace reading"}
-                  </button>
-                </footer>
+                      ? "Devyy can read saved text files throughout this workspace, including ignored files, and propose changes for your review."
+                      : "Devyy can list, search and read saved workspace text files. Common credential paths, such as .env and .ssh, require full workspace access."}
+                  </p>
+                  <code>{root}</code>
+                  <p>
+                    File contents requested by the agent are sent to your
+                    selected provider. Changes require diff review. Access lasts
+                    for this Devyy session and can be revoked here.
+                  </p>
+                  {error && <ErrorToast message={error} />}
+                  <footer>
+                    <button
+                      className="setting-action"
+                      disabled={busy}
+                      onClick={() => setPending(undefined)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="primary"
+                      aria-busy={busy}
+                      disabled={busy}
+                      onClick={() => void grant(pending)}
+                    >
+                      {pending === "full"
+                        ? "Allow full workspace access"
+                        : "Allow workspace reading"}
+                    </button>
+                  </footer>
+                </ModalBody>
               </ModalSurface>
             </ModalBackdrop>
           )}

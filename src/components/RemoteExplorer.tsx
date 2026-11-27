@@ -1,4 +1,9 @@
-import { NativeModal, ModalHeader, ModalActions } from "./ui/ModalSurface";
+import {
+  NativeModal,
+  ModalHeader,
+  ModalActions,
+  ModalBody,
+} from "./ui/ModalSurface";
 import Empty from "./Empty";
 import { requestId as newRequestId } from "../lib/requestId";
 import { useEffect, useState, type FormEvent } from "react";
@@ -436,155 +441,157 @@ export default function RemoteExplorer({
                 busy={!!busy}
                 onClose={() => setEditor(undefined)}
               />
-              {editor.action ? (
-                <>
-                  <p>
-                    {editor.server?.user}@{editor.server?.host}
-                  </p>
+              <ModalBody>
+                {editor.action ? (
+                  <>
+                    <p>
+                      {editor.server?.user}@{editor.server?.host}
+                    </p>
+                    <div className="devyy-modal-fields">
+                      <label>
+                        Server password
+                        <input
+                          autoFocus
+                          type="password"
+                          name="password"
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        Key passphrase
+                        <input
+                          type="password"
+                          name="passphrase"
+                          autoComplete="off"
+                        />
+                      </label>
+                    </div>
+                  </>
+                ) : (
                   <div className="devyy-modal-fields">
                     <label>
-                      Server password
+                      Host
                       <input
+                        name="host"
                         autoFocus
-                        type="password"
-                        name="password"
-                        autoComplete="off"
+                        required
+                        defaultValue={editor.server?.host}
+                        placeholder="server.example.com"
                       />
                     </label>
                     <label>
-                      Key passphrase
+                      Username
                       <input
-                        type="password"
-                        name="passphrase"
-                        autoComplete="off"
+                        name="user"
+                        required
+                        defaultValue={editor.server?.user}
+                      />
+                    </label>
+                    <label>
+                      Project folder
+                      <input
+                        name="folder"
+                        defaultValue={editor.server?.remotePath ?? "~"}
+                      />
+                    </label>
+                    <label>
+                      SSH port
+                      <input
+                        name="sshPort"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        defaultValue={editor.server?.sshPort ?? 22}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Display name
+                      <input
+                        name="label"
+                        defaultValue={editor.server?.label}
+                        placeholder="Optional"
                       />
                     </label>
                   </div>
-                </>
-              ) : (
-                <div className="devyy-modal-fields">
-                  <label>
-                    Host
-                    <input
-                      name="host"
-                      autoFocus
-                      required
-                      defaultValue={editor.server?.host}
-                      placeholder="server.example.com"
-                    />
-                  </label>
-                  <label>
-                    Username
-                    <input
-                      name="user"
-                      required
-                      defaultValue={editor.server?.user}
-                    />
-                  </label>
-                  <label>
-                    Project folder
-                    <input
-                      name="folder"
-                      defaultValue={editor.server?.remotePath ?? "~"}
-                    />
-                  </label>
-                  <label>
-                    SSH port
-                    <input
-                      name="sshPort"
-                      type="number"
-                      min={1}
-                      max={65535}
-                      defaultValue={editor.server?.sshPort ?? 22}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Display name
-                    <input
-                      name="label"
-                      defaultValue={editor.server?.label}
-                      placeholder="Optional"
-                    />
-                  </label>
-                </div>
-              )}
-              <div className="ssh-key-setting">
-                <span title={keyPath}>
-                  {keyPath
-                    ? keyPath.replace(/.*[/\\]/, "")
-                    : "Default SSH keys"}
-                </span>
-                <button
-                  type="button"
-                  className="setting-action"
-                  onClick={() =>
-                    void open({
-                      title: "Choose a private SSH key",
-                      multiple: false,
-                    }).then((path) => {
-                      if (typeof path === "string") setKeyPath(path);
-                    }, showError)
-                  }
-                >
-                  Choose key
-                </button>
-                {keyPath && (
+                )}
+                <div className="ssh-key-setting">
+                  <span title={keyPath}>
+                    {keyPath
+                      ? keyPath.replace(/.*[/\\]/, "")
+                      : "Default SSH keys"}
+                  </span>
                   <button
                     type="button"
                     className="setting-action"
-                    onClick={() => setKeyPath("")}
+                    onClick={() =>
+                      void open({
+                        title: "Choose a private SSH key",
+                        multiple: false,
+                      }).then((path) => {
+                        if (typeof path === "string") setKeyPath(path);
+                      }, showError)
+                    }
                   >
-                    Clear
+                    Choose key
                   </button>
+                  {keyPath && (
+                    <button
+                      type="button"
+                      className="setting-action"
+                      onClick={() => setKeyPath("")}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {!editor.action && (
+                  <details className="workbench-exclusions">
+                    <DisclosureSummary>Tunnel ports</DisclosureSummary>
+                    <div className="devyy-modal-fields">
+                      <label>
+                        Local port
+                        <input
+                          name="localPort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          defaultValue={editor.server?.localPort ?? 3000}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Remote port
+                        <input
+                          name="remotePort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          defaultValue={editor.server?.remotePort ?? 3000}
+                          required
+                        />
+                      </label>
+                    </div>
+                  </details>
                 )}
-              </div>
-              {!editor.action && (
-                <details className="workbench-exclusions">
-                  <DisclosureSummary>Tunnel ports</DisclosureSummary>
-                  <div className="devyy-modal-fields">
-                    <label>
-                      Local port
-                      <input
-                        name="localPort"
-                        type="number"
-                        min={1}
-                        max={65535}
-                        defaultValue={editor.server?.localPort ?? 3000}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Remote port
-                      <input
-                        name="remotePort"
-                        type="number"
-                        min={1}
-                        max={65535}
-                        defaultValue={editor.server?.remotePort ?? 3000}
-                        required
-                      />
-                    </label>
-                  </div>
-                </details>
-              )}
-              <ModalActions>
-                <button
-                  type="button"
-                  className="button"
-                  disabled={!!busy}
-                  onClick={() => setEditor(undefined)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button primary"
-                  disabled={!!busy}
-                  aria-busy={!!busy}
-                >
-                  {editor.action ? "Connect" : "Save server"}
-                </button>
-              </ModalActions>
+                <ModalActions>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={!!busy}
+                    onClick={() => setEditor(undefined)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="button primary"
+                    disabled={!!busy}
+                    aria-busy={!!busy}
+                  >
+                    {editor.action ? "Connect" : "Save server"}
+                  </button>
+                </ModalActions>
+              </ModalBody>
             </form>
             <DialogToastHost id="ssh-form" />
           </NativeModal>,
@@ -607,28 +614,30 @@ export default function RemoteExplorer({
               busy={!!busy}
               onClose={() => setTrust(undefined)}
             />
-            <code className="ssh-fingerprint">{trust.fingerprint}</code>
-            <ModalActions>
-              <button
-                className="button"
-                disabled={!!busy}
-                onClick={() => setTrust(undefined)}
-              >
-                Cancel
-              </button>
-              <button
-                className="button primary"
-                disabled={!!busy}
-                onClick={() =>
-                  void connect(trust.server, trust.action, {
-                    ...trust.auth,
-                    fingerprint: trust.fingerprint,
-                  })
-                }
-              >
-                Trust and connect
-              </button>
-            </ModalActions>
+            <ModalBody>
+              <code className="ssh-fingerprint">{trust.fingerprint}</code>
+              <ModalActions>
+                <button
+                  className="button"
+                  disabled={!!busy}
+                  onClick={() => setTrust(undefined)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button primary"
+                  disabled={!!busy}
+                  onClick={() =>
+                    void connect(trust.server, trust.action, {
+                      ...trust.auth,
+                      fingerprint: trust.fingerprint,
+                    })
+                  }
+                >
+                  Trust and connect
+                </button>
+              </ModalActions>
+            </ModalBody>
             <DialogToastHost id="ssh-trust" />
           </NativeModal>,
           document.body,

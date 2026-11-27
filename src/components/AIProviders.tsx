@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { NativeModal, ModalHeader } from "./ui/ModalSurface";
+import { NativeModal, ModalHeader, ModalBody } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { AnimatePresence, motion } from "motion/react";
@@ -113,14 +113,16 @@ export default function AIProviders() {
             closeLabel="Close provider form"
             onClose={() => setDraft(undefined)}
           />
-          <AIProviderDetail
-            provider={draft}
-            onRemoved={() => setDraft(undefined)}
-            onSaved={() => {
-              setSelected(draft.id);
-              setDraft(undefined);
-            }}
-          />
+          <ModalBody flush>
+            <AIProviderDetail
+              provider={draft}
+              onRemoved={() => setDraft(undefined)}
+              onSaved={() => {
+                setSelected(draft.id);
+                setDraft(undefined);
+              }}
+            />
+          </ModalBody>
           <DialogToastHost id="aiproviders" />
         </NativeModal>
       )}

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { NativeModal, ModalHeader } from "./ui/ModalSurface";
+import { NativeModal, ModalHeader, ModalBody } from "./ui/ModalSurface";
 import Select from "./ui/Select";
 import ErrorToast, { DialogToastHost } from "./ui/ErrorToast";
 import { useState } from "react";
@@ -122,26 +122,27 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
               onClose={closeImport}
               closeLabel="Close import"
             />
-            {review ? (
-              <div className="skill-review">
-                <strong>
-                  {review.title} ? {review.version}
-                </strong>
-                <p>{review.description}</p>
-                {review.permissions.length > 0 && (
-                  <p>Declared tools ? {review.permissions.join(", ")}</p>
-                )}
-                {review.dependencies.length > 0 && (
-                  <p>Dependencies ? {review.dependencies.join(", ")}</p>
-                )}
-                <pre>{review.content}</pre>
-              </div>
-            ) : (
-              <textarea
-                aria-label="SKILL.md contents"
-                value={importContent}
-                onChange={(e) => setImportContent(e.target.value)}
-                placeholder={`---
+            <ModalBody>
+              {review ? (
+                <div className="skill-review">
+                  <strong>
+                    {review.title} ? {review.version}
+                  </strong>
+                  <p>{review.description}</p>
+                  {review.permissions.length > 0 && (
+                    <p>Declared tools ? {review.permissions.join(", ")}</p>
+                  )}
+                  {review.dependencies.length > 0 && (
+                    <p>Dependencies ? {review.dependencies.join(", ")}</p>
+                  )}
+                  <pre>{review.content}</pre>
+                </div>
+              ) : (
+                <textarea
+                  aria-label="SKILL.md contents"
+                  value={importContent}
+                  onChange={(e) => setImportContent(e.target.value)}
+                  placeholder={`---
 name: my-custom-skill
 title: Custom Framework Helper
 description: Provides guidelines for building internal microservices
@@ -155,19 +156,21 @@ dependencies:
 
 ### Instructions
 - Follow repository patterns...`}
-                rows={8}
-                className="ai-skill-textarea"
-              />
-            )}
-            {importError && <ErrorToast message={importError} />}
-            <div className="ai-skill-import-actions">
-              <button className="primary" onClick={handleImport}>
-                <Check size={13} /> {review ? "Install skill" : "Review skill"}
-              </button>
-              <button className="secondary" onClick={closeImport}>
-                Cancel
-              </button>
-            </div>
+                  rows={8}
+                  className="ai-skill-textarea"
+                />
+              )}
+              {importError && <ErrorToast message={importError} />}
+              <div className="ai-skill-import-actions">
+                <button className="primary" onClick={handleImport}>
+                  <Check size={13} />{" "}
+                  {review ? "Install skill" : "Review skill"}
+                </button>
+                <button className="secondary" onClick={closeImport}>
+                  Cancel
+                </button>
+              </div>
+            </ModalBody>
             <DialogToastHost id="aiskillsview" />
           </NativeModal>,
           document.body,

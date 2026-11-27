@@ -70,14 +70,16 @@ export function ModalHeader({
   title,
   description,
   icon,
+  actions,
   onClose,
   closeLabel = "Close",
   busy,
 }: {
-  id: string;
+  id?: string;
   title: ReactNode;
   description?: ReactNode;
   icon?: ReactNode;
+  actions?: ReactNode;
   onClose?: () => void;
   closeLabel?: string;
   busy?: boolean;
@@ -89,6 +91,7 @@ export function ModalHeader({
         <h2 id={id}>{title}</h2>
         {description && <p>{description}</p>}
       </div>
+      {actions}
       {onClose && (
         <button
           type="button"
@@ -106,4 +109,23 @@ export function ModalHeader({
 
 export function ModalActions({ children }: { children: ReactNode }) {
   return <footer className="devyy-modal-actions">{children}</footer>;
+}
+
+export function ModalBody({
+  className,
+  flush = false,
+  ...props
+}: ComponentPropsWithRef<"div"> & { flush?: boolean }) {
+  return (
+    <div
+      {...props}
+      className={[
+        "devyy-modal-body",
+        flush && "devyy-modal-body-flush",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    />
+  );
 }

@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { NativeModal } from "./ui/ModalSurface";
+import { NativeModal, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { readClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import { useMemo, useRef, useState } from "react";
-import { Clipboard, ExternalLink, X } from "lucide-react";
+import { Clipboard, ExternalLink } from "lucide-react";
 import Terminal, { type TerminalHandle } from "./Terminal";
 import type { AIProvider } from "../lib/ai";
 
@@ -94,78 +94,74 @@ export default function ProviderSignIn({
             setOpen(false);
           }}
         >
-          <header className="provider-sign-in-header">
-            <h3>{provider.name} sign-in</h3>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Cancel sign-in"
-              onClick={() => setOpen(false)}
-            >
-              <X size={16} />
-            </button>
-          </header>
-          <div className="provider-sign-in-header">
-            <p>
-              {exited
-                ? succeeded
-                  ? "Sign-in finished. Select Done to verify the connection."
-                  : "Sign-in ended without a successful result."
-                : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
-            </p>
-            {!exited && (
-              <button
-                type="button"
-                className="setting-action provider-sign-in-paste"
-                onClick={pasteClipboard}
-                title="Paste from clipboard (Ctrl+V / right click)"
-              >
-                <Clipboard size={12} /> Paste
-              </button>
-            )}
-          </div>
-          <div
-            className="provider-sign-in-terminal"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              pasteClipboard();
-            }}
-          >
-            <Terminal
-              ref={terminalRef}
-              root="provider-sign-in"
-              extensionOptions={options}
-              profile=""
-              lineHeight={1.3}
-              cursorStyle="bar"
-              copyOnSelect={false}
-              onReady={() => {}}
-              onExit={(success) => {
-                setExited(true);
-                setSucceeded(success === true);
+          <ModalHeader
+            title={`${provider.name} sign-in`}
+            onClose={() => setOpen(false)}
+            closeLabel="Cancel sign-in"
+          />
+          <ModalBody>
+            <div className="provider-sign-in-header">
+              <p>
+                {exited
+                  ? succeeded
+                    ? "Sign-in finished. Select Done to verify the connection."
+                    : "Sign-in ended without a successful result."
+                  : "Follow the sign-in steps below and in your browser. Return here when you’re finished."}
+              </p>
+              {!exited && (
+                <button
+                  type="button"
+                  className="setting-action provider-sign-in-paste"
+                  onClick={pasteClipboard}
+                  title="Paste from clipboard (Ctrl+V / right click)"
+                >
+                  <Clipboard size={12} /> Paste
+                </button>
+              )}
+            </div>
+            <div
+              className="provider-sign-in-terminal"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                pasteClipboard();
               }}
-              onError={(e) => setError(String(e))}
-              onOpen={() => {}}
-              theme={
-                document.documentElement.dataset.theme === "paper"
-                  ? "paper"
-                  : "midnight"
-              }
-              fontSize={12}
-              scrollback={1000}
-              cursorBlink
-            />
-          </div>
-          <button
-            className="setting-action"
-            onClick={() => {
-              setOpen(false);
-              if (succeeded) onDone();
-            }}
-          >
-            {exited ? "Done" : "Close sign-in session"}
-          </button>
-          {error && <ErrorToast message={error} />}
+            >
+              <Terminal
+                ref={terminalRef}
+                root="provider-sign-in"
+                extensionOptions={options}
+                profile=""
+                lineHeight={1.3}
+                cursorStyle="bar"
+                copyOnSelect={false}
+                onReady={() => {}}
+                onExit={(success) => {
+                  setExited(true);
+                  setSucceeded(success === true);
+                }}
+                onError={(e) => setError(String(e))}
+                onOpen={() => {}}
+                theme={
+                  document.documentElement.dataset.theme === "paper"
+                    ? "paper"
+                    : "midnight"
+                }
+                fontSize={12}
+                scrollback={1000}
+                cursorBlink
+              />
+            </div>
+            <button
+              className="setting-action"
+              onClick={() => {
+                setOpen(false);
+                if (succeeded) onDone();
+              }}
+            >
+              {exited ? "Done" : "Close sign-in session"}
+            </button>
+            {error && <ErrorToast message={error} />}
+          </ModalBody>
         </NativeModal>
       )}
       {!open && error && <ErrorToast message={error} />}

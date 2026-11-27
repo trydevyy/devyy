@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface } from "./ui/ModalSurface";
+import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -26,7 +26,6 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
-  X,
 } from "lucide-react";
 import { invoke } from "../lib/native";
 import {
@@ -201,233 +200,232 @@ export default function GitGraph({
         aria-label="Commit graph"
         data-escape-scope="active"
       >
-        <header>
-          <GitCommitHorizontal size={18} />
-          <strong>Commit graph</strong>
-          <label>
-            <Search size={14} />
-            <input
-              aria-label="Search commits"
-              placeholder="Search commits, authors or branches…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <button
-            className="icon-button"
-            aria-label="Refresh commit graph"
-            disabled={busy}
-            onClick={() => void load(true)}
-          >
-            <RefreshCw size={15} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Close commit graph"
-            onClick={onClose}
-          >
-            <X size={17} />
-          </button>
-        </header>
-        {error && <ErrorToast message={error} />}
-        <div className="git-graph-body">
-          <section
-            className="git-graph-list"
-            role="listbox"
-            aria-label="Commits"
-            onKeyDown={(event) => {
-              const options = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  '[role="option"]',
-                ),
-              );
-              const index = options.indexOf(
-                document.activeElement as HTMLButtonElement,
-              );
-              if (index < 0) return;
-              const next =
-                event.key === "ArrowDown"
-                  ? Math.min(options.length - 1, index + 1)
-                  : event.key === "ArrowUp"
-                    ? Math.max(0, index - 1)
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? options.length - 1
-                        : -1;
-              if (next < 0) return;
-              event.preventDefault();
-              options[next]?.click();
-              options[next]?.focus();
-              options[next]?.scrollIntoView({ block: "nearest" });
-            }}
-          >
-            {filtered.map(({ commit, lane, edges }, index) => (
-              <button
-                key={commit.hash}
-                className={`git-graph-row ${selected === commit.hash ? "selected" : ""}`}
-                role="option"
-                aria-label={`${commit.subject} (${commit.short})`}
-                aria-selected={selected === commit.hash}
-                tabIndex={
-                  selected === commit.hash ||
-                  (index === 0 &&
-                    !filtered.some((row) => row.commit.hash === selected))
-                    ? 0
-                    : -1
-                }
-                onClick={() => {
-                  setParent(0);
-                  setSelected(commit.hash);
-                }}
-              >
-                <svg
-                  width={query ? 28 : width}
-                  height={52}
-                  aria-hidden="true"
-                  style={{ flexShrink: 0 }}
-                >
-                  {!query &&
-                    edges.map((edge, i) => (
-                      <path
-                        key={i}
-                        d={`M${12 + edge.from * 16} ${edge.from === lane ? 22 : 0} C${12 + edge.from * 16} 38 ${12 + edge.to * 16} 38 ${12 + edge.to * 16} 52`}
-                        className={`graph-lane graph-color-${edge.color % 6}`}
-                        fill="none"
-                      />
-                    ))}
-                  {!query && lane >= 0 && (
-                    <path
-                      d={`M${12 + lane * 16} 0 V22`}
-                      className={`graph-lane graph-color-${lane % 6}`}
-                    />
-                  )}
-                  <circle
-                    cx={query ? 12 : 12 + lane * 16}
-                    cy={22}
-                    r={4}
-                    className={`graph-node graph-color-${lane % 6}`}
-                  />
-                </svg>
-                <span>
-                  <strong>{commit.subject}</strong>
-                  <small>
-                    {commit.author}
-                    <time dateTime={commit.date}>
-                      {new Date(commit.date).toLocaleDateString()}
-                    </time>
-                  </small>
-                  {!!commit.refs.length && (
-                    <span className="git-graph-refs">
-                      {commit.refs.map((ref) => (
-                        <i key={ref}>{ref}</i>
-                      ))}
-                    </span>
-                  )}
-                </span>
-                <code>{commit.short}</code>
-              </button>
-            ))}
-            {!busy && !filtered.length && (
-              <p className="muted">
-                {query ? "No matching commits" : "No commits yet"}
-              </p>
-            )}
-            {more && (
-              <button
-                className="git-graph-more"
-                aria-busy={busy}
-                disabled={busy}
-                onClick={() => void load()}
-              >
-                Load older commits
-              </button>
-            )}
-            {busy && (
-              <LoaderCircle
-                className="spinning"
-                size={16}
-                aria-label="Loading commit graph"
+        <ModalHeader
+          title="Commit graph"
+          icon={<GitCommitHorizontal size={17} />}
+          onClose={onClose}
+          closeLabel="Close commit graph"
+        />
+        <ModalBody flush>
+          <header>
+            <label>
+              <Search size={14} />
+              <input
+                aria-label="Search commits"
+                placeholder="Search commits, authors or branches…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
-            )}
-          </section>
-          <section className="git-commit-detail" aria-label="Commit details">
-            {commit && (
-              <>
-                <h2>{commit.subject}</h2>
-                <p>
-                  {commit.author} <span>{commit.email}</span>
-                </p>
-                <time dateTime={commit.date}>
-                  {new Date(commit.date).toLocaleString()}
-                </time>
+            </label>
+            <button
+              className="icon-button"
+              aria-label="Refresh commit graph"
+              disabled={busy}
+              onClick={() => void load(true)}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </header>
+          {error && <ErrorToast message={error} />}
+          <div className="git-graph-body">
+            <section
+              className="git-graph-list"
+              role="listbox"
+              aria-label="Commits"
+              onKeyDown={(event) => {
+                const options = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    '[role="option"]',
+                  ),
+                );
+                const index = options.indexOf(
+                  document.activeElement as HTMLButtonElement,
+                );
+                if (index < 0) return;
+                const next =
+                  event.key === "ArrowDown"
+                    ? Math.min(options.length - 1, index + 1)
+                    : event.key === "ArrowUp"
+                      ? Math.max(0, index - 1)
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? options.length - 1
+                          : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                options[next]?.click();
+                options[next]?.focus();
+                options[next]?.scrollIntoView({ block: "nearest" });
+              }}
+            >
+              {filtered.map(({ commit, lane, edges }, index) => (
                 <button
-                  className="git-hash"
-                  onClick={() =>
-                    void writeClipboardText(commit.hash).catch(() =>
-                      setError("Could not copy commit hash"),
-                    )
+                  key={commit.hash}
+                  className={`git-graph-row ${selected === commit.hash ? "selected" : ""}`}
+                  role="option"
+                  aria-label={`${commit.subject} (${commit.short})`}
+                  aria-selected={selected === commit.hash}
+                  tabIndex={
+                    selected === commit.hash ||
+                    (index === 0 &&
+                      !filtered.some((row) => row.commit.hash === selected))
+                      ? 0
+                      : -1
                   }
+                  onClick={() => {
+                    setParent(0);
+                    setSelected(commit.hash);
+                  }}
                 >
-                  <Copy size={12} />
-                  {commit.hash}
-                </button>
-                {description && <pre>{description}</pre>}
-                <label>
-                  Compare with
-                  <Select
-                    aria-label="Commit parent"
-                    value={parent}
-                    onChange={(e) => setParent(Number(e.target.value))}
+                  <svg
+                    width={query ? 28 : width}
+                    height={52}
+                    aria-hidden="true"
+                    style={{ flexShrink: 0 }}
                   >
-                    {commit.parents.length ? (
-                      commit.parents.map((hash, i) => (
-                        <option key={hash} value={i}>
-                          Parent {i + 1}: {hash.slice(0, 10)}
-                        </option>
-                      ))
-                    ) : (
-                      <option value={0}>Empty tree (initial commit)</option>
+                    {!query &&
+                      edges.map((edge, i) => (
+                        <path
+                          key={i}
+                          d={`M${12 + edge.from * 16} ${edge.from === lane ? 22 : 0} C${12 + edge.from * 16} 38 ${12 + edge.to * 16} 38 ${12 + edge.to * 16} 52`}
+                          className={`graph-lane graph-color-${edge.color % 6}`}
+                          fill="none"
+                        />
+                      ))}
+                    {!query && lane >= 0 && (
+                      <path
+                        d={`M${12 + lane * 16} 0 V22`}
+                        className={`graph-lane graph-color-${lane % 6}`}
+                      />
                     )}
-                  </Select>
-                </label>
-                <h3>
-                  Changed files <small>{files.length}</small>
-                </h3>
-                {filesBusy ? (
-                  <LoaderCircle className="spinning" size={14} />
-                ) : (
-                  files.map((file) => (
-                    <button
-                      className="git-commit-file"
-                      key={file.path}
-                      title={
-                        file.oldPath
-                          ? `${file.oldPath} → ${file.path}`
-                          : file.path
-                      }
-                      onClick={() =>
-                        onDiff(
-                          commit.hash,
-                          file.path,
-                          parent,
-                          commit.parents[parent],
-                        )
-                      }
-                    >
-                      <FileIcon path={file.path} />
-                      <span className="git-commit-file-label">
-                        {file.path}
-                        {file.oldPath && <small>{file.oldPath}</small>}
+                    <circle
+                      cx={query ? 12 : 12 + lane * 16}
+                      cy={22}
+                      r={4}
+                      className={`graph-node graph-color-${lane % 6}`}
+                    />
+                  </svg>
+                  <span>
+                    <strong>{commit.subject}</strong>
+                    <small>
+                      {commit.author}
+                      <time dateTime={commit.date}>
+                        {new Date(commit.date).toLocaleDateString()}
+                      </time>
+                    </small>
+                    {!!commit.refs.length && (
+                      <span className="git-graph-refs">
+                        {commit.refs.map((ref) => (
+                          <i key={ref}>{ref}</i>
+                        ))}
                       </span>
-                      <i>{file.status}</i>
-                    </button>
-                  ))
-                )}
-              </>
-            )}
-          </section>
-        </div>
+                    )}
+                  </span>
+                  <code>{commit.short}</code>
+                </button>
+              ))}
+              {!busy && !filtered.length && (
+                <p className="muted">
+                  {query ? "No matching commits" : "No commits yet"}
+                </p>
+              )}
+              {more && (
+                <button
+                  className="git-graph-more"
+                  aria-busy={busy}
+                  disabled={busy}
+                  onClick={() => void load()}
+                >
+                  Load older commits
+                </button>
+              )}
+              {busy && (
+                <LoaderCircle
+                  className="spinning"
+                  size={16}
+                  aria-label="Loading commit graph"
+                />
+              )}
+            </section>
+            <section className="git-commit-detail" aria-label="Commit details">
+              {commit && (
+                <>
+                  <h2>{commit.subject}</h2>
+                  <p>
+                    {commit.author} <span>{commit.email}</span>
+                  </p>
+                  <time dateTime={commit.date}>
+                    {new Date(commit.date).toLocaleString()}
+                  </time>
+                  <button
+                    className="git-hash"
+                    onClick={() =>
+                      void writeClipboardText(commit.hash).catch(() =>
+                        setError("Could not copy commit hash"),
+                      )
+                    }
+                  >
+                    <Copy size={12} />
+                    {commit.hash}
+                  </button>
+                  {description && <pre>{description}</pre>}
+                  <label>
+                    Compare with
+                    <Select
+                      aria-label="Commit parent"
+                      value={parent}
+                      onChange={(e) => setParent(Number(e.target.value))}
+                    >
+                      {commit.parents.length ? (
+                        commit.parents.map((hash, i) => (
+                          <option key={hash} value={i}>
+                            Parent {i + 1}: {hash.slice(0, 10)}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={0}>Empty tree (initial commit)</option>
+                      )}
+                    </Select>
+                  </label>
+                  <h3>
+                    Changed files <small>{files.length}</small>
+                  </h3>
+                  {filesBusy ? (
+                    <LoaderCircle className="spinning" size={14} />
+                  ) : (
+                    files.map((file) => (
+                      <button
+                        className="git-commit-file"
+                        key={file.path}
+                        title={
+                          file.oldPath
+                            ? `${file.oldPath} → ${file.path}`
+                            : file.path
+                        }
+                        onClick={() =>
+                          onDiff(
+                            commit.hash,
+                            file.path,
+                            parent,
+                            commit.parents[parent],
+                          )
+                        }
+                      >
+                        <FileIcon path={file.path} />
+                        <span className="git-commit-file-label">
+                          {file.path}
+                          {file.oldPath && <small>{file.oldPath}</small>}
+                        </span>
+                        <i>{file.status}</i>
+                      </button>
+                    ))
+                  )}
+                </>
+              )}
+            </section>
+          </div>
+        </ModalBody>
       </ModalSurface>
     </ModalBackdrop>,
     document.body,
