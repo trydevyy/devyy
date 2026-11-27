@@ -15,6 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  detectContentLanguage,
+  loadDocumentLanguage,
   languages,
   languageId,
   languageDescription,
@@ -52,6 +54,26 @@ describe("language registry", () => {
       expect(languageId(path), path).toBe(name);
     }
     expect(languageDescription("custom.unknown")).toBeNull();
+  });
+  it("highlights recognizable content without a known filename", async () => {
+    expect(
+      detectContentLanguage("#!/usr/bin/env -S python3 -u\nprint(1)"),
+    ).toBe("Python");
+    expect(detectContentLanguage('{"project":"Devyy"}')).toBe("JSON");
+    expect(detectContentLanguage("<!DOCTYPE html><html></html>")).toBe("HTML");
+    expect(detectContentLanguage("fn main() {}")).toBe("Rust");
+    expect(
+      detectContentLanguage("Meeting notes\nBring coffee."),
+    ).toBeUndefined();
+    expect(
+      detectContentLanguage("".padEnd(4096) + "fn main() {}"),
+    ).toBeUndefined();
+    expect(await loadDocumentLanguage("launcher", "Python")).toBe(
+      await loadLanguage("launcher.py"),
+    );
+    expect(await loadDocumentLanguage("launcher", "Python", "Shell")).toBe(
+      await loadLanguage("launcher.sh"),
+    );
   });
   it("loads and parses both modern and legacy language modules on demand", async () => {
     const samples = [

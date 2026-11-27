@@ -387,7 +387,7 @@ export default function AIUsage({
         }
       >
         {embedded && (
-          <header className="ai-usage-header">
+          <div className="ai-usage-header">
             <button
               className="icon-button"
               aria-label="Back to providers"
@@ -395,9 +395,8 @@ export default function AIUsage({
             >
               <ArrowLeft size={16} />
             </button>
-            <strong>Usage</strong>
             {controls}
-          </header>
+          </div>
         )}
         <div
           key={`${selection}:${tab}`}
@@ -433,10 +432,12 @@ export default function AIUsage({
               ) as Record<string, unknown> | undefined;
             return (
               <section className="ai-usage-provider" key={provider.id}>
-                <h3>
-                  <AIProviderIcon kind={provider.kind} />
-                  {provider.name}
-                </h3>
+                {(!embedded || selection === "all") && (
+                  <h3>
+                    <AIProviderIcon kind={provider.kind} />
+                    {provider.name}
+                  </h3>
+                )}
                 {tab === "limits" ? (
                   <>
                     {keySnapshot && (

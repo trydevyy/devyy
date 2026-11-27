@@ -70,6 +70,80 @@ export function languageId(path: string): string {
         ? "shell"
         : name;
 }
+// Treat filenames and explicit language choices as authoritative. For unnamed
+// buffers, use a bounded prefix and require recognizable syntax.
+export function detectContentLanguage(content: string): string | undefined {
+  const sample = content.slice(0, 4096).trimStart();
+  if (!sample || sample.includes("\0")) return;
+  const firstLine = sample.split(/\r?\n/, 1)[0];
+  if (firstLine.startsWith("#!")) {
+    for (const [pattern, language] of [
+      [/\b(?:python(?:\d+(?:\.\d+)?)?|pypy\d*)\b/, "Python"],
+      [/\b(?:node|deno|bun)\b/, "JavaScript"],
+      [/\bruby\b/, "Ruby"],
+      [/\bperl\b/, "Perl"],
+      [/\bphp\b/, "PHP"],
+      [/\bpwsh\b/, "PowerShell"],
+      [/\b(?:sh|bash|zsh|fish|dash|ksh)\b/, "Shell"],
+    ] as const) {
+      if (pattern.test(firstLine)) return language;
+    }
+  }
+  if (/^<\?php\b/i.test(sample)) return "PHP";
+  if (/^(?:<!doctype\s+html|<(?:html|head|body)\b)/i.test(sample))
+    return "HTML";
+  if (/^<\?xml\s|^<svg\b/i.test(sample)) return "XML";
+  if (/^\{\s*"[^"\r\n]+"\s*:/.test(sample)) return "JSON";
+  if (sample.startsWith("[") && content.length <= 4096) {
+    try {
+      if (Array.isArray(JSON.parse(sample))) return "JSON";
+    } catch {}
+  }
+  if (
+    /^(?:FROM|ARG)\s+\S+/m.test(sample) &&
+    /^\s*(?:RUN|COPY|ENTRYPOINT|WORKDIR|EXPOSE)\s+\S+/m.test(sample)
+  )
+    return "Dockerfile";
+  if (/^package\s+\w+\s*$/m.test(sample) && /^func\s+(?:\w+|\()/m.test(sample))
+    return "Go";
+  if (/^\s*(?:pub\s+)?fn\s+\w+\s*\([^\r\n]*\)\s*(?:->|\{)/m.test(sample))
+    return "Rust";
+  if (
+    /^\s*(?:async\s+)?def\s+\w+\s*\([^\r\n]*\)\s*(?:->[^:\n]+)?\s*:/m.test(
+      sample,
+    )
+  )
+    return "Python";
+  if (/^\s*(?:export\s+)?(?:interface\s+\w+\s*\{|type\s+\w+\s*=)/m.test(sample))
+    return "TypeScript";
+  if (
+    /^\s*(?:export\s+)?(?:const|let|var)\s+[\w$]+\s*=|^\s*(?:export\s+)?(?:async\s+)?function\s+[\w$]+\s*\(/m.test(
+      sample,
+    )
+  )
+    return "JavaScript";
+  if (
+    /^(?:SELECT\b[^;]+\bFROM\b|CREATE\s+TABLE\b|INSERT\s+INTO\b|UPDATE\s+[\w.]+\s+SET\b)/i.test(
+      sample,
+    )
+  )
+    return "SQL";
+  if (/^\[\w[\w.-]*\]\s*\r?\n\s*[\w.-]+\s*=/m.test(sample)) return "TOML";
+  if (/^---\s*\r?\n\s*[\w.-]+:\s+\S/.test(sample)) return "YAML";
+}
+
+export function loadDocumentLanguage(
+  path: string,
+  inferred?: string,
+  explicit?: string,
+) {
+  if (explicit && explicit.toLowerCase() !== "text")
+    return loadLanguage(explicit, true).then(
+      (support) => support ?? loadLanguage(path),
+    );
+  return inferred ? loadLanguage(inferred, true) : loadLanguage(path);
+}
+
 const loading = new Map<string, Promise<LanguageSupport>>();
 export async function loadLanguage(pathOrName: string, fence = false) {
   const description = fence

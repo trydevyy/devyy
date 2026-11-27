@@ -1312,6 +1312,11 @@ test("Usage filters unconnected providers and shows ChatGPT quota windows", asyn
     "all",
   );
   const usage = page.getByRole("region", { name: "AI usage", exact: true });
+  await expect(usage).toHaveCSS("border-top-width", "0px");
+  await expect(usage.locator(".ai-usage-header")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
   for (const metric of ["limits", "cost"]) {
     await usage.getByRole("tab", { name: metric, exact: true }).click();
     await expect(

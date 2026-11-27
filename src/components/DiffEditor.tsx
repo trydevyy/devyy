@@ -38,7 +38,11 @@ import {
 } from "lucide-react";
 import { searchKeymap } from "@codemirror/search";
 import { devyySearch } from "../lib/findPanel";
-import { loadLanguage } from "../lib/languages";
+import {
+  detectContentLanguage,
+  languageDescription,
+  loadDocumentLanguage,
+} from "../lib/languages";
 import type { Settings } from "../lib/types";
 
 export interface Comparison {
@@ -104,7 +108,12 @@ export default function DiffEditor({
     }
     let disposed = false;
     let cleanup = () => {};
-    void loadLanguage(document.path ?? "text.txt")
+    const path = document.path ?? "";
+    const inferred = !languageDescription(path)
+      ? (detectContentLanguage(document.modified) ??
+        detectContentLanguage(document.original))
+      : undefined;
+    void loadDocumentLanguage(path, inferred)
       .catch(() => null)
       .then((support) => {
         if (disposed || !host.current) return;

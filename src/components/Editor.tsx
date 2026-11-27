@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { transparentGutters } from "../lib/editorGutters";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import {
   EditorState,
   Compartment,
@@ -50,7 +50,12 @@ import {
 } from "@codemirror/autocomplete";
 import { aiCompletion } from "../lib/aiCompletion";
 import { extensionSnippets } from "../lib/extensions";
-import { loadLanguage, languageId } from "../lib/languages";
+import {
+  detectContentLanguage,
+  languageDescription,
+  loadDocumentLanguage,
+  languageId,
+} from "../lib/languages";
 import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
@@ -496,6 +501,13 @@ export interface EditorProps {
   onBreakpoint: (path: string, line: number) => void;
 }
 function Editor(props: EditorProps) {
+  const inferredLanguage = useMemo(
+    () =>
+      !props.languageId && !languageDescription(props.path)
+        ? detectContentLanguage(props.value)
+        : undefined,
+    [props.languageId, props.path, props.value],
+  );
   const host = useRef<HTMLDivElement>(null),
     editor = useRef<EditorView | null>(null),
     current = useRef(props);
@@ -864,9 +876,11 @@ function Editor(props: EditorProps) {
     if (!view) return;
     let cancelled = false;
     void (async () => {
-      const named =
-        props.languageId && (await loadLanguage(props.languageId, true));
-      const support = named || (await loadLanguage(props.path));
+      const support = await loadDocumentLanguage(
+        props.path,
+        inferredLanguage,
+        props.languageId,
+      );
       if (!cancelled && editor.current === view)
         view.dispatch({
           effects: langConfig.current.reconfigure(support ?? []),
@@ -875,7 +889,7 @@ function Editor(props: EditorProps) {
     return () => {
       cancelled = true;
     };
-  }, [props.path, props.languageId]);
+  }, [props.path, props.languageId, inferredLanguage]);
   useEffect(() => {
     const view = editor.current;
     if (view && view.state.sliceDoc() !== props.value) {

@@ -52,6 +52,18 @@ test("edit, save, switch tabs, and restore playground changes", async ({
   ).toContainText("saved through devyy");
   expect(errors).toEqual([]);
 });
+test("the light file tree keeps Material language icons", async ({ page }) => {
+  await page.goto("/?playground=1");
+  const icon = page
+    .getByRole("button", { name: "lib.rs", exact: true })
+    .locator(".compact-file-icon");
+  await expect(icon).toHaveCSS("background-image", /file-icons\/rust\.svg/);
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "paper";
+  });
+  await expect(icon).toHaveCSS("background-image", /file-icons\/rust\.svg/);
+});
+
 test("file palette, workspace search, split, preferences and keyboard flow", async ({
   page,
 }, testInfo) => {

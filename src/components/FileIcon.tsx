@@ -47,7 +47,21 @@ export function fileIconId(
   }
   return theme.languageIds?.[language(path)] ?? theme.file ?? "file";
 }
-const lightTheme = { ...manifest, ...manifest.light } as IconTheme;
+const lightTheme: IconTheme = {
+  ...manifest,
+  ...manifest.light,
+  fileNames: { ...manifest.fileNames, ...manifest.light.fileNames },
+  fileExtensions: {
+    ...manifest.fileExtensions,
+    ...manifest.light.fileExtensions,
+  },
+  languageIds: { ...manifest.languageIds, ...manifest.light.languageIds },
+  folderNames: { ...manifest.folderNames, ...manifest.light.folderNames },
+  folderNamesExpanded: {
+    ...manifest.folderNamesExpanded,
+    ...manifest.light.folderNamesExpanded,
+  },
+};
 
 export default memo(function FileIcon({
   path,
