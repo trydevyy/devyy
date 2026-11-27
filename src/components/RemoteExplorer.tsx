@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import {
   NativeModal,
   ModalHeader,
@@ -418,162 +419,165 @@ export default function RemoteExplorer({
           })}
         </ul>
       )}
-      {editor &&
-        createPortal(
-          <NativeModal
-            className="devyy-modal-form"
-            aria-labelledby="ssh-dialog-title"
-            onCancel={(event) => {
-              event.preventDefault();
-              if (!busy) setEditor(undefined);
-            }}
-          >
-            <form onSubmit={submit}>
-              <ModalHeader
-                id="ssh-dialog-title"
-                title={
-                  editor.action
-                    ? "Sign in to SSH"
-                    : editor.server
-                      ? "Edit SSH server"
-                      : "Add SSH server"
-                }
-                busy={!!busy}
-                onClose={() => setEditor(undefined)}
-              />
-              <ModalBody>
-                {editor.action ? (
-                  <>
-                    <p>
-                      {editor.server?.user}@{editor.server?.host}
-                    </p>
+      {createPortal(
+        <AnimatePresence>
+          {editor && (
+            <NativeModal
+              className="devyy-modal-form compact-dialog compact-dialog-form"
+              aria-labelledby="ssh-dialog-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (!busy) setEditor(undefined);
+              }}
+            >
+              <form onSubmit={submit}>
+                <ModalHeader
+                  id="ssh-dialog-title"
+                  title={
+                    editor.action
+                      ? "Sign in to SSH"
+                      : editor.server
+                        ? "Edit SSH server"
+                        : "Add SSH server"
+                  }
+                  icon={<Server size={17} />}
+                  busy={!!busy}
+                  onClose={() => setEditor(undefined)}
+                />
+                <ModalBody className="compact-dialog-content">
+                  {editor.action ? (
+                    <>
+                      <p>
+                        {editor.server?.user}@{editor.server?.host}
+                      </p>
+                      <div className="devyy-modal-fields">
+                        <label>
+                          Server password
+                          <input
+                            autoFocus
+                            type="password"
+                            name="password"
+                            autoComplete="off"
+                          />
+                        </label>
+                        <label>
+                          Key passphrase
+                          <input
+                            type="password"
+                            name="passphrase"
+                            autoComplete="off"
+                          />
+                        </label>
+                      </div>
+                    </>
+                  ) : (
                     <div className="devyy-modal-fields">
                       <label>
-                        Server password
+                        Host
                         <input
+                          name="host"
                           autoFocus
-                          type="password"
-                          name="password"
-                          autoComplete="off"
+                          required
+                          defaultValue={editor.server?.host}
+                          placeholder="server.example.com"
                         />
                       </label>
                       <label>
-                        Key passphrase
+                        Username
                         <input
-                          type="password"
-                          name="passphrase"
-                          autoComplete="off"
+                          name="user"
+                          required
+                          defaultValue={editor.server?.user}
+                        />
+                      </label>
+                      <label>
+                        Project folder
+                        <input
+                          name="folder"
+                          defaultValue={editor.server?.remotePath ?? "~"}
+                        />
+                      </label>
+                      <label>
+                        SSH port
+                        <input
+                          name="sshPort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          defaultValue={editor.server?.sshPort ?? 22}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Display name
+                        <input
+                          name="label"
+                          defaultValue={editor.server?.label}
+                          placeholder="Optional"
                         />
                       </label>
                     </div>
-                  </>
-                ) : (
-                  <div className="devyy-modal-fields">
-                    <label>
-                      Host
-                      <input
-                        name="host"
-                        autoFocus
-                        required
-                        defaultValue={editor.server?.host}
-                        placeholder="server.example.com"
-                      />
-                    </label>
-                    <label>
-                      Username
-                      <input
-                        name="user"
-                        required
-                        defaultValue={editor.server?.user}
-                      />
-                    </label>
-                    <label>
-                      Project folder
-                      <input
-                        name="folder"
-                        defaultValue={editor.server?.remotePath ?? "~"}
-                      />
-                    </label>
-                    <label>
-                      SSH port
-                      <input
-                        name="sshPort"
-                        type="number"
-                        min={1}
-                        max={65535}
-                        defaultValue={editor.server?.sshPort ?? 22}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Display name
-                      <input
-                        name="label"
-                        defaultValue={editor.server?.label}
-                        placeholder="Optional"
-                      />
-                    </label>
-                  </div>
-                )}
-                <div className="ssh-key-setting">
-                  <span title={keyPath}>
-                    {keyPath
-                      ? keyPath.replace(/.*[/\\]/, "")
-                      : "Default SSH keys"}
-                  </span>
-                  <button
-                    type="button"
-                    className="setting-action"
-                    onClick={() =>
-                      void open({
-                        title: "Choose a private SSH key",
-                        multiple: false,
-                      }).then((path) => {
-                        if (typeof path === "string") setKeyPath(path);
-                      }, showError)
-                    }
-                  >
-                    Choose key
-                  </button>
-                  {keyPath && (
+                  )}
+                  <div className="ssh-key-setting">
+                    <span title={keyPath}>
+                      {keyPath
+                        ? keyPath.replace(/.*[/\\]/, "")
+                        : "Default SSH keys"}
+                    </span>
                     <button
                       type="button"
                       className="setting-action"
-                      onClick={() => setKeyPath("")}
+                      onClick={() =>
+                        void open({
+                          title: "Choose a private SSH key",
+                          multiple: false,
+                        }).then((path) => {
+                          if (typeof path === "string") setKeyPath(path);
+                        }, showError)
+                      }
                     >
-                      Clear
+                      Choose key
                     </button>
+                    {keyPath && (
+                      <button
+                        type="button"
+                        className="setting-action"
+                        onClick={() => setKeyPath("")}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {!editor.action && (
+                    <details className="workbench-exclusions">
+                      <DisclosureSummary>Tunnel ports</DisclosureSummary>
+                      <div className="devyy-modal-fields">
+                        <label>
+                          Local port
+                          <input
+                            name="localPort"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            defaultValue={editor.server?.localPort ?? 3000}
+                            required
+                          />
+                        </label>
+                        <label>
+                          Remote port
+                          <input
+                            name="remotePort"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            defaultValue={editor.server?.remotePort ?? 3000}
+                            required
+                          />
+                        </label>
+                      </div>
+                    </details>
                   )}
-                </div>
-                {!editor.action && (
-                  <details className="workbench-exclusions">
-                    <DisclosureSummary>Tunnel ports</DisclosureSummary>
-                    <div className="devyy-modal-fields">
-                      <label>
-                        Local port
-                        <input
-                          name="localPort"
-                          type="number"
-                          min={1}
-                          max={65535}
-                          defaultValue={editor.server?.localPort ?? 3000}
-                          required
-                        />
-                      </label>
-                      <label>
-                        Remote port
-                        <input
-                          name="remotePort"
-                          type="number"
-                          min={1}
-                          max={65535}
-                          defaultValue={editor.server?.remotePort ?? 3000}
-                          required
-                        />
-                      </label>
-                    </div>
-                  </details>
-                )}
+                </ModalBody>
                 <ModalActions>
                   <button
                     type="button"
@@ -591,31 +595,34 @@ export default function RemoteExplorer({
                     {editor.action ? "Connect" : "Save server"}
                   </button>
                 </ModalActions>
+              </form>
+              <DialogToastHost id="ssh-form" />
+            </NativeModal>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
+      {createPortal(
+        <AnimatePresence>
+          {trust && (
+            <NativeModal
+              className="devyy-modal-form compact-dialog compact-dialog-form"
+              aria-labelledby="ssh-trust-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (!busy) setTrust(undefined);
+              }}
+            >
+              <ModalHeader
+                id="ssh-trust-title"
+                title="Verify the SSH server"
+                description={`Compare this fingerprint with the one from ${trust.server.host} before connecting.`}
+                busy={!!busy}
+                onClose={() => setTrust(undefined)}
+              />
+              <ModalBody className="compact-dialog-content">
+                <code className="ssh-fingerprint">{trust.fingerprint}</code>
               </ModalBody>
-            </form>
-            <DialogToastHost id="ssh-form" />
-          </NativeModal>,
-          document.body,
-        )}
-      {trust &&
-        createPortal(
-          <NativeModal
-            className="devyy-modal-form"
-            aria-labelledby="ssh-trust-title"
-            onCancel={(event) => {
-              event.preventDefault();
-              if (!busy) setTrust(undefined);
-            }}
-          >
-            <ModalHeader
-              id="ssh-trust-title"
-              title="Verify the SSH server"
-              description={`Compare this fingerprint with the one from ${trust.server.host} before connecting.`}
-              busy={!!busy}
-              onClose={() => setTrust(undefined)}
-            />
-            <ModalBody>
-              <code className="ssh-fingerprint">{trust.fingerprint}</code>
               <ModalActions>
                 <button
                   className="button"
@@ -637,11 +644,12 @@ export default function RemoteExplorer({
                   Trust and connect
                 </button>
               </ModalActions>
-            </ModalBody>
-            <DialogToastHost id="ssh-trust" />
-          </NativeModal>,
-          document.body,
-        )}
+              <DialogToastHost id="ssh-trust" />
+            </NativeModal>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </section>
   );
 }

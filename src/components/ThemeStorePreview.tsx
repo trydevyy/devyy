@@ -27,7 +27,6 @@ export default function ThemeStorePreview({
   onClose: () => void;
   onApply: (theme: StoreTheme) => Promise<void>;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [theme, setTheme] = useState(() =>
     "manifest" in entry ? entry : themeDetailsCache.peek(entry.id),
@@ -77,31 +76,22 @@ export default function ThemeStorePreview({
     }
   }, [theme, ready]);
 
-  function close() {
-    dialog.current?.close();
-    onClose();
-  }
-
   const creator = theme?.creator ?? entry.creator;
   const name = creator?.name || entry.author;
   return (
     <NativeModal
-      ref={dialog}
       className="desktop-theme-preview"
       data-escape-scope="active"
       aria-labelledby="desktop-theme-preview-title"
       onCancel={(event) => {
         event.preventDefault();
-        close();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) close();
+        onClose();
       }}
     >
       <ModalHeader
         id="desktop-theme-preview-title"
         title={entry.name}
-        onClose={close}
+        onClose={onClose}
         closeLabel="Close theme preview"
       />
       <ModalBody flush>
@@ -169,7 +159,7 @@ export default function ThemeStorePreview({
                 setError("");
                 try {
                   await onApply(theme);
-                  close();
+                  onClose();
                 } catch (cause) {
                   setError(String(cause));
                 } finally {

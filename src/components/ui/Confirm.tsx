@@ -13,7 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalActions } from "./ModalSurface";
+import { createPortal } from "react-dom";
+import { AnimatePresence } from "motion/react";
+import { useDialogMotion } from "../../lib/motion";
+import ModalBackdrop from "./ModalBackdrop";
+import { MotionModalSurface, ModalActions } from "./ModalSurface";
 import * as Alert from "@radix-ui/react-alert-dialog";
 import {
   createContext,
@@ -43,6 +47,7 @@ const Context = createContext<RequestConfirmation>(() =>
 );
 export const useConfirm = () => useContext(Context);
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const animation = useDialogMotion();
   const [remember, setRemember] = useState(false);
   const [queue, setQueue] = useState<Request[]>([]);
   const requests = useRef<Request[]>([]);
@@ -83,61 +88,82 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           if (!open && requests.current.length) finish(false);
         }}
       >
-        <Alert.Portal
-          container={
-            current?.container?.isConnected ? current.container : undefined
-          }
-        >
-          <Alert.Overlay className="devyy-dialog-overlay" />
-          <Alert.Content asChild>
-            <ModalSurface
-              className="devyy-confirm compact-dialog"
-              data-escape-scope="active"
-            >
-              <header className="devyy-modal-heading">
-                <span
-                  className={`devyy-dialog-symbol ${current?.danger ? "danger" : ""}`}
-                >
-                  <AlertTriangle size={21} />
-                </span>
-                <Alert.Title>{current?.title ?? "Confirm action"}</Alert.Title>
-              </header>
-              <div className="compact-dialog-content">
-                <Alert.Description>{current?.description}</Alert.Description>
-                {current?.rememberLabel && (
-                  <label className="confirm-remember">
-                    <input
-                      type="checkbox"
-                      checked={remember}
-                      onChange={(event) => setRemember(event.target.checked)}
-                    />
-                    {current.rememberLabel}
-                  </label>
-                )}
-              </div>
-              <ModalActions>
-                <Alert.Cancel
-                  className="devyy-button"
+        {createPortal(
+          <AnimatePresence>
+            {queue.length > 0 && (
+              <Alert.Overlay forceMount asChild key="overlay">
+                <ModalBackdrop
+                  className="devyy-dialog-overlay"
                   onClick={(event) => {
-                    event.preventDefault();
-                    finish(false);
+                    if (
+                      event.target === event.currentTarget &&
+                      requests.current.length
+                    )
+                      finish(false);
                   }}
+                />
+              </Alert.Overlay>
+            )}
+            {queue.length > 0 && (
+              <Alert.Content asChild forceMount key="confirmation">
+                <MotionModalSurface
+                  {...animation}
+                  className="devyy-confirm compact-dialog"
+                  data-escape-scope="active"
                 >
-                  Cancel
-                </Alert.Cancel>
-                <Alert.Action
-                  className={`devyy-button ${current?.danger ? "danger" : "primary"}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    finish(true);
-                  }}
-                >
-                  {current?.confirmLabel ?? "Continue"}
-                </Alert.Action>
-              </ModalActions>
-            </ModalSurface>
-          </Alert.Content>
-        </Alert.Portal>
+                  <header className="devyy-modal-heading">
+                    <span
+                      className={`devyy-dialog-symbol ${current?.danger ? "danger" : ""}`}
+                    >
+                      <AlertTriangle size={21} />
+                    </span>
+                    <Alert.Title>
+                      {current?.title ?? "Confirm action"}
+                    </Alert.Title>
+                  </header>
+                  <div className="compact-dialog-content">
+                    <Alert.Description>
+                      {current?.description}
+                    </Alert.Description>
+                    {current?.rememberLabel && (
+                      <label className="confirm-remember">
+                        <input
+                          type="checkbox"
+                          checked={remember}
+                          onChange={(event) =>
+                            setRemember(event.target.checked)
+                          }
+                        />
+                        {current.rememberLabel}
+                      </label>
+                    )}
+                  </div>
+                  <ModalActions>
+                    <Alert.Cancel
+                      className="devyy-button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        finish(false);
+                      }}
+                    >
+                      Cancel
+                    </Alert.Cancel>
+                    <Alert.Action
+                      className={`devyy-button ${current?.danger ? "danger" : "primary"}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        finish(true);
+                      }}
+                    >
+                      {current?.confirmLabel ?? "Continue"}
+                    </Alert.Action>
+                  </ModalActions>
+                </MotionModalSurface>
+              </Alert.Content>
+            )}
+          </AnimatePresence>,
+          current?.container?.isConnected ? current.container : document.body,
+        )}
       </Alert.Root>
     </Context.Provider>
   );

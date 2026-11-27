@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { AnimatePresence } from "motion/react";
 import Skeleton from "./ui/Skeleton";
 import {
   NativeModal,
@@ -445,86 +446,89 @@ export default function PortsPanel({
           ))}
         </ul>
       )}
-      {showAdd &&
-        createPortal(
-          <NativeModal
-            className="devyy-modal-form"
-            aria-labelledby="port-dialog-title"
-            onCancel={(event) => {
-              event.preventDefault();
-              if (!busy) setShowAdd(false);
-            }}
-          >
-            <form onSubmit={handleAddPort}>
-              <ModalHeader
-                id="port-dialog-title"
-                title="Forward a port"
-                description="Enter the port your local service is listening on."
-                icon={<Radio size={18} />}
-                busy={!!busy}
-                onClose={() => setShowAdd(false)}
-              />
-              <ModalBody>
-                <div className="devyy-modal-fields">
-                  <label>
-                    Local port
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      max={65535}
-                      autoFocus
-                      placeholder="3000"
-                      value={newPort}
-                      onChange={(event) =>
-                        setNewPort(
-                          event.target.value ? Number(event.target.value) : "",
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Label
-                    <input
-                      placeholder="Optional"
-                      value={newLabel}
-                      onChange={(event) => setNewLabel(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Protocol
-                    <Select
-                      aria-label="Protocol"
-                      value={newProtocol}
-                      onChange={(event) =>
-                        setNewProtocol(event.target.value as "http" | "https")
-                      }
-                    >
-                      <option value="http">HTTP</option>
-                      <option value="https">HTTPS</option>
-                    </Select>
-                  </label>
-                  <label>
-                    Access
-                    <Select
-                      aria-label="Access"
-                      value={newVisibility}
-                      onChange={(event) =>
-                        setNewVisibility(
-                          event.target.value as "private" | "public",
-                        )
-                      }
-                    >
-                      <option value="private">Private</option>
-                      <option value="public">Public</option>
-                    </Select>
-                  </label>
-                </div>
-                <p>
-                  {newVisibility === "private"
-                    ? "Only your Devyy account can open this address."
-                    : "Anyone with the address can open this service."}
-                </p>
+      {createPortal(
+        <AnimatePresence>
+          {showAdd && (
+            <NativeModal
+              className="devyy-modal-form compact-dialog compact-dialog-form"
+              aria-labelledby="port-dialog-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (!busy) setShowAdd(false);
+              }}
+            >
+              <form onSubmit={handleAddPort}>
+                <ModalHeader
+                  id="port-dialog-title"
+                  title="Forward a port"
+                  icon={<Radio size={18} />}
+                  busy={!!busy}
+                  onClose={() => setShowAdd(false)}
+                />
+                <ModalBody className="compact-dialog-content">
+                  <div className="devyy-modal-fields">
+                    <label>
+                      Local port
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        max={65535}
+                        autoFocus
+                        placeholder="3000"
+                        value={newPort}
+                        onChange={(event) =>
+                          setNewPort(
+                            event.target.value
+                              ? Number(event.target.value)
+                              : "",
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Label
+                      <input
+                        placeholder="Optional"
+                        value={newLabel}
+                        onChange={(event) => setNewLabel(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Protocol
+                      <Select
+                        aria-label="Protocol"
+                        value={newProtocol}
+                        onChange={(event) =>
+                          setNewProtocol(event.target.value as "http" | "https")
+                        }
+                      >
+                        <option value="http">HTTP</option>
+                        <option value="https">HTTPS</option>
+                      </Select>
+                    </label>
+                    <label>
+                      Access
+                      <Select
+                        aria-label="Access"
+                        value={newVisibility}
+                        onChange={(event) =>
+                          setNewVisibility(
+                            event.target.value as "private" | "public",
+                          )
+                        }
+                      >
+                        <option value="private">Private</option>
+                        <option value="public">Public</option>
+                      </Select>
+                    </label>
+                  </div>
+                  <p>
+                    {newVisibility === "private"
+                      ? "Only your Devyy account can open this address."
+                      : "Anyone with the address can open this service."}
+                  </p>
+                </ModalBody>
                 <ModalActions>
                   <button
                     type="button"
@@ -543,12 +547,13 @@ export default function PortsPanel({
                     Forward port
                   </button>
                 </ModalActions>
-              </ModalBody>
-            </form>
-            <DialogToastHost id="port-form" />
-          </NativeModal>,
-          document.body,
-        )}
+              </form>
+              <DialogToastHost id="port-form" />
+            </NativeModal>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </section>
   );
 }

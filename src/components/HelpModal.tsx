@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { MotionModalSection, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { Asterisk } from "lucide-react";
+import { useDialogMotion } from "../lib/motion";
 import ModalBackdrop from "./ui/ModalBackdrop";
 
 export interface HelpModalProps {
@@ -30,9 +31,11 @@ export default function HelpModal({
   commandInfo,
   displayBinding,
 }: HelpModalProps) {
+  const animation = useDialogMotion();
   return (
     <ModalBackdrop className="modal-backdrop" onMouseDown={onClose}>
-      <ModalSurface
+      <MotionModalSection
+        {...animation}
         as="section"
         className="help-modal"
         role="dialog"
@@ -59,7 +62,7 @@ export default function HelpModal({
               ))}
           </div>
         </ModalBody>
-      </ModalSurface>
+      </MotionModalSection>
     </ModalBackdrop>
   );
 }

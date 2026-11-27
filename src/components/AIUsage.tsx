@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { useDialogMotion } from "../lib/motion";
+import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
@@ -119,63 +120,105 @@ function UsageActivity({
   });
   const peak = Math.max(0, ...days.map(({ first, second }) => first + second));
   const active = days[selected];
+  const totals = entries.reduce(
+    (total, entry) => ({
+      first:
+        total.first +
+        (isCost ? (entry?.costUSD ?? 0) : (entry?.inputTokens ?? 0)),
+      second:
+        total.second +
+        (isCost ? (entry?.estimatedCostUSD ?? 0) : (entry?.outputTokens ?? 0)),
+      firstKnown:
+        total.firstKnown ||
+        (isCost ? entry?.costUSD !== undefined : !!entry?.tokens),
+      secondKnown:
+        total.secondKnown ||
+        (isCost ? entry?.estimatedCostUSD !== undefined : !!entry?.tokens),
+    }),
+    { first: 0, second: 0, firstKnown: false, secondKnown: false },
+  );
   return (
     <section
       className="ai-activity"
       aria-label={isCost ? "Daily cost activity" : "Daily token activity"}
     >
-      <div className="ai-activity-top">
-        <div>
-          <h3>{isCost ? "Daily cost" : "Token activity"}</h3>
-          <small>Last 14 days · UTC · Devyy activity</small>
+      <div className="ai-usage-overview">
+        <small>All-time · This device</small>
+        {!isCost && totals.firstKnown && (
+          <strong>
+            {format(totals.first + totals.second)} <small>tokens</small>
+          </strong>
+        )}
+        <dl>
+          <div>
+            <dt>{legend[0]}</dt>
+            <dd>{totals.firstKnown ? format(totals.first) : "—"}</dd>
+          </div>
+          <div>
+            <dt>{legend[1]}</dt>
+            <dd>{totals.secondKnown ? format(totals.second) : "—"}</dd>
+          </div>
+        </dl>
+      </div>
+      <div className="ai-activity-plot">
+        <div className="ai-activity-top">
+          <div>
+            <h3>{isCost ? "Daily cost" : "Token activity"}</h3>
+            <small>Last 14 days · UTC · Devyy activity</small>
+          </div>
+          {peak > 0 && (
+            <div aria-live="polite" className="ai-activity-readout">
+              <strong>{active.label}</strong>
+              <small>
+                {active.recorded
+                  ? `${legend[0]} ${format(active.first)} · ${legend[1]} ${format(active.second)}`
+                  : "No recorded activity"}
+              </small>
+            </div>
+          )}
         </div>
-        <div aria-live="polite" className="ai-activity-readout">
-          <strong>{active.label}</strong>
-          <small>
-            {active.recorded
-              ? `${legend[0]} ${format(active.first)} · ${legend[1]} ${format(active.second)}`
-              : "No recorded activity"}
-          </small>
-        </div>
+        {peak > 0 ? (
+          <>
+            <div className="ai-activity-columns">
+              {days.map((day, index) => (
+                <button
+                  type="button"
+                  key={day.key}
+                  aria-pressed={selected === index}
+                  aria-label={`${day.label}, ${day.recorded ? `${legend[0]} ${format(day.first)}, ${legend[1]} ${format(day.second)}` : "no recorded activity"}`}
+                  onClick={() => setSelected(index)}
+                >
+                  {day.recorded && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        height: `${((day.first + day.second) / peak) * 100}%`,
+                      }}
+                    >
+                      <i style={{ flexGrow: day.second }} />
+                      <i style={{ flexGrow: day.first }} />
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="ai-activity-axis">
+              <span>{days[0].label}</span>
+              <span>{days[13].label}</span>
+            </div>
+            <div className="ai-activity-legend">
+              {legend.map((label) => (
+                <span key={label}>{label}</span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="ai-activity-empty">
+            No daily activity recorded yet. Totals include earlier usage on this
+            device.
+          </p>
+        )}
       </div>
-      <div className="ai-activity-columns">
-        {days.map((day, index) => (
-          <button
-            type="button"
-            key={day.key}
-            aria-pressed={selected === index}
-            aria-label={`${day.label}, ${day.recorded ? `${legend[0]} ${format(day.first)}, ${legend[1]} ${format(day.second)}` : "no recorded activity"}`}
-            onClick={() => setSelected(index)}
-          >
-            {peak > 0 && day.recorded && (
-              <span
-                aria-hidden="true"
-                style={{
-                  height: `${((day.first + day.second) / peak) * 100}%`,
-                }}
-              >
-                <i style={{ flexGrow: day.second }} />
-                <i style={{ flexGrow: day.first }} />
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-      <div className="ai-activity-axis">
-        <span>{days[0].label}</span>
-        <span>{days[13].label}</span>
-      </div>
-      <div className="ai-activity-legend">
-        {legend.map((label) => (
-          <span key={label}>{label}</span>
-        ))}
-      </div>
-      {!peak && (
-        <small className="ai-usage-scope">
-          Daily activity appears as Devyy records new requests. Earlier totals
-          are shown below.
-        </small>
-      )}
     </section>
   );
 }
@@ -417,7 +460,8 @@ export default function AIUsage({
     setNow(Date.now());
     setBusy(false);
   }
-  const Surface = embedded ? "div" : ModalSurface;
+  const animation = useDialogMotion();
+  const Surface = embedded ? "div" : MotionModalSurface;
   const Body = embedded ? "div" : ModalBody;
   const controls = (
     <>
@@ -460,6 +504,7 @@ export default function AIUsage({
   );
   const content = (
     <Surface
+      {...(!embedded ? animation : {})}
       className={`ai-usage-dialog ${embedded ? "ai-usage-embedded" : ""}`}
       ref={dialog}
       role={embedded ? "region" : "dialog"}
@@ -511,6 +556,9 @@ export default function AIUsage({
               now={now}
             />
           )}
+          {tab !== "limits" && providers.length > 0 && (
+            <h3 className="ai-usage-breakdown-title">By provider</h3>
+          )}
           {providers.map((provider) => {
             const usage = state.usage[provider.id],
               account = state.accounts[provider.id],
@@ -532,8 +580,11 @@ export default function AIUsage({
                     : undefined
               ) as Record<string, unknown> | undefined;
             return (
-              <section className="ai-usage-provider" key={provider.id}>
-                {(!embedded || selection === "all") && (
+              <section
+                className={`ai-usage-provider${tab === "limits" ? "" : " ai-usage-breakdown-row"}`}
+                key={provider.id}
+              >
+                {(tab !== "limits" || !embedded || selection === "all") && (
                   <h3>
                     <AIProviderIcon kind={provider.kind} />
                     {provider.name}
@@ -817,7 +868,6 @@ export default function AIUsage({
                     {isChatGPTAccount(provider.kind) &&
                     usage?.estimatedCostUSD === undefined ? (
                       <div className="ai-cost-card">
-                        <span>ChatGPT plan billing</span>
                         <strong>
                           {identity
                             ? account?.planEnabled === false
@@ -826,8 +876,7 @@ export default function AIUsage({
                             : "Not connected"}
                         </strong>
                         <small>
-                          Devyy can record request tokens. ChatGPT Settings
-                          shows your allowance, credit use, and billing.
+                          Subscription billing is managed by ChatGPT.
                         </small>
                       </div>
                     ) : (
@@ -863,14 +912,7 @@ export default function AIUsage({
                               : "Total from cost events recorded by Devyy. Subscription billing and requests without cost data are excluded."}
                           </small>
                         ) : (
-                          <>
-                            <span>Cost</span>
-                            <strong>Unavailable</strong>
-                            <small>
-                              No cost data has been recorded for this
-                              connection.
-                            </small>
-                          </>
+                          <small>No request costs recorded.</small>
                         )}
                       </div>
                     )}
@@ -882,9 +924,6 @@ export default function AIUsage({
               </section>
             );
           })}
-          {tab !== "limits" && (
-            <p className="ai-usage-scope">Recorded by Devyy on this device</p>
-          )}
         </div>
       </Body>
     </Surface>

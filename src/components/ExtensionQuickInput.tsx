@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { useDialogMotion } from "../lib/motion";
+import { MotionModalForm, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import Skeleton from "./ui/Skeleton";
 import { AnimatePresence } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -128,6 +129,7 @@ export default function ExtensionQuickInput() {
 }
 
 function QuickInput({ input }: { input: QuickInputState }) {
+  const dialogMotion = useDialogMotion();
   const [dark, setDark] = useState(
     () => document.documentElement.dataset.theme !== "paper",
   );
@@ -305,7 +307,8 @@ function QuickInput({ input }: { input: QuickInputState }) {
           if (!input.ignoreFocusOut) send("hide");
         }}
       >
-        <ModalSurface
+        <MotionModalForm
+          {...dialogMotion}
           as="form"
           ref={root}
           className="input-modal extension-prompt extension-live-input"
@@ -566,7 +569,7 @@ function QuickInput({ input }: { input: QuickInputState }) {
               </button>
             </div>
           </ModalBody>
-        </ModalSurface>
+        </MotionModalForm>
       </ModalBackdrop>
     </DarkIcons.Provider>
   );

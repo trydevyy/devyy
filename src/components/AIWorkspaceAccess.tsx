@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { useDialogMotion } from "../lib/motion";
+import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import Select from "./ui/Select";
 import ErrorToast from "./ui/ErrorToast";
 import { AnimatePresence } from "motion/react";
@@ -49,6 +50,7 @@ export default function AIWorkspaceAccess({
   running: boolean;
   onAgentModeChange: (mode: AIAgentMode) => void;
 }) {
+  const dialogMotion = useDialogMotion();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState("attached"),
@@ -188,7 +190,8 @@ export default function AIWorkspaceAccess({
                   setPending(undefined);
               }}
             >
-              <ModalSurface
+              <MotionModalSurface
+                {...dialogMotion}
                 ref={dialog}
                 className="ai-access-dialog"
                 role="dialog"
@@ -264,7 +267,7 @@ export default function AIWorkspaceAccess({
                     </button>
                   </footer>
                 </ModalBody>
-              </ModalSurface>
+              </MotionModalSurface>
             </ModalBackdrop>
           )}
         </AnimatePresence>,

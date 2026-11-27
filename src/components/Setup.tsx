@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { useDialogMotion } from "../lib/motion";
+import { MotionModalSection, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useState } from "react";
 import {
@@ -54,13 +55,20 @@ export default function Setup({
   onChange: (patch: Partial<Settings>) => void;
   onFinish: () => void;
 }) {
+  const dialogMotion = useDialogMotion();
   const [step, setStep] = useState(0);
   const current = steps[step];
   const profile = useAccountProfile();
   const [suggestions, setSuggestions] = useState<string[]>([]);
   return (
-    <ModalBackdrop className="setup-backdrop">
-      <ModalSurface
+    <ModalBackdrop
+      className="setup-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onFinish();
+      }}
+    >
+      <MotionModalSection
+        {...dialogMotion}
         as="section"
         className={`setup-dialog ${current === "AI providers" ? "setup-providers" : ""}`}
         role="dialog"
@@ -352,7 +360,7 @@ export default function Setup({
             </footer>
           </div>
         </ModalBody>
-      </ModalSurface>
+      </MotionModalSection>
     </ModalBackdrop>
   );
 }

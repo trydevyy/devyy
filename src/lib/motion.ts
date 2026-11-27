@@ -52,3 +52,14 @@ export function useSurfaceMotion() {
       };
   return { transition, instant };
 }
+
+export function useDialogMotion() {
+  const { transition, instant } = useSurfaceMotion();
+  return {
+    onUpdate: modalFrameUpdate,
+    transition,
+    initial: { scale: instant ? 1 : 0.98 },
+    animate: { scale: 1, y: 0 },
+    exit: { scale: instant ? 1 : 0.98, y: instant ? 0 : 6 },
+  };
+}

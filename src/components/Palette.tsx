@@ -16,7 +16,7 @@
 import { MotionModalSurface, ModalBody } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useIsPresent } from "motion/react";
-import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
+import { useDialogMotion } from "../lib/motion";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
@@ -51,7 +51,7 @@ export default function Palette({
   onClose: () => void;
   onModeChange: (mode: "files" | "commands") => void;
 }) {
-  const { transition, instant } = useSurfaceMotion();
+  const animation = useDialogMotion();
   const [query, setQuery] = useState(""),
     [selected, setSelected] = useState(0);
   const present = useIsPresent();
@@ -114,10 +114,7 @@ export default function Palette({
       onMouseDown={onClose}
     >
       <MotionModalSurface
-        onUpdate={modalFrameUpdate}
-        transition={transition}
-        initial={{ y: instant ? 0 : -8 }}
-        animate={{ y: 0 }}
+        {...animation}
         className="palette"
         role="dialog"
         aria-label={mode === "files" ? "Go to file" : "Command palette"}

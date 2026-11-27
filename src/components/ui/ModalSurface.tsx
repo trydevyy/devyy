@@ -21,8 +21,9 @@ import {
   type ComponentPropsWithRef,
   type ReactNode,
 } from "react";
-import { motion } from "motion/react";
+import { motion, useIsPresent, type HTMLMotionProps } from "motion/react";
 import { X } from "lucide-react";
+import { useDialogMotion } from "../../lib/motion";
 
 type SurfaceTag = "div" | "section" | "form" | "dialog";
 type SurfaceProps<T extends SurfaceTag> = ComponentPropsWithRef<T> & {
@@ -49,11 +50,37 @@ function animatedSurface<T extends SurfaceTag>(props: SurfaceProps<T>) {
 export const MotionModalSurface = motion.create(animatedSurface<"div">);
 export const MotionModalSection = motion.create(animatedSurface<"section">);
 
+export const MotionModalForm = motion.create(animatedSurface<"form">);
+const MotionNativeSurface = motion.create(animatedSurface<"dialog">);
+
 export function NativeModal({
   ref,
+  onPointerDown,
+  onClick,
+  onClickCapture,
+  onCancel,
   ...props
-}: ComponentPropsWithRef<"dialog">) {
+}: HTMLMotionProps<"dialog"> & Pick<ComponentPropsWithRef<"dialog">, "ref">) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const outsidePress = useRef(false);
+  const present = useIsPresent();
+  const animation = useDialogMotion();
+  function outside(event: {
+    target: EventTarget;
+    currentTarget: HTMLDialogElement;
+    clientX: number;
+    clientY: number;
+  }) {
+    const { left, right, top, bottom } =
+      event.currentTarget.getBoundingClientRect();
+    return (
+      event.target === event.currentTarget &&
+      (event.clientX < left ||
+        event.clientX > right ||
+        event.clientY < top ||
+        event.clientY > bottom)
+    );
+  }
   useImperativeHandle(ref, () => dialog.current!, []);
   useLayoutEffect(() => {
     const element = dialog.current;
@@ -62,11 +89,40 @@ export function NativeModal({
     return () => element.close();
   }, []);
   return (
-    <ModalSurface
+    <MotionNativeSurface
       as="dialog"
-      data-escape-scope="active"
       {...props}
+      {...animation}
+      data-modal-motion={animation.initial.scale !== 1 || undefined}
+      data-modal-exiting={!present || undefined}
+      data-escape-scope="active"
       ref={dialog}
+      onCancel={(event) => {
+        if (present) onCancel?.(event);
+        event.preventDefault();
+      }}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        outsidePress.current =
+          !event.defaultPrevented && event.button === 0 && outside(event);
+      }}
+      onClickCapture={(event) => {
+        if (!present) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        onClickCapture?.(event);
+      }}
+      onClick={(event) => {
+        onClick?.(event);
+        const shouldClose = outsidePress.current && outside(event);
+        outsidePress.current = false;
+        if (shouldClose && !event.defaultPrevented)
+          event.currentTarget.dispatchEvent(
+            new Event("cancel", { cancelable: true }),
+          );
+      }}
     />
   );
 }

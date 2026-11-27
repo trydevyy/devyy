@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { useDialogMotion } from "../lib/motion";
 import { useConfirm } from "./ui/Confirm";
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { MotionModalForm, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { AnimatePresence, useIsPresent } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -400,6 +401,7 @@ function ExtensionPrompt({
   prompt: Prompt;
   onFinish: (value: unknown) => void;
 }) {
+  const dialogMotion = useDialogMotion();
   const present = useIsPresent();
   const options = prompt.params.options ?? {};
   const [value, setValue] = useState(options.value ?? "");
@@ -454,7 +456,8 @@ function ExtensionPrompt({
       className="modal-backdrop"
       onMouseDown={() => onFinish(null)}
     >
-      <ModalSurface
+      <MotionModalForm
+        {...dialogMotion}
         as="form"
         ref={root}
         className="input-modal extension-prompt"
@@ -594,7 +597,7 @@ function ExtensionPrompt({
                 )}
           </div>
         </ModalBody>
-      </ModalSurface>
+      </MotionModalForm>
     </ModalBackdrop>
   );
 }

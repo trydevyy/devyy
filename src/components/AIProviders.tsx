@@ -100,36 +100,38 @@ export default function AIProviders() {
   }
   return (
     <div className="ai-provider-settings">
-      {draft && (
-        <NativeModal
-          className="devyy-modal-form provider-add-dialog"
-          aria-labelledby="provider-dialog-title"
-          onCancel={(event) => {
-            event.preventDefault();
-            setDraft(undefined);
-          }}
-        >
-          <ModalHeader
-            id="provider-dialog-title"
-            title="Add custom provider"
-            description="Connect an API endpoint or a local command."
-            icon={<AIProviderIcon kind={draft.kind} size={18} />}
-            closeLabel="Close provider form"
-            onClose={() => setDraft(undefined)}
-          />
-          <ModalBody flush>
-            <AIProviderDetail
-              provider={draft}
-              onRemoved={() => setDraft(undefined)}
-              onSaved={() => {
-                setSelected(draft.id);
-                setDraft(undefined);
-              }}
+      <AnimatePresence>
+        {draft && (
+          <NativeModal
+            className="devyy-modal-form provider-add-dialog"
+            aria-labelledby="provider-dialog-title"
+            onCancel={(event) => {
+              event.preventDefault();
+              setDraft(undefined);
+            }}
+          >
+            <ModalHeader
+              id="provider-dialog-title"
+              title="Add custom provider"
+              description="Connect an API endpoint or a local command."
+              icon={<AIProviderIcon kind={draft.kind} size={18} />}
+              closeLabel="Close provider form"
+              onClose={() => setDraft(undefined)}
             />
-          </ModalBody>
-          <DialogToastHost id="aiproviders" />
-        </NativeModal>
-      )}
+            <ModalBody flush>
+              <AIProviderDetail
+                provider={draft}
+                onRemoved={() => setDraft(undefined)}
+                onSaved={() => {
+                  setSelected(draft.id);
+                  setDraft(undefined);
+                }}
+              />
+            </ModalBody>
+            <DialogToastHost id="aiproviders" />
+          </NativeModal>
+        )}
+      </AnimatePresence>
       <div className="ai-provider-pages">
         <motion.div
           className="ai-provider-page"

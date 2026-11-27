@@ -6834,9 +6834,11 @@ export default function App() {
           setSettingsOpen(true);
         }}
       />
-      {update && (
-        <UpdateOverlay {...update} onClose={() => setUpdate(undefined)} />
-      )}
+      <AnimatePresence>
+        {update && (
+          <UpdateOverlay {...update} onClose={() => setUpdate(undefined)} />
+        )}
+      </AnimatePresence>
       <Toaster
         theme={settings.theme === "paper" ? "light" : "dark"}
         position="bottom-right"

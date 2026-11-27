@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalActions, ModalHeader, ModalSurface } from "./ui/ModalSurface";
+import { ModalActions, ModalHeader, MotionModalForm } from "./ui/ModalSurface";
 import ErrorToast from "./ui/ErrorToast";
 import { useState } from "react";
 import { Braces } from "lucide-react";
+import { useDialogMotion } from "../lib/motion";
 import ModalBackdrop from "./ui/ModalBackdrop";
 
 export interface Dialog {
@@ -38,10 +39,17 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const animation = useDialogMotion();
   return (
-    <ModalBackdrop className="modal-backdrop" onMouseDown={onClose}>
-      <ModalSurface
+    <ModalBackdrop
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (!busy && event.target === event.currentTarget) onClose();
+      }}
+    >
+      <MotionModalForm
         as="form"
+        {...animation}
         noValidate
         className="input-modal compact-dialog"
         role="dialog"
@@ -50,6 +58,7 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
+          if (busy || !value.trim()) return;
           setBusy(true);
           void dialog
             .submit(value.trim())
@@ -92,7 +101,7 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
             {dialog.label}
           </button>
         </ModalActions>
-      </ModalSurface>
+      </MotionModalForm>
     </ModalBackdrop>
   );
 }

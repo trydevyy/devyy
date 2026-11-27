@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { useDialogMotion } from "../lib/motion";
 import Skeleton from "./ui/Skeleton";
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -60,6 +61,7 @@ export default function GitGraph({
     [query, setQuery] = useState("");
   const dialog = useRef<HTMLDivElement>(null),
     ticket = useRef(0);
+  const dialogMotion = useDialogMotion();
   const close = useRef(onClose);
   close.current = onClose;
   async function load(reset = false) {
@@ -187,7 +189,8 @@ export default function GitGraph({
         if (e.currentTarget === e.target) onClose();
       }}
     >
-      <ModalSurface
+      <MotionModalSurface
+        {...dialogMotion}
         className="git-graph"
         ref={dialog}
         role="dialog"
@@ -420,7 +423,7 @@ export default function GitGraph({
             </section>
           </div>
         </ModalBody>
-      </ModalSurface>
+      </MotionModalSurface>
     </ModalBackdrop>,
     document.body,
   );

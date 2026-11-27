@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import { installedThemesCache, themeCatalogCache } from "../lib/catalogCache";
 import { useCachedRead } from "../lib/useCachedRead";
 import { useEffect, useState } from "react";
@@ -245,7 +246,10 @@ export default function ThemeStore({
               <button
                 className="theme-store-thumbnail"
                 aria-label={`Preview ${entry.name}`}
-                onClick={() => setPreview(local ?? entry)}
+                onClick={(event) => {
+                  event.currentTarget.focus({ preventScroll: true });
+                  setPreview(local ?? entry);
+                }}
               >
                 <ThemeSwatch colors={entry.colors} />
               </button>
@@ -332,17 +336,21 @@ export default function ThemeStore({
           </button>
         </div>
       )}
-      {preview && (
-        <ThemeStorePreview
-          key={preview.id}
-          entry={preview}
-          active={selected === preview.id && !(preview.bundled && followSystem)}
-          installed={!!localTheme(preview.id)}
-          busy={busy || !!installing}
-          onClose={() => setPreview(undefined)}
-          onApply={apply}
-        />
-      )}
+      <AnimatePresence>
+        {preview && (
+          <ThemeStorePreview
+            key={preview.id}
+            entry={preview}
+            active={
+              selected === preview.id && !(preview.bundled && followSystem)
+            }
+            installed={!!localTheme(preview.id)}
+            busy={busy || !!installing}
+            onClose={() => setPreview(undefined)}
+            onApply={apply}
+          />
+        )}
+      </AnimatePresence>
     </section>
   );
 }

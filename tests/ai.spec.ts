@@ -1372,6 +1372,13 @@ test("Usage filters unconnected providers and shows ChatGPT quota windows", asyn
   await expect(
     usage.getByRole("region", { name: "Daily cost activity" }),
   ).toContainText("API equivalents $0.025");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Usage provider" }),
+    "chatgpt",
+  );
+  const emptyCost = usage.getByRole("region", { name: "Daily cost activity" });
+  await expect(emptyCost).toContainText("No daily activity recorded yet.");
+  await expect(emptyCost.getByRole("button")).toHaveCount(0);
 });
 
 test("header toggles the AI workspace and provider Usage navigates within Settings", async ({

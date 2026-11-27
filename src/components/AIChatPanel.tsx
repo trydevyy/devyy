@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { useDialogMotion } from "../lib/motion";
+import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
@@ -108,6 +109,7 @@ export default function AIChatPanel({
   ) => void;
   onApproveAll?: (proposals?: AIProposal[]) => void;
 }) {
+  const dialogMotion = useDialogMotion();
   const ai = useAI();
   const openMenu = useContextMenu();
   const [providerId, setProviderId] = useState(() => {
@@ -291,8 +293,18 @@ export default function AIChatPanel({
         setPreview(undefined);
       }
     };
+    const outside = (event: PointerEvent) => {
+      if (
+        event.button === 0 &&
+        event.target instanceof Node &&
+        !previewRef.current?.contains(event.target)
+      )
+        setPreview(undefined);
+    };
+    document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", escape, true);
     return () => {
+      document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", escape, true);
       previous?.isConnected && previous.focus();
     };
@@ -1338,43 +1350,46 @@ export default function AIChatPanel({
           />
         )}
       </AnimatePresence>
-      {preview && (
-        <ModalSurface
-          ref={previewRef}
-          className="ai-context-preview"
-          data-escape-scope="active"
-          role="dialog"
-          aria-label="Attachment preview"
-        >
-          <ModalHeader
-            title={preview.title}
-            icon={
-              <AttachmentIcon
-                kind={preview.kind}
-                path={preview.path ?? preview.id}
-              />
-            }
-            onClose={() => setPreview(undefined)}
-            closeLabel="Close attachment preview"
-            actions={
-              <button
-                className="icon-button"
-                aria-label="Copy attachment"
-                onClick={() =>
-                  void writeClipboardText(preview.content).catch(() =>
-                    setError("Could not copy attachment."),
-                  )
-                }
-              >
-                <Copy size={13} />
-              </button>
-            }
-          />
-          <ModalBody>
-            <pre>{preview.content}</pre>
-          </ModalBody>
-        </ModalSurface>
-      )}
+      <AnimatePresence>
+        {preview && (
+          <MotionModalSurface
+            {...dialogMotion}
+            ref={previewRef}
+            className="ai-context-preview"
+            data-escape-scope="active"
+            role="dialog"
+            aria-label="Attachment preview"
+          >
+            <ModalHeader
+              title={preview.title}
+              icon={
+                <AttachmentIcon
+                  kind={preview.kind}
+                  path={preview.path ?? preview.id}
+                />
+              }
+              onClose={() => setPreview(undefined)}
+              closeLabel="Close attachment preview"
+              actions={
+                <button
+                  className="icon-button"
+                  aria-label="Copy attachment"
+                  onClick={() =>
+                    void writeClipboardText(preview.content).catch(() =>
+                      setError("Could not copy attachment."),
+                    )
+                  }
+                >
+                  <Copy size={13} />
+                </button>
+              }
+            />
+            <ModalBody>
+              <pre>{preview.content}</pre>
+            </ModalBody>
+          </MotionModalSurface>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -24,7 +24,11 @@ import {
   useIsPresent,
   type HTMLMotionProps,
 } from "motion/react";
-import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
+import {
+  modalFrameUpdate,
+  useDialogMotion,
+  useSurfaceMotion,
+} from "../lib/motion";
 import {
   useEffect,
   useRef,
@@ -136,6 +140,7 @@ export default function Preferences({
   const present = useIsPresent();
   const installed = useExtensions();
   const { transition, instant } = useSurfaceMotion();
+  const dialogMotion = useDialogMotion();
   const pageTransition = {
     type: "tween",
     duration: instant ? 0 : 0.18,
@@ -866,11 +871,7 @@ export default function Preferences({
     >
       <MotionModalSection
         as="section"
-        onUpdate={modalFrameUpdate}
-        transition={transition}
-        initial={{ scale: instant ? 1 : 0.98 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: instant ? 1 : 0.98, y: instant ? 0 : 6 }}
+        {...dialogMotion}
         className="settings-modal"
         role="dialog"
         aria-modal="true"

@@ -24,7 +24,6 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await expect(
     server.locator(".devyy-modal-body").getByLabel("Host", { exact: true }),
   ).toBeVisible();
-  await expect(server).toHaveCSS("animation-name", "dialog-enter");
   const modalRadius = await server.evaluate(
     (dialog) => getComputedStyle(dialog).borderRadius,
   );
@@ -74,9 +73,14 @@ test("desktop panels use compact controls and report operations in toasts", asyn
     port.locator(".devyy-modal-body").getByLabel("Local port"),
   ).toBeVisible();
   await expect(port.locator(".devyy-modal-body")).toHaveCSS(
-    "border-radius",
-    "9px",
+    "border-top-width",
+    "0px",
   );
+  await page.mouse.click(10, 10);
+  await expect(port).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Forward a port", exact: true })
+    .click();
   await expect(port).toHaveCSS("border-radius", modalRadius);
   await port.getByLabel("Local port").fill("3000");
   const box = await port.boundingBox();
@@ -157,10 +161,15 @@ test("modal entry honors reduced motion and deletion details stay compact", asyn
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   const ssh = page.getByRole("dialog", { name: "Add SSH server" });
   await expect(ssh).toHaveCSS("animation-name", "none");
-  await page.keyboard.press("Escape");
+  await page.mouse.click(10, 10);
   await expect(ssh).toHaveCount(0);
 
   await page.getByRole("button", { name: "Explorer", exact: true }).click();
+  await page.getByRole("button", { name: "New file", exact: true }).click();
+  const createFile = page.getByRole("dialog", { name: "New file" });
+  await expect(createFile).toBeVisible();
+  await page.mouse.click(10, 10);
+  await expect(createFile).toHaveCount(0);
   const file = page.getByRole("button", { name: "main.rs", exact: true });
   await file.click({ button: "right" });
   await page
@@ -174,6 +183,7 @@ test("modal entry honors reduced motion and deletion details stay compact", asyn
     "This permanently deletes the file.",
   );
   await expect(confirmation.getByRole("checkbox")).toBeVisible();
-  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await page.mouse.click(10, 10);
+  await expect(confirmation).toHaveCount(0);
   await expect(file).toBeVisible();
 });
