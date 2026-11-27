@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useDialogMotion } from "../lib/motion";
-import { MotionModalSection, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { MotionModalSection, ModalBody } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useState } from "react";
 import {
@@ -25,6 +25,7 @@ import {
   Moon,
   Monitor,
   Sun,
+  X,
 } from "lucide-react";
 import AIProviders from "./AIProviders";
 import { activateStoreTheme, defaultStoreThemes } from "../lib/store";
@@ -75,10 +76,25 @@ export default function Setup({
         aria-modal="true"
         aria-label="Set up devyy"
       >
-        <ModalHeader
-          title="Set up Devyy"
-          icon={<Asterisk size={18} />}
-          actions={
+        <header className="devyy-modal-heading setup-header">
+          <div className="setup-identity">
+            <Asterisk size={18} aria-hidden="true" />
+            <span>Set up Devyy</span>
+          </div>
+          <h2 className="setup-page-title">
+            {
+              [
+                "Sign in to Devyy",
+                "Find your focus.",
+                "Pick up where you left off.",
+                "Add the tools you use.",
+                "Connect your AI providers.",
+                "Make room for your code.",
+                "Connect your repositories.",
+              ][step]
+            }
+          </h2>
+          <div className="setup-header-actions">
             <div
               className="setup-progress"
               role="progressbar"
@@ -91,10 +107,16 @@ export default function Setup({
                 <i key={item} className={i <= step ? "complete" : ""} />
               ))}
             </div>
-          }
-          onClose={onFinish}
-          closeLabel="Skip setup"
-        />
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Skip setup"
+              onClick={onFinish}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </header>
         <div className="setup-body">
           <nav className="setup-steps" aria-label="Setup steps">
             {steps.map((item, i) => (
@@ -111,19 +133,6 @@ export default function Setup({
 
           <ModalBody flush className="setup-main">
             <div className="setup-scroll" key={step}>
-              <h2>
-                {
-                  [
-                    "Sign in to Devyy",
-                    "Find your focus.",
-                    "Pick up where you left off.",
-                    "Add the tools you use.",
-                    "Connect your AI providers.",
-                    "Make room for your code.",
-                    "Connect your repositories.",
-                  ][step]
-                }
-              </h2>
               <p className="setup-description">
                 {
                   [

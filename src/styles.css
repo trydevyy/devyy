@@ -6022,7 +6022,7 @@ button.split-tab-indicator:hover {
   gap: 4px;
 }
 .setup-progress i {
-  width: clamp(7px, 1.8vw, 18px);
+  width: clamp(7px, 1.4vw, 18px);
   height: 2px;
   background: var(--border-strong);
   border-radius: 2px;
@@ -6038,13 +6038,6 @@ button.split-tab-indicator:hover {
   touch-action: pan-y;
   overscroll-behavior: contain;
   animation: fade-in var(--enter-duration) var(--ease);
-}
-.setup-scroll h2 {
-  font-size: calc(26px * var(--ui-text-scale, 1));
-  letter-spacing: -0.9px;
-  font-weight: 500;
-  margin: 0 0 10px;
-  line-height: 1.3;
 }
 .setup-description {
   font-size: calc(12px * var(--ui-text-scale, 1));
@@ -6221,9 +6214,6 @@ button.split-tab-indicator:hover {
   .setup-main > footer {
     padding-left: 26px;
     padding-right: 26px;
-  }
-  .setup-scroll h2 {
-    font-size: calc(23px * var(--ui-text-scale, 1));
   }
 }
 @media (max-height: 700px) {
@@ -10318,9 +10308,6 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-.setup-providers .setup-scroll > h2 {
-  flex-shrink: 0;
 }
 .setup-providers .ai-provider-settings {
   min-height: 0;
@@ -15800,13 +15787,47 @@ dialog.devyy-modal > form {
   .devyy-modal-body {
   overflow: auto;
 }
-.devyy-modal.setup-dialog > .devyy-modal-heading {
-  padding-inline: 8px 4px;
+.devyy-modal.setup-dialog > .setup-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-areas: "identity title actions";
+  padding-inline: 8px;
 }
-.setup-dialog .devyy-modal-icon {
+.setup-identity,
+.setup-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.setup-identity {
+  grid-area: identity;
+  font-size: calc(14px * var(--ui-text-scale, 1));
+  font-weight: 600;
+}
+.setup-identity svg {
+  flex: none;
   color: var(--accent);
 }
+.setup-header .setup-page-title {
+  grid-area: title;
+  color: var(--muted);
+  font-size: calc(13px * var(--ui-text-scale, 1));
+  font-weight: 500;
+  text-align: center;
+}
+.setup-header-actions {
+  grid-area: actions;
+  justify-self: end;
+}
+.setup-header-actions > button {
+  flex: none;
+}
 @media (max-width: 650px) {
+  .devyy-modal.setup-dialog > .setup-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "identity actions" "title title";
+    row-gap: 4px;
+  }
   .setup-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);

@@ -34,8 +34,9 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await expect(setup).toBeVisible();
   const progress = setup.getByRole("progressbar", { name: "Setup progress" });
   await expect(progress).toHaveAttribute("aria-valuenow", "1");
+  const header = setup.locator(":scope > header");
   await expect(
-    setup.locator(":scope > header").getByRole("progressbar"),
+    header.locator('[role="progressbar"] + button[aria-label="Skip setup"]'),
   ).toBeVisible();
   const steps = setup.getByRole("navigation", { name: "Setup steps" });
   await expect(steps).toHaveCSS("flex-direction", "column");
@@ -44,9 +45,17 @@ test("first-run setup applies appearance and editor choices, completes once, and
     "Devyy account",
   );
   await expect(setup.locator(".setup-step-number").first()).toHaveText("1");
-  await expect(
-    setup.getByRole("heading", { name: "Sign in to Devyy" }),
-  ).toBeVisible();
+  const title = header.getByRole("heading", { name: "Sign in to Devyy" });
+  await expect(title).toBeVisible();
+  const modalBounds = (await setup.boundingBox())!;
+  const titleBounds = (await title.boundingBox())!;
+  expect(
+    Math.abs(
+      titleBounds.x +
+        titleBounds.width / 2 -
+        (modalBounds.x + modalBounds.width / 2),
+    ),
+  ).toBeLessThan(2);
   await setup.getByRole("button", { name: "Continue as guest" }).click();
   await expect(progress).toHaveAttribute("aria-valuenow", "2");
   await setup.getByRole("button", { name: "Blue accent", exact: true }).click();
@@ -65,6 +74,9 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await expect(setup).toContainText("Available in the desktop app");
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
   await setup.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    header.getByRole("heading", { name: "Connect your AI providers." }),
+  ).toBeVisible();
   await expect(
     setup.getByRole("navigation", { name: "AI providers", exact: true }),
   ).toBeVisible();
