@@ -133,19 +133,6 @@ export default function Setup({
 
           <ModalBody flush className="setup-main">
             <div className="setup-scroll" key={step}>
-              <p className="setup-description">
-                {
-                  [
-                    "Continue as a guest to set up a local workspace.",
-                    "The workspace updates as you go.",
-                    "Import compatible preferences from an editor on this machine.",
-                    "Browse Open VSX for languages, syntax, snippets, and themes.",
-                    "Sign in or connect an API endpoint. You can change these later.",
-                    "Set the type and spacing that feel right to you.",
-                    "Install Git, sign in to GitHub, and choose your commit identity.",
-                  ][step]
-                }
-              </p>
               {current === "Devyy account" && (
                 <AccountSignIn profile={profile} />
               )}

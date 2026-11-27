@@ -6039,12 +6039,6 @@ button.split-tab-indicator:hover {
   overscroll-behavior: contain;
   animation: fade-in var(--enter-duration) var(--ease);
 }
-.setup-description {
-  font-size: calc(12px * var(--ui-text-scale, 1));
-  color: var(--muted);
-  line-height: 1.7;
-  margin: 0 0 30px;
-}
 .setup-main > footer {
   display: flex;
   justify-content: space-between;
