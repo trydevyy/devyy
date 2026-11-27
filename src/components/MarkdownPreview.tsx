@@ -29,11 +29,10 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { PluggableList } from "unified";
-import { classHighlighter, highlightTree } from "@lezer/highlight";
+import HighlightedCode from "./HighlightedCode";
 import { Copy, ImageOff } from "lucide-react";
 import { toast } from "sonner";
 import { invoke, native } from "../lib/native";
-import { loadLanguage } from "../lib/languages";
 import { headingId, markdownPath } from "../lib/markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -98,37 +97,6 @@ function textOf(children: ReactNode): string {
     .join("");
 }
 function CodeBlock({ code, language }: { code: string; language: string }) {
-  const [tokens, setTokens] = useState<ReactNode>(code);
-  useEffect(() => {
-    let current = true;
-    setTokens(code);
-    if (language && code.length < 100000)
-      void loadLanguage(language, true)
-        .then((support) => {
-          if (!support || !current) return;
-          const parts: ReactNode[] = [];
-          let position = 0;
-          highlightTree(
-            support.language.parser.parse(code),
-            classHighlighter,
-            (from, to, classes) => {
-              if (from > position) parts.push(code.slice(position, from));
-              parts.push(
-                <span key={from} className={classes}>
-                  {code.slice(from, to)}
-                </span>,
-              );
-              position = to;
-            },
-          );
-          parts.push(code.slice(position));
-          setTokens(parts);
-        })
-        .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [code, language]);
   return (
     <div className="markdown-code-block">
       <div>
@@ -146,7 +114,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         </button>
       </div>
       <pre>
-        <code>{tokens}</code>
+        <HighlightedCode code={code} language={language} />
       </pre>
     </div>
   );

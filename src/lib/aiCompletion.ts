@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { highlightCodeElement } from "./codeHighlight";
 import { requestId as newRequestId } from "./requestId";
 import { useSyncExternalStore } from "react";
 import type {
@@ -236,7 +237,7 @@ export async function aiCompletion(
           info: () => {
             const dom = document.createElement("pre");
             dom.className = "cm-ai-completion-preview";
-            dom.textContent = text;
+            highlightCodeElement(dom, text, { path });
             return dom;
           },
         },

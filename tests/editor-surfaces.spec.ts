@@ -757,6 +757,9 @@ test("documentation cards and diagnostic highlights share the editor surface sty
   const card = page.locator(".hover-doc");
   await expect(card).toBeVisible();
   await expect(card.locator(".hover-signature-code")).toHaveText("fn main()");
+  await expect(card.locator(".hover-signature-code .tok-keyword")).toHaveText(
+    "fn",
+  );
   await expect(card.locator("strong")).toHaveText("entry point");
   await expect(card.locator(".hover-signature")).toHaveCSS(
     "border-radius",

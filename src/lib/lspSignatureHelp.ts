@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { documentationBlocks, highlightCodeElement } from "./codeHighlight";
 import { StateEffect, StateField } from "@codemirror/state";
 import { EditorView, showTooltip, type Tooltip } from "@codemirror/view";
 import { languageRequest } from "./native";
@@ -112,6 +113,7 @@ export function parseSignatureHelp(
 export function createSignatureHelpDOM(
   help: SignatureHelp,
   onClose?: () => void,
+  path?: string,
 ): HTMLElement {
   const container = document.createElement("div");
   container.className = "cm-signature-help";
@@ -133,7 +135,7 @@ export function createSignatureHelpDOM(
     const after = document.createTextNode(parsed.afterParam);
     header.append(before, highlight, after);
   } else {
-    header.textContent = parsed.label;
+    highlightCodeElement(header, parsed.label, { path });
   }
   row.appendChild(header);
 
@@ -160,7 +162,18 @@ export function createSignatureHelpDOM(
   if (parsed.documentation) {
     const docEl = document.createElement("div");
     docEl.className = "cm-signature-doc";
-    docEl.textContent = parsed.documentation;
+    for (const block of documentationBlocks(parsed.documentation)) {
+      if ("text" in block) {
+        docEl.append(block.text);
+      } else {
+        const pre = document.createElement("pre");
+        highlightCodeElement(pre, block.code, {
+          language: block.language,
+          path,
+        });
+        docEl.append(pre);
+      }
+    }
     container.appendChild(docEl);
   }
 
@@ -233,9 +246,13 @@ export async function triggerSignatureHelp(
     above: true,
     strictSide: false,
     create: () => ({
-      dom: createSignatureHelpDOM(help, () => {
-        view.dispatch({ effects: signatureHelpEffect.of(null) });
-      }),
+      dom: createSignatureHelpDOM(
+        help,
+        () => {
+          view.dispatch({ effects: signatureHelpEffect.of(null) });
+        },
+        path,
+      ),
     }),
   };
 

@@ -18,6 +18,7 @@ import { createContext, useContext } from "react";
 import type { ComponentProps } from "react";
 import { streamText } from "../lib/aiStreamText";
 import { useSurfaceMotion } from "../lib/motion";
+import HighlightedCode from "./HighlightedCode";
 const LiveText = createContext(false);
 
 function StreamWord({ children, ...props }: ComponentProps<"span">) {
@@ -43,7 +44,9 @@ function CodeBlock({
   code,
   language,
   onReview,
+  streaming,
 }: {
+  streaming: boolean;
   code: string;
   language: string;
   onReview?: () => void;
@@ -81,7 +84,11 @@ function CodeBlock({
         </span>
       </header>
       <pre>
-        <code>{code}</code>
+        <HighlightedCode
+          code={code}
+          language={language}
+          streaming={streaming}
+        />
       </pre>
     </div>
   );
@@ -146,7 +153,8 @@ function Reply({
         return (
           <CodeBlock
             code={code}
-            language={className?.replace("language-", "") ?? ""}
+            streaming={streaming}
+            language={/\blanguage-([^\s]+)/.exec(className ?? "")?.[1] ?? ""}
             onReview={
               selected
                 ? () => onReview(selected.path, selected.content, code)
@@ -163,7 +171,7 @@ function Reply({
         );
       },
     }),
-    [selected?.path, selected?.content, onReview],
+    [selected?.path, selected?.content, onReview, streaming],
   );
   return (
     <div className="ai-markdown">

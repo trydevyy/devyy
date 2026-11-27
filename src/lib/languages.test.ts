@@ -22,6 +22,7 @@ import {
   languageDescription,
   loadLanguage,
 } from "./languages";
+import { documentationBlocks, highlightSnippet } from "./codeHighlight";
 import { markdownPath, headingId } from "./markdown";
 describe("language registry", () => {
   it("detects source, configuration and special filenames across the bundled registry", () => {
@@ -54,6 +55,58 @@ describe("language registry", () => {
       expect(languageId(path), path).toBe(name);
     }
     expect(languageDescription("custom.unknown")).toBeNull();
+  });
+  it("shares file and fence grammars and preserves all source text", async () => {
+    const snippets = [
+      [
+        "project.tf",
+        "terraform",
+        'resource "example" "main" { enabled = true }',
+      ],
+      ["flake.nix", "nix", 'let greeting = "hello"; in greeting'],
+      ["build.zig", "zig", 'const io = @import("std");'],
+      [
+        "app.ex",
+        "elixir",
+        "defmodule Example do\n  def hello, do: :hello\nend",
+      ],
+      ["Token.sol", "solidity", "pragma solidity ^0.8.0;\ncontract Token {}"],
+      ["script.fish", "fish", 'function greet; set name "devyy"; end'],
+      ["schema.graphqls", "gql", "type Query { health: Boolean! }"],
+      [".editorconfig", "ini", "[*]\nindent_size = 2"],
+      ["chart.mmd", "mermaid", "flowchart LR\n  a --> b"],
+      ["doc.typ", "typst", '#let title = "Devyy"'],
+      ["shader.frag", "glsl", "uniform float opacity;"],
+      ["main.hql", "hive", "SELECT * FROM logs;"],
+    ];
+    for (const [path, language, code] of snippets) {
+      expect(await loadLanguage(path), path).not.toBeNull();
+      expect(await loadLanguage(language, true), language).toBe(
+        await loadLanguage(path),
+      );
+      const parts = await highlightSnippet(code, { language });
+      expect(
+        parts.some(({ classes }) => classes),
+        language,
+      ).toBe(true);
+      expect(parts.map(({ text }) => text).join(""), language).toBe(code);
+    }
+    expect(
+      await highlightSnippet("fn main() {}", { language: "text" }),
+    ).toEqual([]);
+    expect(await highlightSnippet("fn main() {}")).not.toEqual([]);
+  });
+  it("preserves indents and nested fences in documentation", () => {
+    expect([
+      ...documentationBlocks("Intro\n~~~~py test\n  greet()\n~~~~~\n"),
+    ]).toEqual([
+      { text: "Intro\n" },
+      { code: "  greet()", language: "py" },
+      { text: "\n" },
+    ]);
+    expect([
+      ...documentationBlocks("````markdown\n```rs\nfn main() {}\n```\n````"),
+    ]).toEqual([{ code: "```rs\nfn main() {}\n```", language: "markdown" }]);
   });
   it("highlights recognizable content without a known filename", async () => {
     expect(

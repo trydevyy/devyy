@@ -5383,29 +5383,35 @@ button.split-tab-indicator:hover {
   border-radius: 5px;
   padding: 8px 12px;
 }
-.markdown-prose .tok-keyword {
+.devyy-syntax .tok-keyword {
   color: var(--syntax-keyword);
 }
-.markdown-prose .tok-string,
-.markdown-prose .tok-string2 {
+.devyy-syntax .tok-string,
+.devyy-syntax .tok-string2 {
   color: var(--syntax-string);
 }
-.markdown-prose .tok-number,
-.markdown-prose .tok-bool {
+.devyy-syntax .tok-number,
+.devyy-syntax .tok-bool,
+.devyy-syntax .tok-atom {
   color: var(--syntax-number);
 }
-.markdown-prose .tok-comment {
+.devyy-syntax .tok-comment {
   color: var(--syntax-comment);
 }
-.markdown-prose .tok-typeName,
-.markdown-prose .tok-className {
+.devyy-syntax .tok-typeName,
+.devyy-syntax .tok-propertyName,
+.devyy-syntax .tok-namespace,
+.devyy-syntax .tok-className {
   color: var(--syntax-type);
 }
-.markdown-prose .tok-meta {
+.devyy-syntax .tok-function {
+  color: var(--syntax-function);
+}
+.devyy-syntax .tok-meta {
   color: var(--syntax-meta);
 }
-.markdown-prose .tok-operator,
-.markdown-prose .tok-punctuation {
+.devyy-syntax .tok-operator,
+.devyy-syntax .tok-punctuation {
   color: var(--syntax-punctuation);
 }
 @media (max-width: 760px) {

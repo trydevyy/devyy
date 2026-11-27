@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import HighlightedCode from "./HighlightedCode";
 import { AnimatePresence } from "motion/react";
 import { NativeModal, ModalHeader, ModalBody } from "./ui/ModalSurface";
 import Select from "./ui/Select";
@@ -137,7 +138,12 @@ export default function AISkillsView({ sessionId }: { sessionId?: string }) {
                     {review.dependencies.length > 0 && (
                       <p>Dependencies ? {review.dependencies.join(", ")}</p>
                     )}
-                    <pre>{review.content}</pre>
+                    <pre>
+                      <HighlightedCode
+                        code={review.content}
+                        language="markdown"
+                      />
+                    </pre>
                   </div>
                 ) : (
                   <textarea
@@ -277,7 +283,12 @@ dependencies:
                     <span className="ai-skill-detail-title">
                       <FileCode size={12} /> Instructions
                     </span>
-                    <pre className="ai-skill-content-pre">{skill.content}</pre>
+                    <pre className="ai-skill-content-pre">
+                      <HighlightedCode
+                        code={skill.content}
+                        language="markdown"
+                      />
+                    </pre>
                   </div>
                 </div>
               )}

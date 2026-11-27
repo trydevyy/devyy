@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import HighlightedCode from "./HighlightedCode";
 import { useDialogMotion } from "../lib/motion";
 import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { requestId as newRequestId } from "../lib/requestId";
@@ -1385,7 +1386,13 @@ export default function AIChatPanel({
               }
             />
             <ModalBody>
-              <pre>{preview.content}</pre>
+              <pre>
+                {preview.path ? (
+                  <HighlightedCode code={preview.content} path={preview.path} />
+                ) : (
+                  preview.content
+                )}
+              </pre>
             </ModalBody>
           </MotionModalSurface>
         )}

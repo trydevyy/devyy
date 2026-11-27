@@ -2298,6 +2298,7 @@ test("live answers reveal new words without remounting existing text or changing
     .elementHandle();
   await control(page, "delta", " world.\n\n```rust\nfn main() {}\n```\n");
   await expect(page.locator(".ai-code-block code")).toHaveText("fn main() {}");
+  await expect(page.locator(".ai-code-block .tok-keyword")).toHaveText("fn");
   expect(await firstWord!.evaluate((el) => el.isConnected)).toBe(true);
   await expect(page.locator(".ai-code-block .ai-stream-word")).toHaveCount(0);
   await control(page, "finish");

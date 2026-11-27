@@ -13,6 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import {
+  documentationBlocks,
+  highlightCodeElement,
+} from "../lib/codeHighlight";
 import { transparentGutters } from "../lib/editorGutters";
 import { memo, useEffect, useMemo, useRef } from "react";
 import {
@@ -123,13 +127,11 @@ class BreakpointMarker extends GutterMarker {
   }
 }
 
-function createHoverDOM(rawText: string): HTMLElement {
+type HoverContent = string | { value: string; language?: string };
+
+function createHoverDOM(content: HoverContent[], path: string): HTMLElement {
   const container = document.createElement("div");
   container.className = "hover-doc";
-
-  const codeBlockRegex = /```([^\n]*)\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
 
   const appendText = (text: string) => {
     const trimmed = text.trim();
@@ -168,32 +170,38 @@ function createHoverDOM(rawText: string): HTMLElement {
     }
   };
 
-  while ((match = codeBlockRegex.exec(rawText)) !== null) {
-    if (match.index > lastIndex) {
-      appendText(rawText.slice(lastIndex, match.index));
-    }
-    const lang = match[1] || "";
-    const code = match[2].trim();
-
+  function appendCode(code: string, language?: string) {
     const block = document.createElement("div");
     block.className = "hover-signature";
-    if (lang) {
+    if (language) {
       const badge = document.createElement("span");
       badge.className = "hover-signature-badge";
-      badge.textContent = lang;
+      badge.textContent = language;
       block.appendChild(badge);
     }
     const pre = document.createElement("pre");
     pre.className = "hover-signature-code";
-    pre.textContent = code;
+    highlightCodeElement(pre, code, { language, path });
     block.appendChild(pre);
     container.appendChild(block);
-
-    lastIndex = match.index + match[0].length;
   }
 
-  if (lastIndex < rawText.length) {
-    appendText(rawText.slice(lastIndex));
+  for (const [index, part] of content.entries()) {
+    if (index > 0) {
+      const divider = document.createElement("hr");
+      divider.className = "hover-divider";
+      container.appendChild(divider);
+    }
+    if (typeof part !== "string" && part.language) {
+      appendCode(part.value, part.language);
+      continue;
+    }
+    for (const block of documentationBlocks(
+      typeof part === "string" ? part : part.value,
+    )) {
+      if ("code" in block) appendCode(block.code, block.language);
+      else appendText(block.text);
+    }
   }
 
   return container;
@@ -634,10 +642,7 @@ function Editor(props: EditorProps) {
             );
             try {
               let result = await languageRequest<{
-                contents:
-                  | string
-                  | { value: string }
-                  | Array<string | { value: string }>;
+                contents: HoverContent | HoverContent[];
               }>(
                 current.current.path,
                 "textDocument/hover",
@@ -653,32 +658,33 @@ function Editor(props: EditorProps) {
                     )
                   )[0] ?? null;
 
-              const c = result?.contents;
-              const textParts: string[] = [];
-              if (extHover) textParts.push(extHover.text);
-              if (c) {
-                const lspText = Array.isArray(c)
-                  ? c
-                      .map((x) => (typeof x === "string" ? x : x.value))
-                      .join("\n")
-                  : typeof c === "string"
-                    ? c
-                    : c.value;
-                if (lspText) textParts.push(lspText);
-              }
-              const text = textParts.join("\n\n---\n\n");
-              if (!text) return null;
+              const content = result?.contents;
+              const parts = Array.isArray(content)
+                ? [...content]
+                : content
+                  ? [content]
+                  : [];
+              if (extHover) parts.unshift(extHover.text);
+              if (
+                !parts.some((part) =>
+                  typeof part === "string" ? part.trim() : part.value.trim(),
+                )
+              )
+                return null;
+              const path = current.current.path;
               return {
                 pos: extHover ? extHover.from : pos,
                 end: extHover ? extHover.to : undefined,
-                create: () => ({ dom: createHoverDOM(text) }),
+                create: () => ({ dom: createHoverDOM(parts, path) }),
               };
             } catch {
               if (extHover) {
                 return {
                   pos: extHover.from,
                   end: extHover.to,
-                  create: () => ({ dom: createHoverDOM(extHover.text) }),
+                  create: () => ({
+                    dom: createHoverDOM([extHover.text], current.current.path),
+                  }),
                 };
               }
               return null;

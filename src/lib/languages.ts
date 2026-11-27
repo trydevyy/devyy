@@ -17,9 +17,101 @@ import { extensionLanguage } from "./extensions";
 import { languages as bundledLanguages } from "@codemirror/language-data";
 import {
   LanguageDescription,
-  type LanguageSupport,
+  LanguageSupport,
+  StreamLanguage,
 } from "@codemirror/language";
+const additionalLanguages = [
+  {
+    id: "hcl",
+    name: "HCL",
+    alias: ["terraform", "tf", "tfvars"],
+    extensions: ["hcl", "tf", "tfvars", "tofu"],
+  },
+  { id: "nix", name: "Nix", extensions: ["nix"] },
+  { id: "zig", name: "Zig", extensions: ["zig", "zon"] },
+  {
+    id: "elixir",
+    name: "Elixir",
+    alias: ["ex", "exs"],
+    extensions: ["ex", "exs"],
+  },
+  { id: "solidity", name: "Solidity", alias: ["sol"], extensions: ["sol"] },
+  { id: "fish", name: "Fish", extensions: ["fish"] },
+  {
+    id: "graphql",
+    name: "GraphQL",
+    alias: ["gql"],
+    extensions: ["graphql", "gql", "graphqls"],
+  },
+  {
+    id: "ini",
+    name: "INI",
+    alias: ["editorconfig"],
+    extensions: ["ini"],
+    filename: /^(\.editorconfig|\.gitconfig)$/i,
+  },
+  {
+    id: "mermaid",
+    name: "Mermaid",
+    alias: ["mmd"],
+    extensions: ["mmd", "mermaid"],
+  },
+  { id: "typst", name: "Typst", alias: ["typ"], extensions: ["typ"] },
+] as const;
 export const languages = [
+  ...additionalLanguages.map(({ id, ...info }) =>
+    LanguageDescription.of({
+      ...info,
+      extensions: [...info.extensions],
+      alias: "alias" in info ? [...info.alias] : undefined,
+      load: () =>
+        import("./additionalLanguages").then((m) => m.additionalLanguage(id)),
+    }),
+  ),
+  LanguageDescription.of({
+    name: "GLSL",
+    alias: ["shader", "vert", "frag"],
+    extensions: [
+      "glsl",
+      "vert",
+      "frag",
+      "geom",
+      "tesc",
+      "tese",
+      "comp",
+      "glslv",
+      "glslf",
+    ],
+    load: () =>
+      import("@codemirror/legacy-modes/mode/clike").then(
+        ({ shader }) => new LanguageSupport(StreamLanguage.define(shader)),
+      ),
+  }),
+  LanguageDescription.of({
+    name: "HiveQL",
+    alias: ["hive", "hql"],
+    extensions: ["hql"],
+    load: () =>
+      import("@codemirror/legacy-modes/mode/sql").then(
+        ({ hive }) => new LanguageSupport(StreamLanguage.define(hive)),
+      ),
+  }),
+  LanguageDescription.of({
+    name: "Ceylon",
+    extensions: ["ceylon"],
+    load: () =>
+      import("@codemirror/legacy-modes/mode/clike").then(
+        ({ ceylon }) => new LanguageSupport(StreamLanguage.define(ceylon)),
+      ),
+  }),
+  LanguageDescription.of({
+    name: "nesC",
+    extensions: ["nc"],
+    load: () =>
+      import("@codemirror/legacy-modes/mode/clike").then(
+        ({ nesC }) => new LanguageSupport(StreamLanguage.define(nesC)),
+      ),
+  }),
   ...bundledLanguages,
   LanguageDescription.of({
     name: "Svelte",
@@ -84,11 +176,20 @@ export function detectContentLanguage(content: string): string | undefined {
       [/\bperl\b/, "Perl"],
       [/\bphp\b/, "PHP"],
       [/\bpwsh\b/, "PowerShell"],
-      [/\b(?:sh|bash|zsh|fish|dash|ksh)\b/, "Shell"],
+      [/\bfish\b/, "Fish"],
+      [/\b(?:sh|bash|zsh|dash|ksh)\b/, "Shell"],
     ] as const) {
       if (pattern.test(firstLine)) return language;
     }
   }
+  if (/^pragma\s+solidity\s+/m.test(sample)) return "Solidity";
+  if (/^\s*defmodule\s+[A-Z][\w.]*\s+do\b/m.test(sample)) return "Elixir";
+  if (/^\s*(?:const|var)\s+\w+\s*=\s*@import\(/m.test(sample)) return "Zig";
+  if (/^\s*(?:resource|data)\s+"[^"]+"\s+"[^"]+"\s*\{/m.test(sample))
+    return "HCL";
+  if (/^\s*#version\s+\d{3}\b/m.test(sample)) return "GLSL";
+  if (/^(?:flowchart\s+(?:LR|RL|TD|TB|BT)|sequenceDiagram)\b/.test(sample))
+    return "Mermaid";
   if (/^<\?php\b/i.test(sample)) return "PHP";
   if (/^(?:<!doctype\s+html|<(?:html|head|body)\b)/i.test(sample))
     return "HTML";
@@ -144,12 +245,69 @@ export function loadDocumentLanguage(
   return inferred ? loadLanguage(inferred, true) : loadLanguage(path);
 }
 
+const fenceAliases: Record<string, string> = {
+  "c++": "C++",
+  "c#": "C#",
+  "f#": "F#",
+  bash: "Shell",
+  sh: "Shell",
+  zsh: "Shell",
+  console: "Shell",
+  shellscript: "Shell",
+  ps1: "PowerShell",
+  "objective-c": "Objective-C",
+  objc: "Objective-C",
+  "objective-cpp": "Objective-C++",
+  jsonc: "JSON",
+  json5: "JSON",
+  yml: "YAML",
+  mdx: "Markdown",
+  golang: "Go",
+  rustlang: "Rust",
+  wasm: "WebAssembly",
+  docker: "Dockerfile",
+  containerfile: "Dockerfile",
+  make: "Makefile",
+  latex: "LaTeX",
+  protobuf: "ProtoBuf",
+  vuejs: "Vue",
+  "html+jinja": "Jinja",
+};
+const fenceLanguages = new Map<string, LanguageDescription>();
+for (const description of languages) {
+  for (const alias of description.alias) {
+    if (!fenceLanguages.has(alias)) fenceLanguages.set(alias, description);
+  }
+  fenceLanguages.set(description.name.toLowerCase(), description);
+}
+function fenceDescription(name: string) {
+  if (
+    !name ||
+    [
+      "plain",
+      "plain-text",
+      "plaintext",
+      "text",
+      "txt",
+      "none",
+      "nohighlight",
+    ].includes(name)
+  )
+    return;
+  const alias = Object.hasOwn(fenceAliases, name)
+    ? fenceAliases[name].toLowerCase()
+    : name;
+  return (
+    fenceLanguages.get(alias) ??
+    LanguageDescription.matchFilename(languages, `snippet.${name}`)
+  );
+}
+
 const loading = new Map<string, Promise<LanguageSupport>>();
 export async function loadLanguage(pathOrName: string, fence = false) {
+  const name = pathOrName.trim().toLowerCase();
   const description = fence
-    ? (languages.find(
-        (language) => language.name.toLowerCase() === pathOrName.toLowerCase(),
-      ) ?? LanguageDescription.matchLanguageName(languages, pathOrName, true))
+    ? fenceDescription(name)
     : languageDescription(pathOrName);
   if (!description) return null;
   if (!loading.has(description.name)) {

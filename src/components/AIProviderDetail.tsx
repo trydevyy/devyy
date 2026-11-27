@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import HighlightedCode from "./HighlightedCode";
 import { requestId as newRequestId } from "../lib/requestId";
 import Skeleton from "./ui/Skeleton";
 import { InstallProgress } from "./ExtensionProgress";
@@ -125,9 +126,12 @@ function CLIFields({
             Input includes system, messages and model. Write one event per line:
           </p>
           <pre>
-            {
-              '{"type":"delta","text":"Hello"}\n{"type":"usage","input_tokens":10,"output_tokens":2}\n{"type":"done"}'
-            }
+            <HighlightedCode
+              language="json"
+              code={
+                '{"type":"delta","text":"Hello"}\n{"type":"usage","input_tokens":10,"output_tokens":2}\n{"type":"done"}'
+              }
+            />
           </pre>
         </details>
       )}
