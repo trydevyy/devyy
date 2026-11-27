@@ -39,6 +39,7 @@ import {
 } from "../lib/ai";
 import AIProviderIcon from "./AIProviderIcon";
 import AIPopover from "./AIPopover";
+import { aiPickerPreference, modelReasoning } from "../lib/aiPickerPreferences";
 import { modelLabel } from "../lib/aiModels";
 function favorites(): string[] {
   try {
@@ -165,29 +166,35 @@ export default function AIModelPicker({
     setBusy(false);
   }
   useEffect(() => {
-    if (open) {
-      setSelected(
-        providers.some((p) => p.id === providerId)
-          ? providerId
-          : (providers[0]?.id ?? ""),
-      );
-      setQuery("");
-    }
-  }, [open, providerId, providers.map((p) => p.id).join(",")]);
-  useEffect(() => {
     if (open) void refresh();
   }, [open, selected, onlyFavorites]);
   useEffect(() => {
     if (provider && choice.effort && state.loaded && !state.models[providerId])
       void discoverAIModels(providerId).catch(() => {});
   }, [provider, providerId, choice.effort, state.loaded]);
-  function choose(id: string, effort = "", keepOpen = false, owner = selected) {
-    const model = state.models[owner]?.find((m) => m.id === id);
-    const next = { model: id, effort: supportedEffort(model, effort) };
+  function choose(id: string, owner = selected, effort?: string) {
+    const fallback = providers.find((p) => p.id === owner)?.model;
+    const models = state.models[owner];
+    const model =
+      models?.find((m) => m.id === (id || fallback)) ??
+      (!id ? models?.find((m) => m.isDefault) : undefined);
+    let nextEffort = "";
+    if (model && reasoningOptions(model).length) {
+      nextEffort = supportedEffort(
+        model,
+        effort ??
+          (owner === providerId && id === choice.model
+            ? choice.effort
+            : modelReasoning(owner, model.id)),
+      );
+      if (effort !== undefined) modelReasoning(owner, model.id, nextEffort);
+    }
+    const next = { model: id, effort: nextEffort };
     if (chatId && providerId !== owner) setChatProvider(chatId, owner);
     chooseAIModel(owner, next, chatId);
     onChoose(owner, next);
-    if (!keepOpen) setOpen(false);
+    setSelected(owner);
+    if (aiPickerPreference("closeAfterSelection")) setOpen(false);
   }
   function toggleStar(id: string, owner = selected) {
     const key = `${owner}:${id}`,
@@ -209,7 +216,13 @@ export default function AIModelPicker({
         title={display}
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open) {
+            setSelected(provider?.id ?? providers[0]?.id ?? "");
+            setQuery("");
+          }
+          setOpen(!open);
+        }}
       >
         <AIProviderIcon kind={provider?.kind ?? "custom"} size={14} />
         <span>{display}</span>
@@ -342,20 +355,7 @@ export default function AIModelPicker({
                         providerId === model.provider.id &&
                         choice.model === model.id
                       }
-                      onClick={() =>
-                        choose(
-                          model.id,
-                          supportedEffort(
-                            model,
-                            model.provider.id === providerId
-                              ? choice.effort
-                              : (state.choices[model.provider.id]?.effort ??
-                                  ""),
-                          ),
-                          false,
-                          model.provider.id,
-                        )
-                      }
+                      onClick={() => choose(model.id, model.provider.id)}
                     >
                       <span
                         className="ai-model-brand"
@@ -449,7 +449,7 @@ export default function AIModelPicker({
                     role="radio"
                     aria-checked={!selectedEffort}
                     onClick={() =>
-                      choose(inspectedModel.id, "", true, reasoningOwner)
+                      choose(inspectedChoice.model, reasoningOwner, "")
                     }
                   >
                     Default
@@ -465,12 +465,7 @@ export default function AIModelPicker({
                       aria-checked={selectedEffort === effort.id}
                       title={effort.description}
                       onClick={() =>
-                        choose(
-                          inspectedModel.id,
-                          effort.id,
-                          true,
-                          reasoningOwner,
-                        )
+                        choose(inspectedChoice.model, reasoningOwner, effort.id)
                       }
                     >
                       {effort.label}

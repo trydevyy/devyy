@@ -858,7 +858,6 @@ test("composer discovers models, favorites them, and passes the selected reasoni
     .getByRole("button", { name: "Models from ChatGPT", exact: true })
     .click();
   await page.getByRole("option", { name: /^ChatGPT fixture/ }).click();
-  await page.getByRole("button", { name: "Choose AI model" }).click();
   await page.getByRole("radio", { name: "High", exact: true }).click();
   await expect(
     page.getByRole("radio", { name: "High", exact: true }),
@@ -1468,9 +1467,10 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   const summary = thinking.locator(":scope > summary");
   const reasoning = thinking.locator(".agent-reasoning");
   await expect(thinking).toHaveCount(1);
+  await expect(reasoning).toBeVisible();
+  await summary.click();
   await expect(reasoning).toBeHidden();
   await summary.click();
-  await reasoning.locator("summary").click();
   await expect(reasoning.locator("p")).toBeVisible();
   await expect(reasoning).toContainText(
     "Checking the attached constraints. Comparing the available approaches.",
@@ -1480,7 +1480,7 @@ test("thinking summaries stream separately, collapse, and persist with the reply
   ).not.toContainText("Comparing the available approaches.");
   await control(page, "delta", "Here is the answer.");
   await control(page, "finish");
-  await expect(summary).toHaveText("Reasoning");
+  await expect(summary).toContainText("Agent activity");
   await expect
     .poll(() =>
       page.evaluate(
@@ -2269,7 +2269,6 @@ test("reasoning follows model capabilities and preserves provider-specific optio
   await start(page);
   await page.getByRole("button", { name: "Choose AI model" }).click();
   await page.getByRole("option", { name: /^Adaptive model/ }).click();
-  await page.getByRole("button", { name: "Choose AI model" }).click();
   await expect(
     page.getByRole("radio", { name: "Default (Automatic)", exact: true }),
   ).toBeVisible();
@@ -2297,14 +2296,45 @@ test("reasoning follows model capabilities and preserves provider-specific optio
     .getByRole("button", { name: "Models from Local test model", exact: true })
     .click();
   await page.getByRole("option", { name: /^Simple model/ }).click();
-  await page.getByRole("button", { name: "Choose AI model" }).click();
   await expect(
     page.getByRole("radiogroup", { name: "Reasoning effort" }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Choose AI model" }),
   ).not.toContainText("Extended thinking");
+  await page.getByRole("option", { name: /^Adaptive model/ }).click();
+  await expect(
+    page.getByRole("radio", { name: "Extended thinking", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Preferences" });
+  await settings
+    .getByRole("tab", { name: "AI providers", exact: true })
+    .click();
+  const closeAfterSelection = settings.getByRole("switch", {
+    name: "Close model picker after a selection",
+  });
+  const rememberReasoning = settings.getByRole("switch", {
+    name: "Remember reasoning per model",
+  });
+  await expect(closeAfterSelection).toHaveAttribute("aria-checked", "false");
+  await expect(rememberReasoning).toHaveAttribute("aria-checked", "true");
+  await closeAfterSelection.click();
+  await rememberReasoning.click();
+  await settings.getByRole("button", { name: "Close preferences" }).click();
+  const trigger = page.getByRole("button", { name: "Choose AI model" });
+  await trigger.click();
+  await page.getByRole("radio", { name: /^Default/ }).click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  await page.getByRole("option", { name: /^Simple model/ }).click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  await page.getByRole("option", { name: /^Adaptive model/ }).click();
+  await expect(trigger).not.toContainText("Extended thinking");
+  await trigger.click();
+  await page.getByRole("option", { name: /^Simple model/ }).click();
   await page
     .getByRole("textbox", { name: "Message Devyy AI" })
     .fill("Use simple model");

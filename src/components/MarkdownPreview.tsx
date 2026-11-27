@@ -188,6 +188,16 @@ function MarkdownPreview({
   const source = useDeferredValue(content);
   const components = useMemo(() => {
     return {
+      table: ({ children }: { children?: ReactNode }) => (
+        <div
+          className="markdown-table-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Table"
+        >
+          <table>{children}</table>
+        </div>
+      ),
       pre: ({ children }: { children?: ReactNode }) => {
         const child = Children.toArray(children)[0];
         if (

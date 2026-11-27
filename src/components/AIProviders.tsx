@@ -36,6 +36,7 @@ import AIUsage from "./AIUsage";
 import AIProviderDetail, { accountInfo } from "./AIProviderDetail";
 
 import AIGlobalAccess from "./AIGlobalAccess";
+import AIPickerSettings from "./AIPickerSettings";
 
 export default function AIProviders({
   showWorkspaceDefault = false,
@@ -184,7 +185,12 @@ export default function AIProviders({
               <RefreshCw size={13} /> Refresh sign-ins
             </button>
           </header>
-          {showWorkspaceDefault && <AIGlobalAccess />}
+          {showWorkspaceDefault && (
+            <>
+              <AIGlobalAccess />
+              <AIPickerSettings />
+            </>
+          )}
           {(error || state.error) && (
             <ErrorToast message={error || state.error} />
           )}

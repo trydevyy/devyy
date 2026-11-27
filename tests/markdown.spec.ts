@@ -54,6 +54,10 @@ test("Markdown previews render GFM and code, update live, and preserve source un
     preview.getByRole("heading", { name: "Preview test", exact: true }),
   ).toBeVisible();
   await expect(preview.getByRole("table")).toContainText("devyy");
+  await expect(preview.getByRole("table")).toHaveCSS("display", "table");
+  await expect(
+    preview.getByRole("region", { name: "Table", exact: true }),
+  ).toHaveCSS("overflow-x", "auto");
   await expect(preview.getByRole("checkbox").first()).toBeChecked();
   await expect(
     preview.locator(".markdown-code-block .tok-keyword").first(),

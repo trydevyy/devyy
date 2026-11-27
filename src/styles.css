@@ -5317,12 +5317,14 @@ button.split-tab-indicator:hover {
   height: auto;
   border-radius: 6px;
 }
-.markdown-prose table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: collapse;
+.markdown-table-scroll {
   margin: 20px 0;
+  overflow-x: auto;
+}
+.markdown-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: break-word;
   font-size: calc(12px * var(--ui-text-scale, 1));
 }
 .markdown-prose :is(th, td) {
@@ -9763,6 +9765,12 @@ body {
   min-width: 0;
   min-height: 0;
 }
+.settings-inner-ai .ai-provider-page:not(.ai-provider-usage-page) {
+  overflow-y: auto;
+}
+.settings-inner-ai .ai-provider-workspace {
+  flex: 1 0 240px;
+}
 .ai-provider-page[inert] {
   pointer-events: none;
 }
@@ -13822,6 +13830,7 @@ dialog.provider-add-dialog {
   padding: 0;
 }
 .provider-add-dialog .ai-provider-detail {
+  display: block;
   height: auto;
 }
 .provider-add-dialog .ai-provider-detail-scroll {
@@ -14389,12 +14398,32 @@ dialog.provider-add-dialog {
   overflow-wrap: anywhere;
   color: var(--muted);
 }
+.agent-activity-meta {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-size: inherit;
+}
+.agent-activity-chevron {
+  rotate: -90deg;
+}
+.agent-activity[open] .agent-activity-chevron {
+  rotate: 0deg;
+}
+.agent-activity li > svg {
+  flex: none;
+  margin-top: 2px;
+}
 .agent-reasoning {
-  margin-top: 5px;
+  border-left: 1px solid var(--line);
+  padding: 6px 0 8px 15px;
 }
 .agent-reasoning p {
   white-space: pre-wrap;
-  margin: 4px 0;
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  line-height: 1.55;
 }
 .agent-sources {
   padding: 5px 0 0;
@@ -15847,8 +15876,18 @@ dialog.devyy-modal > form {
   flex-direction: column;
   min-height: 0;
 }
-.devyy-modal:is(.desktop-theme-preview, .provider-add-dialog)
-  .devyy-modal-body {
+.devyy-modal.desktop-theme-preview .devyy-modal-body {
+  overflow: auto;
+}
+dialog.devyy-modal.provider-add-dialog {
+  height: fit-content;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+}
+.provider-add-dialog > .devyy-modal-body {
+  display: block;
+  flex: 1 1 auto;
   overflow: auto;
 }
 .devyy-modal.setup-dialog > .setup-header {

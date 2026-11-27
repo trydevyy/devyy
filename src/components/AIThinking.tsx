@@ -5,10 +5,15 @@ import {
   CircleDashed,
   LoaderCircle,
   Terminal,
+  Minus,
 } from "lucide-react";
 import type { AITool } from "../lib/ai";
 
 const names: Record<string, string> = {
+  read: "Read file",
+  grep: "Search files",
+  glob: "Find files",
+  bash: "Run command",
   read_file: "Read file",
   read_files: "Read files",
   list_files: "List files",
@@ -29,6 +34,8 @@ export default function AIThinking({
   text = "",
   tools = [],
   active = false,
+  startedAt,
+  finishedAt,
 }: {
   text?: string;
   tools?: AITool[];
@@ -37,13 +44,18 @@ export default function AIThinking({
   finishedAt?: number;
 }) {
   const current = tools.find((tool) => tool.status === "running");
+  const count = tools.length;
+  const duration =
+    startedAt !== undefined && finishedAt !== undefined
+      ? Math.max(1, Math.round((finishedAt - startedAt) / 1000))
+      : undefined;
   const label = active
     ? current
-      ? (names[current.name] ?? "Using a tool")
-      : "Working"
-    : tools.length
-      ? `${tools.length} ${tools.length === 1 ? "tool call" : "tool calls"}`
-      : "Reasoning";
+      ? (names[current.name] ?? current.name.replaceAll("_", " "))
+      : text
+        ? "Thinking"
+        : "Working"
+    : "Agent activity";
   const icon = active ? (
     <LoaderCircle size={13} className="spinning" />
   ) : tools.length ? (
@@ -60,12 +72,26 @@ export default function AIThinking({
     ) : null;
   }
   return (
-    <details className="agent-activity">
+    <details className="agent-activity" open>
       <summary className="agent-activity-label">
         {icon}
         <span>{label}</span>
-        <ChevronDown size={12} />
+        <small className="agent-activity-meta">
+          {[
+            count ? `${count} ${count === 1 ? "action" : "actions"}` : "",
+            duration ? `${duration}s` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </small>
+        <ChevronDown size={12} className="agent-activity-chevron" />
       </summary>
+      {text.trim() && (
+        <div className="agent-reasoning">
+          <strong>Thinking</strong>
+          <p>{text.trim()}</p>
+        </div>
+      )}
       {tools.length > 0 && (
         <ul aria-label="Tool activity">
           {tools.map((tool) => (
@@ -78,6 +104,8 @@ export default function AIThinking({
                   className="spinning"
                   aria-label="Running"
                 />
+              ) : tool.status === "cancelled" ? (
+                <Minus size={13} aria-label="Cancelled" />
               ) : (
                 <Check size={13} aria-label="Complete" />
               )}
@@ -94,12 +122,6 @@ export default function AIThinking({
             </li>
           ))}
         </ul>
-      )}
-      {text && (
-        <details className="agent-reasoning">
-          <summary>Reasoning</summary>
-          <p>{text}</p>
-        </details>
       )}
     </details>
   );

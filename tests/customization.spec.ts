@@ -442,6 +442,7 @@ test("GitHub onboarding applies commit identity only after accepting its confirm
 test("custom providers can use a direct CLI without an API URL", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 910, height: 403 });
   await nativeFixture(page);
   const preferences = await settings(page, "AI providers");
   await preferences
@@ -449,6 +450,9 @@ test("custom providers can use a direct CLI without an API URL", async ({
     .click();
   const add = page.getByRole("dialog", { name: "Add custom provider" });
   await expect(add).toBeVisible();
+  const height = (await add.boundingBox())!.height;
+  expect(height).toBeGreaterThan(180);
+  expect(height).toBeLessThanOrEqual(403);
   await page.keyboard.press("Escape");
   await expect(add).toHaveCount(0);
   await expect(preferences).toBeVisible();
