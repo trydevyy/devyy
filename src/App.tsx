@@ -1399,14 +1399,11 @@ export default function App() {
     }
     if (
       dirty.size &&
-      !(await ask(
-        "Your unsaved changes will be discarded.",
-        {
-          title: disconnect ? "Disconnect from SSH?" : "Open another project?",
-          confirmLabel: "Discard changes",
-          danger: true,
-        },
-      ))
+      !(await ask("Your unsaved changes will be discarded.", {
+        title: disconnect ? "Disconnect from SSH?" : "Open another project?",
+        confirmLabel: "Discard changes",
+        danger: true,
+      }))
     )
       return false;
     const chosen = disconnect
@@ -3549,14 +3546,11 @@ export default function App() {
     }
     if (
       action === "delete" &&
-      !(await ask(
-        "Git will keep branches with unmerged commits.",
-        {
-          title: `Delete branch “${branch.replace(/^refs\/heads\//, "")}”?`,
-          confirmLabel: "Delete branch",
-          danger: true,
-        },
-      ))
+      !(await ask("Git will keep branches with unmerged commits.", {
+        title: `Delete branch “${branch.replace(/^refs\/heads\//, "")}”?`,
+        confirmLabel: "Delete branch",
+        danger: true,
+      }))
     )
       return;
     if (

@@ -225,9 +225,11 @@ fn load(app: &AppHandle, state: &AiState) -> Result<Vec<Provider>, String> {
         };
         migrate_codex_providers(&mut values);
         for builtin in defaults() {
-            if !values.iter().any(|p| {
-                p.kind == builtin.kind && (builtin.kind != "openai" || p.id == builtin.id)
-            }) && values.len() < 32 {
+            if !values
+                .iter()
+                .any(|p| p.kind == builtin.kind && (builtin.kind != "openai" || p.id == builtin.id))
+                && values.len() < 32
+            {
                 let mut entry = builtin;
                 while values.iter().any(|p| p.id == entry.id) {
                     entry.id.push('_');
@@ -1520,7 +1522,12 @@ async fn antigravity_chat<R: tauri::Runtime>(
                         usage["model"] = model.clone();
                     }
                     if let Some((amount, estimated)) = billing::cost(p, &usage).await {
-                        emit(app, &r.request_id, "cost", json!({"amount":amount,"currency":"USD","estimated":estimated}));
+                        emit(
+                            app,
+                            &r.request_id,
+                            "cost",
+                            json!({"amount":amount,"currency":"USD","estimated":estimated}),
+                        );
                     }
                     if let Some(output) = billing::antigravity_output(&usage) {
                         usage["output_tokens"] = json!(output);
@@ -1824,7 +1831,12 @@ pub async fn ai_account(
             let _login = if action == "status" {
                 None
             } else {
-                Some(state.oauth_login.try_lock().map_err(|_| "Another sign-in is in progress.")?)
+                Some(
+                    state
+                        .oauth_login
+                        .try_lock()
+                        .map_err(|_| "Another sign-in is in progress.")?,
+                )
             };
             if action == "logout" {
                 state.cancel_provider(&provider_id, &request_id);

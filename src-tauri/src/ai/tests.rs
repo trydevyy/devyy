@@ -34,12 +34,17 @@ fn consolidates_codex_into_chatgpt_and_keeps_custom_responses_connections() {
     providers.push(api);
 
     migrate_codex_providers(&mut providers);
-    assert!(providers.iter().all(|p| p.id != "codex-api" && p.id != "codex-app"));
+    assert!(providers
+        .iter()
+        .all(|p| p.id != "codex-api" && p.id != "codex-app"));
     let chatgpt = providers.iter().find(|p| p.id == "chatgpt").unwrap();
     assert!(chatgpt.enabled);
     assert_eq!(chatgpt.model, "codex-model");
     assert_eq!(chatgpt.executable, "/opt/codex");
-    let custom = providers.iter().find(|p| p.id == "custom-responses").unwrap();
+    let custom = providers
+        .iter()
+        .find(|p| p.id == "custom-responses")
+        .unwrap();
     assert_eq!(custom.kind, "openai");
     assert!(custom.has_key);
 }

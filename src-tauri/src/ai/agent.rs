@@ -1426,7 +1426,10 @@ pub async fn chat<R: tauri::Runtime>(
         tokens_out += if p.kind == "antigravity" {
             super::billing::antigravity_output(&usage).unwrap_or_default()
         } else {
-            usage["output_tokens"].as_u64().or(usage["completion_tokens"].as_u64()).unwrap_or_default()
+            usage["output_tokens"]
+                .as_u64()
+                .or(usage["completion_tokens"].as_u64())
+                .unwrap_or_default()
         };
         cached_in += usage
             .pointer("/input_tokens_details/cached_tokens")
@@ -1449,7 +1452,11 @@ pub async fn chat<R: tauri::Runtime>(
             _ => super::billing::cost(p, &usage).await,
         };
         if let Some((amount, estimated)) = request_cost {
-            let total = if estimated { &mut estimated_cost } else { &mut cost };
+            let total = if estimated {
+                &mut estimated_cost
+            } else {
+                &mut cost
+            };
             *total += amount;
             emit(
                 app,
@@ -1950,14 +1957,9 @@ mod tests {
             effort: None,
             agent_mode: None,
         };
-        chat(
-            app.handle(),
-            &provider,
-            &request,
-            context_at(&base, "read"),
-        )
-        .await
-        .unwrap();
+        chat(app.handle(), &provider, &request, context_at(&base, "read"))
+            .await
+            .unwrap();
         server.join().unwrap();
     }
 
@@ -2170,14 +2172,9 @@ print(json.dumps({'type':'step_finish','part':{'id':'step','tokens':{'input':10,
             model: None,
             effort: Some("deep".into()),
         };
-        chat(
-            app.handle(),
-            &provider,
-            &request,
-            context_at(&base, "read"),
-        )
-        .await
-        .unwrap();
+        chat(app.handle(), &provider, &request, context_at(&base, "read"))
+            .await
+            .unwrap();
         let events = events.lock().unwrap();
         assert!(events.iter().any(|e| e["kind"] == "tool"
             && e["data"]["name"] == "read_file"

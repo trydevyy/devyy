@@ -15953,9 +15953,12 @@ dialog.devyy-modal {
 }
 :root
   .devyy-modal[data-surface-entry]:not(
-    dialog:not([open]), [data-state="closed"], .ai-usage-embedded
+    dialog:not([open]),
+    [data-state="closed"],
+    .ai-usage-embedded
   ) {
-  animation: dialog-enter calc(var(--enter-duration) * 1.5) cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: dialog-enter calc(var(--enter-duration) * 1.5)
+    cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 dialog.devyy-modal[open][data-modal-motion]::backdrop {
   animation: fade-in 160ms ease-out;
@@ -16044,9 +16047,11 @@ dialog.devyy-modal::backdrop,
   font-size: 1.15rem;
   font-weight: 500;
 }
-.ai-activity-top small, .ai-activity-axis, .ai-activity-legend {
+.ai-activity-top small,
+.ai-activity-axis,
+.ai-activity-legend {
   color: var(--muted);
-  font-size: .85rem;
+  font-size: 0.85rem;
 }
 .ai-activity-readout {
   display: grid;
@@ -16055,7 +16060,7 @@ dialog.devyy-modal::backdrop,
 .ai-activity-columns {
   display: grid;
   grid-template-columns: repeat(14, minmax(0, 1fr));
-  gap: clamp(2px, .65vw, 9px);
+  gap: clamp(2px, 0.65vw, 9px);
   height: 78px;
   margin-top: 16px;
 }
@@ -16080,23 +16085,28 @@ dialog.devyy-modal::backdrop,
   border-radius: 4px 4px 0 0;
   overflow: hidden;
 }
-.ai-activity-columns i, .ai-activity-legend span::before {
+.ai-activity-columns i,
+.ai-activity-legend span::before {
   background: var(--accent);
 }
-.ai-activity-columns i:first-child, .ai-activity-legend span:last-child::before {
+.ai-activity-columns i:first-child,
+.ai-activity-legend span:last-child::before {
   background: color-mix(in srgb, var(--accent) 40%, var(--shell));
 }
-.ai-activity-axis, .ai-activity-legend {
+.ai-activity-axis,
+.ai-activity-legend {
   display: flex;
   gap: 12px;
   margin-top: 8px;
 }
-.ai-activity-axis { justify-content: space-between; }
+.ai-activity-axis {
+  justify-content: space-between;
+}
 .ai-activity-legend span::before {
   content: "";
   display: inline-block;
-  width: .65em;
-  height: .65em;
+  width: 0.65em;
+  height: 0.65em;
   border-radius: 2px;
   margin-right: 5px;
 }
@@ -16218,7 +16228,7 @@ dialog.devyy-modal::backdrop,
   font-variant-numeric: tabular-nums;
 }
 .ai-usage-overview strong small {
-  font-size: .85rem;
+  font-size: 0.85rem;
 }
 .ai-usage-overview dl {
   display: grid;
@@ -16240,7 +16250,7 @@ dialog.devyy-modal::backdrop,
 }
 .ai-activity-empty {
   margin: 15px 0 0;
-  font-size: .9rem;
+  font-size: 0.9rem;
 }
 .ai-usage-breakdown-title {
   margin: 0 0 6px;
@@ -16264,7 +16274,8 @@ dialog.devyy-modal::backdrop,
 .ai-usage-breakdown-row > :not(h3) {
   grid-column: 2;
 }
-.ai-usage-breakdown-row :is(.ai-token-card, .ai-cost-card, .ai-quota-unavailable) {
+.ai-usage-breakdown-row
+  :is(.ai-token-card, .ai-cost-card, .ai-quota-unavailable) {
   border: 0;
   padding: 0;
   gap: 8px 14px;
