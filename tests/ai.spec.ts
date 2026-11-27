@@ -133,7 +133,8 @@ async function fixture(
         }),
       );
       let runtimeInstalled = !missingRuntime;
-      let workspaceAccess = "attached";
+      let workspaceAccess: string | undefined;
+      let globalWorkspaceAccess = false;
       let defaultRust = false;
       let chatgptConnected = false;
       let resolveChat: (() => void) | undefined,
@@ -267,6 +268,13 @@ async function fixture(
             if (command === "set_appearance") return { material: "solid" };
             if (command === "plugin:dialog|open") return "/fixture";
             if (command === "take_open_targets") return [];
+            if (command === "ai_workspace_default") {
+              if (typeof args.full === "boolean") {
+                globalWorkspaceAccess = args.full;
+                emit("devyy-ai-workspace-default", globalWorkspaceAccess);
+              }
+              return globalWorkspaceAccess;
+            }
             if (command === "ai_workspace_access") {
               if (typeof args.mode === "string") {
                 workspaceAccess = args.mode;
@@ -280,7 +288,9 @@ async function fixture(
                   resolveChat = undefined;
                 }
               }
-              return workspaceAccess;
+              return (
+                workspaceAccess ?? (globalWorkspaceAccess ? "full" : "attached")
+              );
             }
             if (command === "default_app_status")
               return [
@@ -1706,6 +1716,41 @@ test("reduced motion keeps settings navigation immediate and returns keyboard fo
   await expect(detail).toBeVisible();
   await expect(usage).toBeFocused();
   await expect(page.getByRole("dialog", { name: "Preferences" })).toBeVisible();
+});
+
+test("global full workspace access takes effect after consent", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.keyboard.press(`${mod}+o`);
+  await expect(page.locator(".code-editor .cm-content:visible")).toContainText(
+    "fn main()",
+  );
+  await start(page);
+  const access = page.getByRole("button", { name: /Agent options:/ });
+  await expect(access).toHaveAccessibleName(/Attachments only/);
+
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Preferences" });
+  await settings
+    .getByRole("tab", { name: "AI providers", exact: true })
+    .click();
+  const toggle = settings.getByRole("switch", {
+    name: "Full workspace access by default",
+  });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
+  const consent = page.getByRole("alertdialog", {
+    name: "Allow full agent access in all workspaces?",
+  });
+  await consent
+    .getByRole("button", { name: "Allow full access", exact: true })
+    .click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(access).toHaveAccessibleName(/Full workspace/);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(access).toHaveAccessibleName(/Attachments only/);
 });
 
 test("workspace access requires consent and agent proposals are reviewed before edits or saves", async ({

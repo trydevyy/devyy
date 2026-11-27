@@ -35,7 +35,13 @@ import AIProviderIcon from "./AIProviderIcon";
 import AIUsage from "./AIUsage";
 import AIProviderDetail, { accountInfo } from "./AIProviderDetail";
 
-export default function AIProviders() {
+import AIGlobalAccess from "./AIGlobalAccess";
+
+export default function AIProviders({
+  showWorkspaceDefault = false,
+}: {
+  showWorkspaceDefault?: boolean;
+}) {
   const { transition, instant } = useSurfaceMotion();
   const usageTrigger = useRef<HTMLButtonElement | null>(null);
   const restoreUsageFocus = useRef(false);
@@ -178,6 +184,7 @@ export default function AIProviders() {
               <RefreshCw size={13} /> Refresh sign-ins
             </button>
           </header>
+          {showWorkspaceDefault && <AIGlobalAccess />}
           {(error || state.error) && (
             <ErrorToast message={error || state.error} />
           )}

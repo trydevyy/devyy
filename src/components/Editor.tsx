@@ -60,6 +60,7 @@ import {
   loadDocumentLanguage,
   languageId,
 } from "../lib/languages";
+import { envPrivacy, isEnvFile } from "../lib/envPrivacy";
 import { editorAppearance, editorSettingKeys } from "../lib/editorAppearance";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
@@ -526,6 +527,9 @@ function Editor(props: EditorProps) {
   function settingsExtensions(settings: Settings) {
     return [
       ...editorAppearance(settings),
+      settings.blurEnvSecrets && isEnvFile(current.current.path)
+        ? envPrivacy
+        : [],
       settings.autocomplete
         ? autocompletion({
             activateOnTyping: settings.completionOnTyping,
@@ -560,7 +564,11 @@ function Editor(props: EditorProps) {
   const configuration =
     editorSettingKeys.map((key) => props.settings[key]).join("|") +
     "|" +
-    props.settings.reduceMotion;
+    props.settings.reduceMotion +
+    "|" +
+    props.settings.blurEnvSecrets +
+    "|" +
+    isEnvFile(props.path);
   useEffect(() => {
     if (!host.current) return;
     let lspTimer: ReturnType<typeof setTimeout> | undefined;

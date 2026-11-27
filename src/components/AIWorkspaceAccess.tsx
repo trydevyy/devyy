@@ -24,7 +24,7 @@ import type { AIAgentMode } from "../lib/ai";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ShieldCheck } from "lucide-react";
-import { invoke, native } from "../lib/native";
+import { invoke, listen, native } from "../lib/native";
 const modes = { agent: "Agent", ask: "Ask", plan: "Plan", review: "Review" };
 const permissions = {
   attached: "Attachments only",
@@ -67,17 +67,36 @@ export default function AIWorkspaceAccess({
     setBusy(false);
     setPending(undefined);
     setError("");
-    if (root && native)
-      void invoke<string>("ai_workspace_access", { root, mode: null })
-        .then((value) => {
-          if (current && ["attached", "read", "full"].includes(value))
-            setMode(value);
+    let unlisten: (() => void) | undefined;
+    if (root && native) {
+      let request = 0;
+      const refresh = () => {
+        if (!current) return;
+        const revision = ++request;
+        void invoke<string>("ai_workspace_access", { root, mode: null })
+          .then((value) => {
+            if (
+              current &&
+              revision === request &&
+              ["attached", "read", "full"].includes(value)
+            )
+              setMode(value);
+          })
+          .catch((e) => {
+            if (current && revision === request) setError(String(e));
+          });
+      };
+      void listen("devyy-ai-workspace-default", refresh)
+        .then((dispose) => {
+          if (!current) return dispose();
+          unlisten = dispose;
+          refresh();
         })
-        .catch((e) => {
-          if (current) setError(String(e));
-        });
+        .catch(refresh);
+    }
     return () => {
       current = false;
+      unlisten?.();
     };
   }, [root]);
   useEffect(() => {

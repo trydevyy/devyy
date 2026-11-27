@@ -158,6 +158,7 @@ pub fn run() {
             ai::ai_save_provider,
             ai::ai_chat,
             ai::agent::ai_workspace_access,
+            ai::agent::ai_workspace_default,
             ai::ai_cancel,
             ai::ai_account,
             ai::billing::ai_billing_snapshot,

@@ -84,6 +84,7 @@ export interface Settings {
   indentGuides: boolean;
   autoIndent: boolean;
   highlightMatches: boolean;
+  blurEnvSecrets: boolean;
   renderWhitespace: "none" | "trailing" | "all";
   cursorStyle: "line" | "block" | "underline";
   cursorBlinkRate: number;
@@ -157,6 +158,7 @@ export const defaults: Settings = {
   indentGuides: true,
   autoIndent: true,
   highlightMatches: true,
+  blurEnvSecrets: true,
   renderWhitespace: "none",
   cursorStyle: "line",
   cursorBlinkRate: 1000,

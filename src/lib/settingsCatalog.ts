@@ -402,6 +402,14 @@ export const controls: SettingControl[] = [
       "occurrences highlight",
     ],
   ]),
+  ...switches("editor", "Privacy", [
+    [
+      "blurEnvSecrets",
+      "Blur sensitive .env values",
+      "Hide likely secrets in the editor. Click a value to reveal or hide it.",
+      "dotenv API key password secret privacy mask",
+    ],
+  ]),
   ...switches("editor", "Guides & gutters", [
     [
       "lineNumbers",

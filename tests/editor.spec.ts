@@ -580,3 +580,34 @@ test("cursor is visible when editor is clicked", async ({ page }) => {
   expect(info.cursorLayerClip).toBe("");
   expect(info.cursorRect?.height).toBeGreaterThan(0);
 });
+
+test("dotenv privacy masks individual values by default and can be switched off", async ({
+  page,
+}) => {
+  await page.goto("/?playground=1");
+  await page
+    .getByRole("button", { name: "New file", exact: true })
+    .first()
+    .click();
+  await page.getByRole("textbox", { name: "Value" }).fill(".env.local");
+  await page.getByRole("button", { name: "Create file", exact: true }).click();
+  await page
+    .locator(".editor-document.visible .cm-content")
+    .fill("API_KEY=example-one\nDB_PASSWORD=example-two\nPORT=3000");
+  const editor = page.locator(".editor-document.visible");
+  const secrets = editor.locator(".cm-env-secret");
+  await expect(secrets).toHaveText(["example-one", "example-two"]);
+  await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
+  await secrets.first().click();
+  await expect(secrets.first()).toHaveClass(/cm-env-secret-revealed/);
+  await expect(secrets.nth(1)).toHaveCSS("filter", "blur(5px)");
+  await secrets.first().click();
+  await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  await page.getByRole("tab", { name: "Editor", exact: true }).click();
+  await page
+    .getByRole("switch", { name: "Blur sensitive .env values" })
+    .click();
+  await expect(secrets).toHaveCount(0);
+  await expect(editor.locator(".cm-content")).toContainText("example-two");
+});

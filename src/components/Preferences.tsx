@@ -561,7 +561,9 @@ export default function Preferences({
                   followSystem={settings.followSystemTheme}
                 />
               )}
-              {!searching && category === "ai" && <AIProviders />}
+              {!searching && category === "ai" && (
+                <AIProviders showWorkspaceDefault />
+              )}
               {!searching && category === "account" && (
                 <AccountSettings settings={settings} onChange={onChange} />
               )}
