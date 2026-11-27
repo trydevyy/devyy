@@ -2691,7 +2691,8 @@ export default function App() {
     setDialog({
       title: directory ? "New folder" : "New file",
       description:
-        "Use a path relative to your project. Missing folders are created automatically.",
+        "Missing folders in this project path are created automatically.",
+      placeholder: directory ? "e.g. src/components" : "e.g. src/main.ts",
       initial: parent ? `${parent}/` : "",
       label: directory ? "Create folder" : "Create file",
       submit: async (path) => {

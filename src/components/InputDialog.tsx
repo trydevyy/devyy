@@ -13,12 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import {
-  ModalActions,
-  ModalHeader,
-  ModalSurface,
-  ModalBody,
-} from "./ui/ModalSurface";
+import { ModalActions, ModalHeader, ModalSurface } from "./ui/ModalSurface";
 import ErrorToast from "./ui/ErrorToast";
 import { useState } from "react";
 import { Braces } from "lucide-react";
@@ -28,6 +23,7 @@ export interface Dialog {
   title: string;
   description: string;
   initial: string;
+  placeholder?: string;
   label: string;
   submit: (value: string) => Promise<void>;
 }
@@ -47,7 +43,7 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
       <ModalSurface
         as="form"
         noValidate
-        className="input-modal"
+        className="input-modal compact-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="input-dialog-title"
@@ -65,35 +61,37 @@ export default function InputDialog({ dialog, onClose }: InputDialogProps) {
         <ModalHeader
           id="input-dialog-title"
           title={dialog.title}
-          description={dialog.description}
           icon={<Braces size={18} />}
           onClose={onClose}
           closeLabel="Close dialog"
           busy={busy}
         />
-        <ModalBody>
+        <div className="compact-dialog-content">
           <input
             className="text-input"
             autoFocus
             aria-label="Value"
+            aria-describedby="input-dialog-hint"
+            placeholder={dialog.placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             required
           />
+          <p id="input-dialog-hint">{dialog.description}</p>
           {error && <ErrorToast message={error} />}
-          <ModalActions>
-            <button type="button" className="secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              className="primary"
-              disabled={busy || !value.trim()}
-              aria-busy={busy}
-            >
-              {dialog.label}
-            </button>
-          </ModalActions>
-        </ModalBody>
+        </div>
+        <ModalActions>
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="primary"
+            disabled={busy || !value.trim()}
+            aria-busy={busy}
+          >
+            {dialog.label}
+          </button>
+        </ModalActions>
       </ModalSurface>
     </ModalBackdrop>
   );
