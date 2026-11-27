@@ -16312,11 +16312,12 @@ dialog.devyy-modal::backdrop,
 }
 /* Mask with a soft bar independent of the underlying glyph shapes. */
 .cm-env-value:not(.cm-env-value-revealed) {
-  background: linear-gradient(
-    transparent 14%,
-    var(--secondary) 31%,
-    var(--secondary) 69%,
-    transparent 86%
+  background: radial-gradient(
+    ellipse closest-side,
+    var(--secondary) 24%,
+    color-mix(in srgb, var(--secondary) 78%, transparent) 55%,
+    color-mix(in srgb, var(--secondary) 28%, transparent) 79%,
+    transparent 100%
   );
   border-radius: 5px;
   -webkit-box-decoration-break: clone;
