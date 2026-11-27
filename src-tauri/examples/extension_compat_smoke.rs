@@ -14,6 +14,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #![allow(dead_code)]
+#[path = "../src/account.rs"]
+mod account;
+#[path = "../src/appearance.rs"]
+mod appearance;
 #[path = "../src/extension_host.rs"]
 mod extension_host;
 #[path = "../src/extension_servers.rs"]
@@ -28,6 +32,8 @@ mod lsp;
 mod process;
 #[path = "../src/ssh.rs"]
 mod ssh;
+#[path = "../src/store.rs"]
+mod store;
 #[path = "../src/workspace.rs"]
 mod workspace;
 use serde_json::{json, Value};
