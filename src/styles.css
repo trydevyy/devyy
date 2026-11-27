@@ -16309,23 +16309,13 @@ dialog.devyy-modal::backdrop,
 
 .cm-env-value {
   cursor: pointer;
-  filter: blur(5px);
-  clip-path: inset(-3px -2px -3px 0);
 }
-.cm-env-value-revealed {
-  filter: blur(0);
-  animation: env-value-reveal var(--enter-duration) var(--ease);
-}
-@keyframes env-value-reveal {
-  from {
-    filter: blur(5px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cm-env-value-revealed {
-    animation: none;
-  }
-}
-:root[data-motion="reduced"] .cm-env-value-revealed {
-  animation: none;
+/* Paint the soft text directly. A filter or clip on each value creates
+   extra rendering work and a hard edge where the mask meets the equals sign. */
+.cm-env-value:not(.cm-env-value-revealed),
+.cm-env-value:not(.cm-env-value-revealed) * {
+  color: transparent !important;
+  text-shadow:
+    1.5px 0 3.5px var(--secondary),
+    2px 0 4.5px var(--secondary);
 }

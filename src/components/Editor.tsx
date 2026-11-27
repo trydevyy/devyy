@@ -505,7 +505,6 @@ export interface EditorProps {
   onView: (path: string, view: EditorView | null) => void;
   onDefinition: () => void;
   readOnly?: boolean;
-  revealEnvValues?: boolean;
   languageId?: string;
   breakpoints: number[];
   onBreakpoint: (path: string, line: number) => void;
@@ -528,9 +527,7 @@ function Editor(props: EditorProps) {
   function settingsExtensions(settings: Settings) {
     return [
       ...editorAppearance(settings),
-      settings.blurEnvSecrets &&
-      !current.current.revealEnvValues &&
-      isEnvFile(current.current.path)
+      settings.blurEnvSecrets && isEnvFile(current.current.path)
         ? envPrivacy
         : [],
       settings.autocomplete
@@ -571,9 +568,7 @@ function Editor(props: EditorProps) {
     "|" +
     props.settings.blurEnvSecrets +
     "|" +
-    isEnvFile(props.path) +
-    "|" +
-    !!props.revealEnvValues;
+    isEnvFile(props.path);
   useEffect(() => {
     if (!host.current) return;
     let lspTimer: ReturnType<typeof setTimeout> | undefined;

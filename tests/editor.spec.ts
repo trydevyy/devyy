@@ -597,12 +597,14 @@ test("dotenv privacy masks individual values by default and can be switched off"
   const editor = page.locator(".editor-document.visible");
   const secrets = editor.locator(".cm-env-value");
   await expect(secrets).toHaveText(["example-one", "example-two", "3000"]);
-  await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
+  await expect(secrets.first()).toHaveCSS("color", "rgba(0, 0, 0, 0)");
   await secrets.first().click();
   await expect(secrets.first()).toHaveClass(/cm-env-value-revealed/);
-  await expect(secrets.nth(1)).toHaveCSS("filter", "blur(5px)");
+  await expect(secrets.nth(1)).toHaveCSS("color", "rgba(0, 0, 0, 0)");
   await secrets.first().click();
-  await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
+  await expect(secrets.first()).toHaveCSS("color", "rgba(0, 0, 0, 0)");
+  await expect(secrets.first()).toHaveCSS("filter", "none");
+  await expect(secrets.first()).not.toHaveCSS("text-shadow", "none");
   const revealAll = page.getByRole("button", {
     name: "Reveal all .env values",
   });
@@ -610,9 +612,24 @@ test("dotenv privacy masks individual values by default and can be switched off"
   await expect(secrets).toHaveCount(0);
   await page.getByRole("button", { name: "Hide all .env values" }).click();
   await expect(secrets).toHaveCount(3);
+  await editor
+    .locator(".cm-content")
+    .fill(
+      Array.from({ length: 600 }, (_, i) => `VAR_${i}=value-${i}`).join("\n"),
+    );
+  const scroller = editor.locator(".cm-scroller");
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(secrets.first()).toHaveText("value-0");
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(secrets.last()).toHaveText("value-599");
+  await expect(secrets.last()).toHaveCSS("color", "rgba(0, 0, 0, 0)");
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await page.getByRole("tab", { name: "Editor", exact: true }).click();
   await page.getByRole("switch", { name: "Blur .env values" }).click();
   await expect(secrets).toHaveCount(0);
-  await expect(editor.locator(".cm-content")).toContainText("example-two");
+  await expect(editor.locator(".cm-content")).toContainText("value-599");
 });

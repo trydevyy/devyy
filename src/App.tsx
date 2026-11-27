@@ -24,6 +24,7 @@ import {
 import { AnimatePresence } from "motion/react";
 import UpdateOverlay from "./components/UpdateOverlay";
 import FilePreview from "./components/FilePreview";
+import EnvVisibilityButton from "./components/EnvVisibilityButton";
 import { isEnvFile } from "./lib/envPrivacy";
 import { filePreviewKind } from "./lib/filePreview";
 import RunPanel from "./components/RunPanel";
@@ -65,7 +66,6 @@ import {
   Asterisk,
   Copy,
   Eye,
-  EyeOff,
   Columns2,
   Braces,
   Bug,
@@ -444,10 +444,6 @@ export default function App() {
   const fileTabGroups = groupedTabs(tabs, (tab) => tab.path, fileSplits);
   const [focus, setFocus] = useState(false),
     [palette, setPalette] = useState<"files" | "commands" | null>(null);
-  const [revealedEnvPath, setRevealedEnvPath] = useState<string>();
-  useEffect(() => {
-    setRevealedEnvPath(undefined);
-  }, [active]);
   const [settings, setSettings] = useState<Settings>(() =>
       normalizeSettings(
         embeddedThemePreview
@@ -4915,7 +4911,6 @@ export default function App() {
                 value={t.content}
                 readOnly={t.readOnly || workspaceScan}
                 languageId={t.languageId}
-                revealEnvValues={revealedEnvPath === t.path}
                 settings={appearanceSettings}
                 diagnostics={diagnosticsByPath[t.path] ?? emptyDiagnostics}
                 onChange={edit}
@@ -5886,32 +5881,14 @@ export default function App() {
                 >
                   <WandSparkles size={15} />
                 </button>
-                {settings.blurEnvSecrets && isEnvFile(active) && (
-                  <button
-                    className="icon-button"
-                    title={
-                      revealedEnvPath === active
-                        ? "Hide all .env values"
-                        : "Reveal all .env values"
-                    }
-                    aria-label={
-                      revealedEnvPath === active
-                        ? "Hide all .env values"
-                        : "Reveal all .env values"
-                    }
-                    onClick={() =>
-                      setRevealedEnvPath(
-                        revealedEnvPath === active ? undefined : active,
-                      )
-                    }
-                  >
-                    {revealedEnvPath === active ? (
-                      <EyeOff size={15} />
-                    ) : (
-                      <Eye size={15} />
-                    )}
-                  </button>
-                )}
+                {!diffActive &&
+                  settings.blurEnvSecrets &&
+                  isEnvFile(active) && (
+                    <EnvVisibilityButton
+                      key={active}
+                      getView={() => views.current.get(active)}
+                    />
+                  )}
                 <button
                   className="icon-button"
                   title="Split editor"

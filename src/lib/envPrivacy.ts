@@ -59,6 +59,7 @@ export function envValueRanges(doc: Text) {
 }
 
 const toggleReveal = StateEffect.define<number>();
+const revealAll = StateEffect.define<boolean>();
 
 function secretMark(from: number, to: number, revealed = false) {
   return Decoration.mark({
@@ -67,19 +68,35 @@ function secretMark(from: number, to: number, revealed = false) {
   }).range(from, to);
 }
 
-function scan(doc: Text) {
+function scan(doc: Text, allRevealed = false) {
   const ranges = envValueRanges(doc);
   return {
+    allRevealed,
     ends: new Map(ranges.map(({ from, to }) => [from, to])),
     revealed: new Set<number>(),
-    marks: Decoration.set(ranges.map(({ from, to }) => secretMark(from, to))),
+    marks: allRevealed
+      ? Decoration.none
+      : Decoration.set(ranges.map(({ from, to }) => secretMark(from, to))),
   };
 }
 
 const secrets = StateField.define({
   create: (state) => scan(state.doc),
   update(value, transaction) {
-    if (transaction.docChanged) return scan(transaction.newDoc);
+    const all = transaction.effects.find((effect) => effect.is(revealAll));
+    if (transaction.docChanged)
+      return scan(transaction.newDoc, all?.value ?? value.allRevealed);
+    if (all)
+      return {
+        ...value,
+        allRevealed: all.value,
+        revealed: new Set<number>(),
+        marks: all.value
+          ? Decoration.none
+          : Decoration.set(
+              Array.from(value.ends, ([from, to]) => secretMark(from, to)),
+            ),
+      };
     const toggle = transaction.effects.find((effect) =>
       effect.is(toggleReveal),
     );
@@ -122,3 +139,11 @@ export const envPrivacy = [
     },
   }),
 ];
+
+export function revealEnvValues(view: EditorView, revealed: boolean) {
+  const privacy = view.state.field(secrets, false);
+  if (!privacy) return false;
+  if (privacy.allRevealed !== revealed)
+    view.dispatch({ effects: revealAll.of(revealed) });
+  return true;
+}
