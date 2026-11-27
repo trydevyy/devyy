@@ -16310,16 +16310,23 @@ dialog.devyy-modal::backdrop,
 .cm-env-value {
   cursor: pointer;
 }
-/* Blur a generic texture while keeping the actual text transparent. */
+/* Blur a neutral shape without painting any of the underlying glyphs. */
 .cm-env-value:not(.cm-env-value-revealed) {
-  background: repeating-linear-gradient(
+  --env-mask-tone: color-mix(in srgb, var(--ink) 45%, transparent);
+  background: linear-gradient(
       90deg,
-      color-mix(in srgb, var(--secondary) 40%, transparent) 0 4px,
-      color-mix(in srgb, var(--secondary) 65%, transparent) 4px 11px,
-      color-mix(in srgb, var(--secondary) 25%, transparent) 11px 15px
+      transparent,
+      var(--env-mask-tone) 7%,
+      var(--env-mask-tone) 23%,
+      color-mix(in srgb, var(--env-mask-tone) 55%, transparent) 34%,
+      var(--env-mask-tone) 48%,
+      var(--env-mask-tone) 68%,
+      color-mix(in srgb, var(--env-mask-tone) 65%, transparent) 77%,
+      var(--env-mask-tone) 90%,
+      transparent
     )
-    center / max(1px, calc(100% - 6px)) 55% no-repeat;
-  filter: blur(2.5px);
+    center / max(1px, calc(100% - 8px)) 52% no-repeat;
+  filter: blur(4px);
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   forced-color-adjust: none;
