@@ -4970,16 +4970,7 @@ export default function App() {
             onClick={() => setActive("")}
             aria-label="devyy home"
           >
-            {themePreview?.theme.manifest.icon ? (
-              <img
-                width={19}
-                height={19}
-                alt=""
-                src={themePreview.theme.manifest.icon}
-              />
-            ) : (
-              <Asterisk size={19} strokeWidth={2.2} />
-            )}
+            <Asterisk size={19} strokeWidth={2.2} />
             <span>devyy</span>
           </button>
           <span className="title-divider" data-tauri-drag-region />

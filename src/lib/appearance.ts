@@ -95,9 +95,7 @@ export function useAppearance(
     root.style.setProperty("--primary-ink", onAccent(color));
     const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (favicon)
-      favicon.href =
-        storeTheme?.manifest.icon ??
-        `${import.meta.env.BASE_URL}${settings.theme === "paper" ? "devyy-light.svg" : "devyy.svg"}`;
+      favicon.href = `${import.meta.env.BASE_URL}${settings.theme === "paper" ? "devyy-light.svg" : "devyy.svg"}`;
   }, [settings.accent, settings.customAccent, settings.theme, storeTheme]);
   useEffect(() => {
     const root = document.documentElement;
@@ -113,9 +111,11 @@ export function useAppearance(
       .then(async (result) => {
         if (!current) return;
         root.dataset.material = result.material;
-        if (storeTheme?.manifest.icon) {
+        const appIcon =
+          storeTheme?.manifest.appIcon ?? storeTheme?.manifest.icon;
+        if (appIcon) {
           await invoke("set_theme_icon", {
-            icon: storeTheme.manifest.icon,
+            icon: appIcon,
           }).catch((error) =>
             callback.current(`Could not set the theme icon: ${String(error)}`),
           );

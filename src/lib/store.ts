@@ -52,6 +52,9 @@ export type StoreTheme = {
       y: number;
       pixelated?: boolean;
     };
+    /** OS dock/taskbar icon. Does not replace the fixed workbench mark. */
+    appIcon?: string;
+    /** @deprecated Use appIcon. Accepted for existing themes. */
     icon?: string;
   };
 };

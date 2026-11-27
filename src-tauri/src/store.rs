@@ -372,7 +372,8 @@ pub struct Theme {
     sprites: Vec<Sprite>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     editor_background: Option<EditorBackground>,
-    icon: Option<String>,
+    #[serde(default, alias = "icon", skip_serializing_if = "Option::is_none")]
+    app_icon: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -610,7 +611,7 @@ fn validate_theme(entry: &ThemeEntry) -> Result<(), String> {
     }) {
         return Err("Invalid editor background".into());
     }
-    if let Some(icon) = &theme.icon {
+    if let Some(icon) = &theme.app_icon {
         icon_bytes(icon)?;
     }
     Ok(())

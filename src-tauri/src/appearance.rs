@@ -100,7 +100,59 @@ pub fn set_appearance(
     }
 }
 
+// AppKit scales runtime icons without masking them. Shape opaque artwork here,
+// retaining the platform-neutral source and any already authored silhouettes.
+#[cfg(any(target_os = "macos", test))]
+fn macos_dock_icon(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    use image::{ImageFormat, RgbaImage};
+    use std::io::Cursor;
+    let source = image::load_from_memory(bytes)
+        .map_err(|e| e.to_string())?
+        .into_rgba8();
+    if source.pixels().any(|p| p[3] < 255) {
+        return Ok(bytes.to_vec());
+    }
+    const SIZE: u32 = 512;
+    const TILE: u32 = 432;
+    const INSET: u32 = (SIZE - TILE) / 2;
+    let artwork = image::imageops::thumbnail(&source, TILE, TILE);
+    let mut output = RgbaImage::new(SIZE, SIZE);
+    let left = (SIZE - artwork.width()) / 2;
+    let top = (SIZE - artwork.height()) / 2;
+    for (x, y, pixel) in artwork.enumerate_pixels() {
+        let (px, py) = (left + x, top + y);
+        let mut covered = 0;
+        // Supersampled continuous corners and clear space for the Dock tile.
+        for sy in 0..4 {
+            for sx in 0..4 {
+                let u = ((px as f64 + (sx as f64 + 0.5) / 4.0 - INSET as f64) / TILE as f64 * 2.0
+                    - 1.0)
+                    .abs();
+                let v = ((py as f64 + (sy as f64 + 0.5) / 4.0 - INSET as f64) / TILE as f64 * 2.0
+                    - 1.0)
+                    .abs();
+                if u.powi(5) + v.powi(5) <= 1.0 {
+                    covered += 1;
+                }
+            }
+        }
+        let mut pixel = *pixel;
+        pixel[3] = ((pixel[3] as u32 * covered + 8) / 16) as u8;
+        output.put_pixel(px, py, pixel);
+    }
+    let mut png = Cursor::new(Vec::new());
+    output
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(png.into_inner())
+}
+
 pub(crate) fn apply_icon(window: &WebviewWindow, bytes: &[u8]) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let prepared = macos_dock_icon(bytes)?;
+    #[cfg(target_os = "macos")]
+    let bytes = prepared.as_slice();
+
     window
         .set_icon(tauri::image::Image::from_bytes(bytes).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
@@ -127,4 +179,38 @@ pub(crate) fn apply_icon(window: &WebviewWindow, bytes: &[u8]) -> Result<(), Str
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod dock_icon_tests {
+    use super::*;
+    use image::{ImageFormat, Rgba, RgbaImage};
+    use std::io::Cursor;
+
+    #[test]
+    fn opaque_icons_are_masked_once_with_clear_space() {
+        let source = RgbaImage::from_pixel(64, 64, Rgba([80, 100, 200, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        source.write_to(&mut bytes, ImageFormat::Png).unwrap();
+        let result = macos_dock_icon(bytes.get_ref()).unwrap();
+        let image = image::load_from_memory(&result).unwrap().into_rgba8();
+        assert_eq!(image.dimensions(), (512, 512));
+        assert_eq!(image.get_pixel(256, 256).0, [80, 100, 200, 255]);
+        assert_eq!(image.get_pixel(40, 40)[3], 0);
+        assert_eq!(image.get_pixel(256, 39)[3], 0);
+        assert_eq!(image.get_pixel(256, 40)[3], 255);
+        assert!(image.pixels().any(|p| p[3] > 0 && p[3] < 255));
+        assert_eq!(macos_dock_icon(&result).unwrap(), result);
+    }
+
+    #[test]
+    fn default_icons_keep_their_authored_transparency() {
+        for bytes in [
+            include_bytes!("../icons/theme-dark.png").as_slice(),
+            include_bytes!("../icons/theme-light.png").as_slice(),
+        ] {
+            assert_eq!(macos_dock_icon(bytes).unwrap(), bytes);
+        }
+        assert!(macos_dock_icon(b"invalid PNG").is_err());
+    }
 }
