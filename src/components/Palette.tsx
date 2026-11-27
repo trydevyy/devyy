@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { MotionModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
+import { MotionModalSurface, ModalBody } from "./ui/ModalSurface";
 import ModalBackdrop from "./ui/ModalBackdrop";
 import { useIsPresent } from "motion/react";
 import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
@@ -158,14 +158,8 @@ export default function Palette({
           }
         }}
       >
-        <ModalHeader
-          title={mode === "files" ? "Go to file" : "Command palette"}
-          icon={mode === "files" ? <Search size={16} /> : <Command size={16} />}
-          onClose={onClose}
-          closeLabel="Close search"
-        />
-        <ModalBody flush>
-          <div className="palette-modes">
+        <header className="palette-chrome">
+          <div className="palette-modes" role="group" aria-label="Search mode">
             <button
               className={mode === "files" ? "active" : ""}
               aria-pressed={mode === "files"}
@@ -182,7 +176,7 @@ export default function Palette({
             </button>
           </div>
           <div className="palette-input">
-            {mode === "files" ? <Search size={20} /> : <Command size={20} />}
+            {mode === "files" ? <Search size={16} /> : <Command size={16} />}
             <input
               ref={input}
               value={query}
@@ -201,7 +195,7 @@ export default function Palette({
               autoComplete="off"
               spellCheck={false}
             />
-            {query ? (
+            {query && (
               <button
                 className="icon-button"
                 aria-label="Clear search"
@@ -212,10 +206,17 @@ export default function Palette({
               >
                 <X size={14} />
               </button>
-            ) : (
-              <kbd>esc</kbd>
             )}
           </div>
+          <button
+            className="icon-button palette-close"
+            aria-label="Close search"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </header>
+        <ModalBody flush>
           <div
             className="palette-results-heading"
             aria-live="polite"
@@ -326,20 +327,20 @@ export default function Palette({
               </div>
             )}
           </div>
-          <div className="palette-footer">
-            <span>
-              <ArrowUp size={12} />
-              <ArrowDown size={12} /> Navigate
-            </span>
-            <span>
-              <CornerDownLeft size={12} />{" "}
-              {mode === "files" ? "Open file" : "Run command"}
-            </span>
-            <span className="palette-escape">
-              esc <span>Close</span>
-            </span>
-          </div>
         </ModalBody>
+        <footer className="palette-footer">
+          <span>
+            <ArrowUp size={12} />
+            <ArrowDown size={12} /> Navigate
+          </span>
+          <span>
+            <CornerDownLeft size={12} />{" "}
+            {mode === "files" ? "Open file" : "Run command"}
+          </span>
+          <span className="palette-escape">
+            <kbd>esc</kbd> Close
+          </span>
+        </footer>
       </MotionModalSurface>
     </ModalBackdrop>
   );

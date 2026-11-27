@@ -2500,13 +2500,6 @@ a {
   width: 17px;
 }
 
-.palette-input kbd {
-  font-size: calc(9px * var(--ui-text-scale, 1));
-  border: 1px solid var(--border-strong);
-  padding: 2px 5px;
-  border-radius: 4px;
-}
-
 .palette-list {
   padding: 0 7px 8px;
   overflow: auto;
@@ -4020,9 +4013,6 @@ a {
   background: var(--hover);
   color: var(--ink);
 }
-.palette-modes > .icon-button {
-  margin-left: auto;
-}
 .palette-input {
   padding: 20px 22px;
 }
@@ -4843,7 +4833,7 @@ a {
   height: 174px;
 }
 .palette {
-  width: min(720px, calc(100vw - 32px));
+  width: min(700px, calc(100vw - 32px));
   border-radius: 16px;
   max-height: min(640px, 80dvh);
 }
@@ -15557,11 +15547,66 @@ button[aria-busy="true"]::after {
 .devyy-modal-body > .devyy-modal-actions {
   margin-block-start: 10px;
 }
-.palette-modes {
-  padding-top: 8px;
+.palette-chrome {
+  display: grid;
+  grid-template-columns: minmax(154px, 1fr) minmax(0, 2.2fr) minmax(154px, 1fr);
+  grid-template-areas: "modes search close";
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 8px;
+  flex: none;
 }
-.palette-input {
-  margin-top: 7px;
+.palette-chrome .palette-modes {
+  grid-area: modes;
+  justify-self: start;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--hover);
+}
+.palette-modes > button {
+  padding: 5px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.palette-chrome .palette-input {
+  grid-area: search;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 9px;
+  gap: 8px;
+  height: 34px;
+  border-color: transparent;
+  border-radius: 6px;
+}
+.palette-chrome .palette-input:focus-within {
+  border-color: var(--border-strong);
+}
+.palette-chrome .palette-input input {
+  font-size: calc(12px * var(--ui-text-scale, 1));
+}
+.palette-close {
+  grid-area: close;
+  justify-self: end;
+}
+.palette > .palette-footer {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  padding: 8px 10px 2px;
+  border: 0;
+}
+.palette-footer kbd {
+  font: inherit;
+}
+@container (max-width: 540px) {
+  .palette-chrome {
+    grid-template-columns: 28px minmax(0, 1fr) 28px;
+    grid-template-areas:
+      ". search close"
+      "modes modes modes";
+    row-gap: 5px;
+  }
 }
 .devyy-modal.git-graph .devyy-modal-body > header {
   display: flex;
@@ -15623,6 +15668,7 @@ dialog.devyy-modal > form {
   overflow: visible;
 }
 .devyy-modal.palette {
+  container-type: inline-size;
   max-height: min(640px, 80dvh);
 }
 dialog.devyy-modal {

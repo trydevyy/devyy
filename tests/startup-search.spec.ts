@@ -52,6 +52,18 @@ test("search highlights matches, clears queries and supports keyboard mode switc
   await page.keyboard.press(`${mod}+p`);
   const palette = page.getByRole("dialog", { name: "Go to file", exact: true });
   const search = palette.getByRole("textbox", { name: "Search", exact: true });
+  await expect(
+    palette.locator(".palette-chrome").getByRole("textbox"),
+  ).toBeFocused();
+  await expect(palette.locator(".devyy-modal-body")).not.toContainText(
+    "Navigate",
+  );
+  await expect(palette.locator("footer")).toContainText("Open file");
+  const panel = (await palette.boundingBox())!;
+  const field = (await palette.locator(".palette-input").boundingBox())!;
+  expect(
+    Math.abs(field.x + field.width / 2 - panel.x - panel.width / 2),
+  ).toBeLessThan(2);
   await search.fill("smrs");
   const selected = palette.getByRole("option", { selected: true });
   await expect(selected).toContainText("main.rs");
@@ -73,9 +85,20 @@ test("search highlights matches, clears queries and supports keyboard mode switc
     exact: true,
   });
   await expect(commandPalette).toBeVisible();
+  await expect(commandPalette.locator("footer")).toContainText("Run command");
   await expect(
     commandPalette.getByRole("textbox", { name: "Search", exact: true }),
   ).toBeFocused();
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 480, height: viewport.height });
+  const modeSwitch = (await commandPalette
+    .locator(".palette-modes")
+    .boundingBox())!;
+  const narrowField = (await commandPalette
+    .locator(".palette-input")
+    .boundingBox())!;
+  expect(modeSwitch.y).toBeGreaterThan(narrowField.y + narrowField.height);
+  await page.setViewportSize(viewport);
   await commandPalette
     .getByRole("textbox", { name: "Search", exact: true })
     .fill("Toggle sidebar");
