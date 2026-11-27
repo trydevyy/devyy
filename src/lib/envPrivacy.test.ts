@@ -1,8 +1,8 @@
 import { Text } from "@codemirror/state";
 import { expect, it } from "vitest";
-import { envSecrets, isEnvFile } from "./envPrivacy";
+import { envValueRanges, isEnvFile } from "./envPrivacy";
 
-it("masks secret names and recognizable values without including comments or quotes", () => {
+it("matches every assigned value without including comments or quotes", () => {
   const lines = [
     "# API_KEY=no",
     "PORT=5000",
@@ -21,13 +21,18 @@ it("masks secret names and recognizable values without including comments or quo
   ];
   const doc = Text.of(lines);
   expect(
-    envSecrets(doc).map(({ from, to }) => doc.sliceString(from, to)),
+    envValueRanges(doc).map(({ from, to }) => doc.sliceString(from, to)),
   ).toEqual([
+    "5000",
     "abc#def",
     "postgres://local/example",
     "test-id",
+    "16",
+    "ordinary",
+    "public",
     "postgres://user:example@localhost/db",
     "line one\nline two\nline three",
+    "true",
   ]);
 });
 

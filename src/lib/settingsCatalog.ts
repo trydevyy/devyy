@@ -405,8 +405,8 @@ export const controls: SettingControl[] = [
   ...switches("editor", "Privacy", [
     [
       "blurEnvSecrets",
-      "Blur sensitive .env values",
-      "Hide likely secrets in the editor. Click a value to reveal or hide it.",
+      "Blur .env values",
+      "Hide all dotenv values in the editor. Click a value or use the editor toolbar to reveal them.",
       "dotenv API key password secret privacy mask",
     ],
   ]),

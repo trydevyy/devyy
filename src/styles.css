@@ -16307,24 +16307,25 @@ dialog.devyy-modal::backdrop,
   padding-block: 8px;
 }
 
-.cm-env-secret {
+.cm-env-value {
   cursor: pointer;
   filter: blur(5px);
+  clip-path: inset(-3px -2px -3px 0);
 }
-.cm-env-secret-revealed {
+.cm-env-value-revealed {
   filter: blur(0);
-  animation: env-secret-reveal var(--enter-duration) var(--ease);
+  animation: env-value-reveal var(--enter-duration) var(--ease);
 }
-@keyframes env-secret-reveal {
+@keyframes env-value-reveal {
   from {
     filter: blur(5px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cm-env-secret-revealed {
+  .cm-env-value-revealed {
     animation: none;
   }
 }
-:root[data-motion="reduced"] .cm-env-secret-revealed {
+:root[data-motion="reduced"] .cm-env-value-revealed {
   animation: none;
 }

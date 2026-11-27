@@ -595,19 +595,24 @@ test("dotenv privacy masks individual values by default and can be switched off"
     .locator(".editor-document.visible .cm-content")
     .fill("API_KEY=example-one\nDB_PASSWORD=example-two\nPORT=3000");
   const editor = page.locator(".editor-document.visible");
-  const secrets = editor.locator(".cm-env-secret");
-  await expect(secrets).toHaveText(["example-one", "example-two"]);
+  const secrets = editor.locator(".cm-env-value");
+  await expect(secrets).toHaveText(["example-one", "example-two", "3000"]);
   await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
   await secrets.first().click();
-  await expect(secrets.first()).toHaveClass(/cm-env-secret-revealed/);
+  await expect(secrets.first()).toHaveClass(/cm-env-value-revealed/);
   await expect(secrets.nth(1)).toHaveCSS("filter", "blur(5px)");
   await secrets.first().click();
   await expect(secrets.first()).toHaveCSS("filter", "blur(5px)");
+  const revealAll = page.getByRole("button", {
+    name: "Reveal all .env values",
+  });
+  await revealAll.click();
+  await expect(secrets).toHaveCount(0);
+  await page.getByRole("button", { name: "Hide all .env values" }).click();
+  await expect(secrets).toHaveCount(3);
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await page.getByRole("tab", { name: "Editor", exact: true }).click();
-  await page
-    .getByRole("switch", { name: "Blur sensitive .env values" })
-    .click();
+  await page.getByRole("switch", { name: "Blur .env values" }).click();
   await expect(secrets).toHaveCount(0);
   await expect(editor.locator(".cm-content")).toContainText("example-two");
 });
