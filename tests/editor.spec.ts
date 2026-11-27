@@ -56,12 +56,28 @@ test("the light file tree keeps Material language icons", async ({ page }) => {
   await page.goto("/?playground=1");
   const icon = page
     .getByRole("button", { name: "lib.rs", exact: true })
-    .locator(".compact-file-icon");
-  await expect(icon).toHaveCSS("background-image", /file-icons\/rust\.svg/);
+    .locator(".compact-file-icon img:visible");
+  await expect(icon).toHaveAttribute("src", /file-icons\/rust\.svg/);
+  await expect(icon).toHaveAttribute("loading", "eager");
+  await expect(icon).toHaveJSProperty("complete", true);
+  const image = await icon.elementHandle();
+  await page.getByRole("button", { name: "lib.rs", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "lib.rs" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    await icon.evaluate((node, original) => node === original, image),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Close lib.rs", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "lib.rs" })).toHaveCount(0);
+  expect(
+    await icon.evaluate((node, original) => node === original, image),
+  ).toBe(true);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "paper";
   });
-  await expect(icon).toHaveCSS("background-image", /file-icons\/rust\.svg/);
+  await expect(icon).toHaveAttribute("src", /file-icons\/rust\.svg/);
 });
 
 test("file palette, workspace search, split, preferences and keyboard flow", async ({

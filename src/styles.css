@@ -713,8 +713,8 @@ a {
 }
 
 .tree-row[data-ignored]:not(:is(:hover, [data-current], [data-multi-selected]))
-  .tree-file {
-  opacity: 0.68;
+  .filename {
+  color: color-mix(in srgb, currentColor 68%, var(--shell));
 }
 
 .tree-row:hover {
@@ -9366,12 +9366,6 @@ body {
   position: relative;
   flex-shrink: 0;
   vertical-align: middle;
-}
-.compact-file-icon {
-  background: var(--file-dark) center / contain no-repeat;
-}
-:root[data-theme="paper"] .compact-file-icon {
-  background-image: var(--file-light);
 }
 .material-file-icon img {
   display: block;

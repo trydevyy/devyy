@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { memo, type CSSProperties } from "react";
+import { memo } from "react";
 import manifest from "../lib/generated/file-icons.json";
 import { language } from "../lib/types";
 export type IconTheme = {
@@ -81,34 +81,20 @@ export default memo(function FileIcon({
   const icons = manifest.icons as Record<string, string>,
     src = (id: string) =>
       `${import.meta.env.BASE_URL}file-icons/${icons[id] ?? icons.file}`;
-  // The tree already limits mounted rows. Paint one icon per row without
-  // asking the browser to schedule lazy image loads as the window moves.
-  if (compact) {
-    const style = {
-      width: size,
-      height: size,
-      "--file-dark": `url("${src(dark)}")`,
-      "--file-light": `url("${src(light)}")`,
-    } as CSSProperties;
-    return (
-      <span
-        className="file-icon material-file-icon compact-file-icon"
-        style={style}
-        aria-hidden="true"
-      />
-    );
-  }
+  // Virtualized tree rows already bound the number of images on screen.
+  const loading = compact ? "eager" : "lazy";
+  const decoding = compact ? "sync" : "async";
   return (
     <span
-      className="file-icon material-file-icon"
+      className={`file-icon material-file-icon${compact ? " compact-file-icon" : ""}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
       <img
         className={light === dark ? "" : "file-icon-dark"}
         src={src(dark)}
-        loading="lazy"
-        decoding="async"
+        loading={loading}
+        decoding={decoding}
         width={size}
         height={size}
         alt=""
@@ -118,8 +104,8 @@ export default memo(function FileIcon({
         <img
           className="file-icon-light"
           src={src(light)}
-          loading="lazy"
-          decoding="async"
+          loading={loading}
+          decoding={decoding}
           width={size}
           height={size}
           alt=""
