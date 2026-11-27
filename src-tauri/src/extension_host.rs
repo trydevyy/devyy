@@ -179,6 +179,11 @@ fn start(
     )
     .map_err(|e| e.to_string())?;
     let mut command = crate::process::background_command(&node.to_string_lossy());
+    // System Node and the tools it starts need the host's shared libraries.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some() {
+        command.env_remove("LD_LIBRARY_PATH");
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

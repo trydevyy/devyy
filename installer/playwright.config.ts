@@ -11,10 +11,11 @@ export default defineConfig({
     viewport: { width: 820, height: 620 },
   },
   webServer: {
+    // Browser tests use mocked desktop APIs and do not need packaging notices.
     command:
       process.platform === "win32"
-        ? "bun run build && bun x vite preview --host 127.0.0.1 --port 1431 --strictPort"
-        : "bun run dev",
+        ? "bun x tsc -b && bun x vite build && bun x vite preview --host 127.0.0.1 --port 1431 --strictPort"
+        : "bun x vite --host 127.0.0.1 --port 1431 --strictPort",
     url: "http://127.0.0.1:1431",
     reuseExistingServer: true,
   },

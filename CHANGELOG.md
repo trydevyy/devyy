@@ -29,6 +29,8 @@ Devyy starts and scrolls more smoothly, with a redesigned Settings and setup exp
 - Devyy can download, verify, and apply supported desktop updates, then restart. The updater checks platform-specific SHA-256 manifests when the combined manifest lacks the asset.
 - Linux downloads use the editor AppImage directly, with Debian packages also available. Windows keeps its custom installer, and macOS uses a drag-to-Applications disk image.
 - Desktop CI scopes checks to changed files and reuses Rust dependencies. Release tests run alongside packaging and still gate publication. Intel macOS packages are built on Apple silicon and checked for the correct architecture.
+- Installer browser tests start without generated release notices, including on clean CI runners.
+- Linux AppImages launch the Node extension host with system libraries, fixing startup failures that prevented extensions such as rust-analyzer from activating.
 
 ### Dependency security
 
