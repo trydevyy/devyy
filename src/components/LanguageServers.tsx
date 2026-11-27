@@ -22,7 +22,8 @@ import { toast } from "sonner";
 import { LanguageIcon } from "./FileIcon";
 import { native } from "../lib/native";
 import {
-  refreshLanguageServers,
+  readLanguageServers,
+  configuredServersCache,
   saveServer,
   type ServerConfig,
 } from "../lib/languageServers";
@@ -36,19 +37,23 @@ const empty: ServerConfig = {
   custom: true,
 };
 export default function LanguageServers() {
-  const [servers, setServers] = useState<ServerConfig[]>([]);
+  const [servers, setServers] = useState<ServerConfig[]>(
+    () => configuredServersCache.peek("") ?? [],
+  );
   const [edit, setEdit] = useState<ServerConfig | null>(null);
   const [args, setArgs] = useState("[]");
   const [options, setOptions] = useState("{}");
   const [config, setConfig] = useState("{}");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(native);
+  const [pending, setPending] = useState(
+    () => native && configuredServersCache.peek("") === undefined,
+  );
   const [error, setError] = useState("");
   useEffect(() => {
     let current = true;
     function refresh() {
-      void refreshLanguageServers()
+      void readLanguageServers()
         .then((servers) => {
           if (current) setServers(servers);
         })
@@ -89,7 +94,7 @@ export default function LanguageServers() {
         initializationOptions: JSON.parse(options),
         settings: JSON.parse(config),
       });
-      setServers(await refreshLanguageServers());
+      setServers(await readLanguageServers());
       setEdit(null);
       toast.success("Language server saved");
     } catch (e) {
@@ -278,7 +283,7 @@ export default function LanguageServers() {
                     aria-label={`Reset ${server.language} server`}
                     onClick={() => {
                       void saveServer(server.language, null)
-                        .then(() => refreshLanguageServers())
+                        .then(() => readLanguageServers())
                         .then(setServers)
                         .catch((e) => setError(String(e)));
                     }}

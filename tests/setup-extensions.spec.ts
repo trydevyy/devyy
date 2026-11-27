@@ -267,12 +267,20 @@ test("settings catalogs keep their card layouts while responses are pending", as
       release = resolve;
     });
     Reflect.set(window, "releaseCatalogs", release);
+    Reflect.set(window, "extensionSearchCalls", 0);
     ipc.invoke = async (command: string, args: unknown) => {
       if (command === "store_catalog") {
         await pending;
         return [];
       }
-      if (command === "search_extensions") await pending;
+      if (command === "search_extensions") {
+        Reflect.set(
+          window,
+          "extensionSearchCalls",
+          Reflect.get(window, "extensionSearchCalls") + 1,
+        );
+        await pending;
+      }
       return invoke(command, args);
     };
   });
@@ -297,6 +305,17 @@ test("settings catalogs keep their card layouts while responses are pending", as
   await expect(
     settings.getByText("Fixture language", { exact: true }),
   ).toBeVisible();
+  const calls = await page.evaluate(() =>
+    Reflect.get(window, "extensionSearchCalls"),
+  );
+  await settings.getByRole("tab", { name: "Themes", exact: true }).click();
+  await settings.getByRole("tab", { name: "Extensions", exact: true }).click();
+  await expect(
+    settings.getByText("Fixture language", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => Reflect.get(window, "extensionSearchCalls")),
+  ).toBe(calls);
 });
 
 test("Open VSX install activates grammar, snippets and theme and can disable the extension", async ({

@@ -1,3 +1,5 @@
+import { installedThemesCache, themeCatalogCache } from "../lib/catalogCache";
+import { useCachedRead } from "../lib/useCachedRead";
 import { useEffect, useState } from "react";
 import Skeleton from "./ui/Skeleton";
 import {
@@ -50,31 +52,33 @@ export default function ThemeStore({
   const active = useStoreTheme();
   const installing = useStoreInstallId("theme");
   const [tab, setTab] = useState<"browse" | "installed">("browse");
-  const [installed, setInstalled] = useState<StoreTheme[]>([]);
-  const [loadingInstalled, setLoadingInstalled] = useState(native);
-  const [remote, setRemote] = useState<StoreThemeSummary[]>([]);
+  const [installed, setInstalled] = useState<StoreTheme[]>(() =>
+    native ? (installedThemesCache.peek("") ?? []) : [],
+  );
+  const [loadingInstalled, setLoadingInstalled] = useState(
+    () => native && installedThemesCache.peek("") === undefined,
+  );
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(native);
-  const [catalogError, setCatalogError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<StoreTheme | StoreThemeSummary>();
 
   useEffect(() => {
     if (!native) return;
     let current = true;
+    let request = 0;
     function refresh() {
+      const id = ++request;
       void installedThemes().then(
         (themes) => {
-          if (current) {
+          if (current && id === request) {
             setInstalled(themes);
             setLoadingInstalled(false);
           }
         },
         (error) => {
-          if (current) {
+          if (current && id === request) {
             setActionError(String(error));
             setLoadingInstalled(false);
           }
@@ -90,33 +94,18 @@ export default function ThemeStore({
   }, []);
 
   const search = query.trim();
-  useEffect(() => {
-    if (!native || tab !== "browse") return;
-    let current = true;
-    setLoading(true);
-    setCatalogError("");
-    setRemote([]);
-    const timer = window.setTimeout(
-      () => {
-        void themeCatalog(search, offset)
-          .then((themes) => {
-            if (current) setRemote(themes);
-          })
-          .catch((error) => {
-            if (current) setCatalogError(String(error));
-          })
-          .finally(() => {
-            if (current) setLoading(false);
-          });
-      },
-      search ? 180 : 0,
-    );
-    return () => {
-      window.clearTimeout(timer);
-      current = false;
-    };
-  }, [search, offset, tab, retry]);
-
+  const {
+    data,
+    loading,
+    error: catalogError,
+    retry,
+  } = useCachedRead(
+    themeCatalogCache,
+    JSON.stringify([search, offset]),
+    () => themeCatalog(search, offset),
+    { enabled: native && tab === "browse", delay: search ? 180 : 0 },
+  );
+  const remote = data ?? [];
   const defaults = filterThemes(defaultStoreThemes, search);
   const downloaded = filterThemes(installed, search);
   const themes =
@@ -241,10 +230,7 @@ export default function ThemeStore({
           <p className="settings-note" role="status">
             {catalogError}
           </p>
-          <button
-            className="setting-action"
-            onClick={() => setRetry((value) => value + 1)}
-          >
+          <button className="setting-action" onClick={retry}>
             Try again
           </button>
         </div>

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { createReadCache } from "./readCache";
 import { invoke, native, clearLanguageServers } from "./native";
 export interface ServerConfig {
   language: string;
@@ -46,7 +47,17 @@ export let serverLanguages = new Set([
   "lua",
   "toml",
 ]);
-export async function refreshLanguageServers() {
+export const configuredServersCache = createReadCache<ServerConfig[]>({
+  ttl: 30_000,
+  limit: 1,
+});
+export function refreshLanguageServers() {
+  return configuredServersCache.read("", loadLanguageServers, true);
+}
+export function readLanguageServers() {
+  return configuredServersCache.read("", loadLanguageServers);
+}
+async function loadLanguageServers() {
   const servers = native
     ? await invoke<ServerConfig[]>("list_language_servers")
     : [];
@@ -61,6 +72,7 @@ export async function saveServer(
   config: ServerConfig | null,
 ) {
   await invoke("save_language_server", { language, config });
+  configuredServersCache.invalidate("");
   await invoke("lsp_stop");
   clearLanguageServers();
   await refreshLanguageServers();

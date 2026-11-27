@@ -1,3 +1,4 @@
+import { themeDetailsCache } from "../lib/catalogCache";
 import { NativeModal, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { InstallProgress } from "./ExtensionProgress";
 import Skeleton from "./ui/Skeleton";
@@ -28,7 +29,9 @@ export default function ThemeStorePreview({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [theme, setTheme] = useState("manifest" in entry ? entry : undefined);
+  const [theme, setTheme] = useState(() =>
+    "manifest" in entry ? entry : themeDetailsCache.peek(entry.id),
+  );
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
@@ -37,7 +40,8 @@ export default function ThemeStorePreview({
   useEffect(() => {
     if ("manifest" in entry) return;
     let current = true;
-    void storeThemeDetails(entry.id)
+    setError("");
+    void storeThemeDetails(entry.id, retry > 0)
       .then((detail) => {
         if (current) setTheme(detail);
       })

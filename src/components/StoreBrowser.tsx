@@ -1,4 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { languageCatalogCache } from "../lib/catalogCache";
+import { useCachedRead } from "../lib/useCachedRead";
+import { useState, type ReactNode } from "react";
 import Skeleton from "./ui/Skeleton";
 import { ArrowUpRight, Download, Search, Plug } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -7,7 +9,6 @@ import {
   languageCatalog,
   useStoreInstallId,
   storeOrigin,
-  type StoreLanguage,
 } from "../lib/store";
 import { InstallProgress } from "./ExtensionProgress";
 import { native } from "../lib/native";
@@ -22,31 +23,19 @@ export default function StoreBrowser({
   const [tab, setTab] = useState<"browse" | "local">("browse");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const [languages, setLanguages] = useState<StoreLanguage[]>([]);
-  const [loading, setLoading] = useState(native);
-  const [error, setError] = useState("");
+  const [actionError, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [retry, setRetry] = useState(0);
   const installing = useStoreInstallId("language");
-  useEffect(() => {
-    if (!native) return;
-    let current = true;
-    setLoading(true);
-    setError("");
-    void languageCatalog()
-      .then((items) => {
-        if (current) setLanguages(items);
-      })
-      .catch((cause) => {
-        if (current) setError(String(cause));
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [retry]);
+  const {
+    data,
+    loading,
+    error: catalogError,
+    retry,
+  } = useCachedRead(languageCatalogCache, "", languageCatalog, {
+    enabled: native && tab === "browse",
+  });
+  const languages = data ?? [];
+  const error = actionError || catalogError;
 
   const matching = languages.filter((item) =>
     `${item.name} ${item.languages.join(" ")}`
@@ -126,10 +115,7 @@ export default function StoreBrowser({
             />
           </label>
           {error && (
-            <button
-              className="setting-action"
-              onClick={() => setRetry((value) => value + 1)}
-            >
+            <button className="setting-action" onClick={retry}>
               Try again
             </button>
           )}

@@ -16,7 +16,7 @@
 import Skeleton from "./ui/Skeleton";
 import { writeClipboardText } from "../lib/clipboard";
 import ErrorToast from "./ui/ErrorToast";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Blocks,
   Check,
@@ -42,8 +42,13 @@ import {
   capabilities,
   refreshExtensions,
   useExtensions,
-  type RegistryExtension,
+  initializeExtensions,
 } from "../lib/extensions";
+import {
+  extensionCatalogCache,
+  loadExtensionCatalog,
+} from "../lib/catalogCache";
+import { useCachedRead } from "../lib/useCachedRead";
 export default function ExtensionManager({
   suggested = [],
 }: {
@@ -53,20 +58,30 @@ export default function ExtensionManager({
   const host = useExtensionHost();
   const [tab, setTab] = useState<"browse" | "installed">("browse");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<RegistryExtension[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [localBusy, setBusy] = useState<{ id: string; command: string }>();
   const installId = useExtensionInstallId();
   const busy = localBusy?.id || installId;
-  const [loading, setLoading] = useState(native);
   const [installedPending, setInstalledPending] = useState(native);
-  const [error, setError] = useState("");
-  const [retry, setRetry] = useState(0);
-  const sequence = useRef(0);
+  const [localError, setError] = useState("");
+  const search = query.trim();
+  const {
+    data,
+    loading,
+    error: catalogError,
+    retry,
+  } = useCachedRead(
+    extensionCatalogCache,
+    JSON.stringify([search, offset]),
+    () => loadExtensionCatalog(search, offset),
+    { enabled: native && tab === "browse", delay: 220 },
+  );
+  const results = data?.extensions ?? [];
+  const total = data?.totalSize ?? 0;
+  const error = localError || catalogError;
   useEffect(() => {
     let current = true;
-    void refreshExtensions()
+    void initializeExtensions()
       .catch((e) => {
         if (current) setError(String(e));
       })
@@ -77,34 +92,7 @@ export default function ExtensionManager({
       current = false;
     };
   }, []);
-  useEffect(() => {
-    if (tab !== "browse" || !native) return;
-    const current = ++sequence.current;
-    setLoading(true);
-    setError("");
-    const timer = setTimeout(() => {
-      void invoke<{ extensions: RegistryExtension[]; totalSize: number }>(
-        "search_extensions",
-        { query, offset },
-      )
-        .then((data) => {
-          if (current === sequence.current) {
-            setResults(data.extensions ?? []);
-            setTotal(data.totalSize ?? 0);
-          }
-        })
-        .catch((e) => {
-          if (current === sequence.current) setError(String(e));
-        })
-        .finally(() => {
-          if (current === sequence.current) setLoading(false);
-        });
-    }, 220);
-    return () => {
-      clearTimeout(timer);
-      sequence.current++;
-    };
-  }, [query, tab, offset, retry]);
+
   async function action(
     id: string,
     command: string,
@@ -240,16 +228,17 @@ export default function ExtensionManager({
       ) : error ? (
         <div className="extensions-error" role="status">
           <ErrorToast message={error} />
-          <p>Could not load extensions.</p>
-          <button
-            className="setting-action"
-            onClick={() => setRetry((n) => n + 1)}
-          >
+          <p>
+            {data
+              ? "Could not refresh extensions."
+              : "Could not load extensions."}
+          </p>
+          <button className="setting-action" onClick={retry}>
             <RefreshCw size={13} /> Try again
           </button>
         </div>
       ) : null}
-      {tab === "browse" && native && !error && (
+      {tab === "browse" && native && (!catalogError || !!data) && (
         <div
           className={`extensions-list extension-catalog ${loading ? "is-loading" : ""}`}
           aria-busy={loading}
@@ -318,7 +307,7 @@ export default function ExtensionManager({
               </article>
             );
           })}
-          {!results.length && !loading && (
+          {!results.length && !loading && !catalogError && (
             <p className="muted">
               No extensions found. Try a language or publisher.
             </p>

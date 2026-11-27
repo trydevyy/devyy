@@ -1,3 +1,4 @@
+import { installedThemesCache, themeDetailsCache } from "./catalogCache";
 import defaults from "./default-themes.json";
 import { useSyncExternalStore } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
@@ -116,6 +117,7 @@ export function subscribeInstalled(listener: () => void) {
   };
 }
 function changedInstalled() {
+  installedThemesCache.invalidate("");
   for (const listener of installedListeners) listener();
 }
 function subscribe(listener: () => void) {
@@ -165,7 +167,10 @@ export async function restoreStoreTheme() {
     if (current === revision) activateStoreTheme(undefined);
   }
 }
-export async function installedThemes() {
+export function installedThemes() {
+  return installedThemesCache.read("", loadInstalledThemes);
+}
+async function loadInstalledThemes() {
   const ids = await invoke<string[]>("store_installed_themes");
   const themes = await Promise.allSettled(
     ids
@@ -219,8 +224,12 @@ export async function installStoreTheme(id: string) {
   });
 }
 
-export function storeThemeDetails(id: string) {
-  return invoke<StoreTheme>("store_theme_details", { id });
+export function storeThemeDetails(id: string, force = false) {
+  return themeDetailsCache.read(
+    id,
+    () => invoke<StoreTheme>("store_theme_details", { id }),
+    force,
+  );
 }
 
 export function languageCatalog() {

@@ -13,10 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { createReadCache } from "../lib/readCache";
+import { useCachedRead } from "../lib/useCachedRead";
 import Skeleton from "./ui/Skeleton";
 import ErrorToast from "./ui/ErrorToast";
 import DisclosureSummary from "./ui/DisclosureSummary";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, Search } from "lucide-react";
 import DevyyLogo from "./DevyyLogo";
@@ -88,23 +90,16 @@ function Entry({
     </details>
   );
 }
+const noticesCache = createReadCache<Notices>({ ttl: Infinity, limit: 1 });
+async function loadNotices() {
+  const response = await fetch("/third-party-licenses.json");
+  if (!response.ok) throw Error("Could not load license notices");
+  return response.json() as Promise<Notices>;
+}
+
 export default function Credits() {
-  const [notices, setNotices] = useState<Notices>(),
-    [error, setError] = useState(""),
-    [query, setQuery] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/third-party-licenses.json", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw Error("Could not load license notices");
-        return response.json() as Promise<Notices>;
-      })
-      .then(setNotices)
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(String(error));
-      });
-    return () => controller.abort();
-  }, []);
+  const { data: notices, error } = useCachedRead(noticesCache, "", loadNotices);
+  const [query, setQuery] = useState("");
   return (
     <section className="credits" aria-label="Open source credits">
       {error && <ErrorToast message={error} />}
