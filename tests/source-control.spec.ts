@@ -16,13 +16,19 @@
 import { chooseOption } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
-async function repository(page: Page, includeSubmodules = false) {
-  await page.addInitScript((includeSubmodules) => {
+async function repository(
+  page: Page,
+  includeSubmodules = false,
+  { initialBranch = "main", root = "/work/project" } = {},
+) {
+  const fixture = { includeSubmodules, initialBranch, root };
+  await page.addInitScript((fixture) => {
+    const { includeSubmodules, initialBranch, root } = fixture;
     let callback = 0;
     const calls: { command: string; args: Record<string, unknown> }[] = [];
-    let branch = "main",
+    let branch = initialBranch,
       moduleBranch = "main";
-    let branchNames = ["main", "feature"];
+    let branchNames = [initialBranch, "feature"];
     let moduleChanges = [
       { path: "packages/shared/lib.rs", index: " ", worktree: "M" },
     ];
@@ -53,7 +59,7 @@ async function repository(page: Page, includeSubmodules = false) {
       { path: "new.txt", index: "?", worktree: "?" },
     ];
     const workspace = {
-      root: "/work/project",
+      root,
       name: "Project",
       files: [
         { path: "main.rs", name: "main.rs", directory: false },
@@ -261,7 +267,7 @@ async function repository(page: Page, includeSubmodules = false) {
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
     });
-  }, includeSubmodules);
+  }, fixture);
   await page.goto("/?playground=1");
   await page.locator(".project-title").click();
   await page
@@ -272,8 +278,57 @@ async function repository(page: Page, includeSubmodules = false) {
     .click();
   await expect(
     page.getByRole("combobox", { name: "Current Git branch", exact: true }),
-  ).toHaveAttribute("data-value", "main");
+  ).toHaveAttribute("data-value", initialBranch);
 }
+
+test("Source Control and branch labels fit a narrow Windows workspace", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "platform", { get: () => "Win32" }),
+  );
+  await page.setViewportSize({ width: 860, height: 740 });
+  const branch = `feature/${"long-branch-name-".repeat(10)}example`;
+  const name = "devyy-workspace-with-a-long-repository-name";
+  await repository(page, true, {
+    initialBranch: branch,
+    root: `C:\\Users\\Developer\\Documents\\Projects\\${name}`,
+  });
+  const sidebar = page.locator(".sidebar-content").filter({
+    has: page.getByRole("tablist", { name: "Source Control sections" }),
+  });
+  const picker = sidebar.getByRole("combobox", {
+    name: "Source Control repository",
+  });
+  await expect(picker).toHaveText(name);
+  const resize = page.getByRole("separator", { name: "Resize sidebar" });
+  await resize.press("Shift+ArrowLeft");
+  await resize.press("Shift+ArrowLeft");
+  await expect(resize).toHaveAttribute("aria-valuenow", "160");
+  for (const tab of [/^Changes/, "History", "Repositories"]) {
+    await sidebar.getByRole("tab", { name: tab }).click();
+    await expect
+      .poll(() =>
+        sidebar.evaluate((node) => node.scrollWidth - node.clientWidth),
+      )
+      .toBe(0);
+  }
+  for (const className of ["header-branch", "status-branch"]) {
+    const button = page.locator(`.${className}`);
+    const label = button.locator("span");
+    await expect(button).toHaveAttribute("title", `Source control: ${branch}`);
+    await expect(label).toHaveCSS("text-overflow", "ellipsis");
+    expect(
+      await label.evaluate((node) => node.scrollWidth > node.clientWidth),
+    ).toBe(true);
+  }
+  const search = await page.locator(".quick-search").boundingBox();
+  const headerBranch = await page.locator(".header-branch").boundingBox();
+  expect(headerBranch!.x).toBeGreaterThan(search!.x + search!.width);
+  await expect(
+    page.getByRole("button", { name: "Toggle focus mode" }),
+  ).toBeInViewport();
+});
 
 test("source control opens highlighted visual diffs and preserves editor buffers", async ({
   page,

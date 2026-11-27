@@ -138,7 +138,7 @@ export const defaults: Settings = {
   extensionTheme: "",
   followSystemTheme: false,
   fontSize: 15,
-  uiScale: 105,
+  uiScale: 100,
   uiTextSize: 13,
   aiCompletions: false,
   aiPanelOnDrag: true,

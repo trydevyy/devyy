@@ -15,6 +15,39 @@
 
 import { test, expect } from "@playwright/test";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
+test("the Settings dialog stays mounted when its placeholders load", async ({
+  page,
+}) => {
+  let releaseSettings!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    releaseSettings = resolve;
+  });
+  await page.route(
+    /\/src\/components\/Preferences\.tsx(?:\?|$)/,
+    async (route) => {
+      await pending;
+      await route.continue();
+    },
+  );
+  await page.goto("/?playground=1");
+  await page.keyboard.press(`${mod}+,`);
+  const dialog = page.getByRole("dialog", { name: "Preferences", exact: true });
+  try {
+    await expect(dialog.getByLabel("Loading settings")).toBeVisible();
+    await dialog.evaluate((node) => {
+      node.setAttribute("data-test-original-dialog", "");
+      node.parentElement!.setAttribute("data-test-original-backdrop", "");
+    });
+  } finally {
+    releaseSettings();
+  }
+  await expect(dialog.getByRole("tab", { name: "Appearance" })).toBeVisible();
+  await expect(dialog.getByLabel("Loading settings")).toHaveCount(0);
+  await expect(
+    page.locator("[data-test-original-backdrop] > [data-test-original-dialog]"),
+  ).toBeVisible();
+});
+
 test("color wheel adjusts hue, saturation and brightness and saves the selection", async ({
   page,
 }) => {
@@ -46,7 +79,7 @@ test("settings pages reverse direction with progressive blur and modals animate 
   await page.goto("/?playground=1");
   await page.keyboard.press(`${mod}+,`);
   const modal = page.getByRole("dialog", { name: "Preferences", exact: true });
-  await expect(modal).toBeVisible();
+  await expect(modal.getByRole("tab", { name: "Appearance" })).toBeVisible();
   for (const [category, destination] of [
     ["Editor", "Font size"],
     ["Appearance", "Custom accent color"],

@@ -59,7 +59,7 @@ test("interface text and scale persist independently of editor text", async ({
     await page.evaluate(() =>
       JSON.parse(localStorage.getItem("devyy.settings")!),
     ),
-  ).toMatchObject({ uiTextSize: 16, uiScale: 125, fontSize: 15 });
+  ).toMatchObject({ uiTextSize: 16, uiScale: 120, fontSize: 15 });
 });
 
 test("workspace dropdown lists recent folders and find buttons use proper SVG icons", async ({

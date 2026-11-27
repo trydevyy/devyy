@@ -76,7 +76,6 @@ function parseStatusText(text: string) {
   const regex = /\$\(([^)]+)\)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  let key = 0;
   let hasSpin = false;
 
   while ((match = regex.exec(text)) !== null) {
@@ -91,7 +90,7 @@ function parseStatusText(text: string) {
     ) {
       hasSpin = true;
     }
-    const iconNode = renderCodicon(iconName, key++);
+    const iconNode = renderCodicon(iconName, parts.length);
     if (iconNode) {
       parts.push(iconNode);
     }
@@ -178,7 +177,13 @@ export default function ExtensionStatusItems() {
                   {shouldShowBusySpin && (
                     <LoaderCircle size={12} className="spinning" />
                   )}
-                  {parts}
+                  {parts.map((part, index) =>
+                    typeof part === "string" ? (
+                      <span key={index}>{part}</span>
+                    ) : (
+                      part
+                    ),
+                  )}
                   {item.detail && (
                     <span className="extension-status-detail">
                       {item.detail}

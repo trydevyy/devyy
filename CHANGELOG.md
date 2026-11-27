@@ -10,10 +10,12 @@ Devyy starts and scrolls more smoothly, with a redesigned Settings and setup exp
 - Create files or folders with nested paths in one step. The file tree dims Git-ignored entries and uses Material file icons in light themes.
 - Detect syntax from recognizable file contents when the filename gives no language hint. Added highlighting for 14 languages and formats, including Terraform, Zig, GraphQL, and Mermaid. Code blocks in AI chat, Markdown previews, and editor hover cards now share the editor’s syntax colors.
 - Find pull and push actions in the redesigned Source Control panel, including for submodules.
+- Source Control fits narrow sidebars, and long branch names truncate to fit the title bar and status bar.
 
 ### Settings and setup
 
 - Settings and first-run setup share a sidebar layout. The redesigned Git & GitHub page puts connection status, sign-in, and missing-tool downloads up front, with separate sections for the commit author and repository tools.
+- Settings keeps the same dialog open as the loading placeholders give way to preferences.
 - Dialogs share consistent enter and exit animations and support outside-click dismissal when idle. File search and the command palette have a centered search field and cleaner results.
 - Empty terminal, problems, output, ports, and SSH panels use a consistent layout and show the relevant next action.
 - Custom theme artwork applies to the OS dock or taskbar. The workbench keeps the Devyy mark, and macOS gets a shaped Dock icon from opaque artwork.
@@ -26,6 +28,7 @@ Devyy starts and scrolls more smoothly, with a redesigned Settings and setup exp
 
 ### Desktop updates and releases
 
+- Devyy defaults to 100% interface zoom and uses the webview's default text rendering on Windows and Linux. Saved zoom preferences are preserved.
 - Devyy can download, verify, and apply supported desktop updates, then restart. The updater checks platform-specific SHA-256 manifests when the combined manifest lacks the asset.
 - Linux downloads use the editor AppImage directly, with Debian packages also available. Windows keeps its custom installer, and macOS uses a drag-to-Applications disk image.
 - Desktop CI scopes checks to changed files and reuses Rust dependencies. Release tests run alongside packaging and still gate publication. Intel macOS packages are built on Apple silicon and checked for the correct architecture.

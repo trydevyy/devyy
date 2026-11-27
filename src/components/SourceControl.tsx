@@ -256,6 +256,7 @@ export default function SourceControl({
       </section>
     );
   }
+  const repositoryName = root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
   return (
     <div className="source-control">
       <header className="scm-repository">
@@ -264,11 +265,12 @@ export default function SourceControl({
             <span>Repository</span>
             <Select
               aria-label="Source Control repository"
+              title={repository || root}
               value={repository}
               disabled={busy}
               onChange={(event) => onRepository(event.target.value)}
             >
-              <option value="">{filename(root)}</option>
+              <option value="">{repositoryName}</option>
               {modules
                 .filter((item) => item.initialized && !item.conflict)
                 .map((item) => (
@@ -280,13 +282,14 @@ export default function SourceControl({
           </label>
         ) : (
           <strong className="scm-repository-name" title={root}>
-            {filename(root)}
+            {repositoryName}
           </strong>
         )}
         <div className="branch-card">
           <GitBranch size={15} />
           <Select
             aria-label="Current Git branch"
+            title={state.branch}
             value={state.branch}
             disabled={busy}
             onChange={(event) => onSwitch(event.target.value)}
@@ -412,11 +415,13 @@ export default function SourceControl({
               ) : (
                 <Check size={14} />
               )}
-              {primaryAction === "pull"
-                ? `Pull (${incoming})`
-                : primaryAction === "push"
-                  ? `Push (${outgoing})`
-                  : "Commit staged changes"}
+              <span>
+                {primaryAction === "pull"
+                  ? `Pull (${incoming})`
+                  : primaryAction === "push"
+                    ? `Push (${outgoing})`
+                    : "Commit staged changes"}
+              </span>
             </button>
             <ActionMenu label="Commit and sync actions">
               <ActionMenuItem disabled={busy || !canCommit} onClick={onCommit}>

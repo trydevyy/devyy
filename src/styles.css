@@ -25,8 +25,6 @@
   color-scheme: dark;
   font-size: calc(13px * var(--ui-text-scale, 1));
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
   --shell: #1b1c1e;
   --shell-rgb: 27, 28, 30;
   --paper: #222325;
@@ -66,6 +64,11 @@
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   color: var(--ink);
   background: transparent;
+}
+
+:root[data-platform="macos"] {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 :root[data-theme="paper"] {
@@ -259,6 +262,7 @@ a {
 }
 
 .titlebar {
+  --titlebar-search-width: min(30vw, 390px);
   height: 54px;
   flex-shrink: 0;
   display: flex;
@@ -380,9 +384,9 @@ a {
 .quick-search {
   /* Anchor to the full window width, independent of either header group. */
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(30vw, 390px);
+  inset: 0;
+  margin: auto;
+  width: var(--titlebar-search-width);
   height: 30px;
   display: flex;
   align-items: center;
@@ -412,6 +416,13 @@ a {
   align-items: center;
   gap: 7px;
   color: var(--muted);
+  min-width: 0;
+  max-width: calc((100vw - var(--titlebar-search-width)) / 2 - 24px);
+}
+
+.window-controls > :not(.header-branch),
+.header-branch > svg {
+  flex-shrink: 0;
 }
 
 .window-controls
@@ -444,6 +455,19 @@ a {
   font-size: calc(11px * var(--ui-text-scale, 1));
   padding: 5px 7px;
   border-radius: 5px;
+  min-width: 27px;
+}
+
+.header-branch > span,
+.status-branch > span,
+.statusbar .saved-status,
+.statusbar .status-encoding,
+.statusbar > div:last-child > button > span,
+.statusbar .extension-status-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-button {
@@ -1768,11 +1792,8 @@ a {
 }
 
 .saved-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   font-size: calc(10px * var(--ui-text-scale, 1));
-  white-space: nowrap;
   color: var(--muted);
 }
 
@@ -3485,16 +3506,8 @@ a {
 }
 
 @media (max-width: 1180px) {
-  .quick-search {
-    width: 27vw;
-  }
-
-  .header-branch {
-    display: none;
-  }
-
-  .window-controls > .title-divider {
-    display: none;
+  .titlebar {
+    --titlebar-search-width: 27vw;
   }
 
   .project-title {
@@ -3526,8 +3539,8 @@ a {
     padding-left: 3px;
   }
 
-  .quick-search {
-    width: 28vw;
+  .titlebar {
+    --titlebar-search-width: 28vw;
   }
 
   .quick-search span {
@@ -3602,12 +3615,16 @@ a {
     width: 18px;
   }
 
-  .quick-search {
-    width: 240px;
+  .titlebar {
+    --titlebar-search-width: 240px;
   }
 
   .window-controls {
     gap: 2px;
+  }
+
+  .window-controls > :is(.header-branch, .title-divider) {
+    display: none;
   }
 
   .main-workspace {
@@ -6888,6 +6905,7 @@ body {
 }
 .scm-repository {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .scm-repository-name {
@@ -6911,7 +6929,7 @@ body {
   font-size: calc(11px * var(--ui-text-scale, 1));
   padding: 4px 6px;
 }
-.source-control .branch-card > .icon-button {
+.source-control .branch-card > :is(svg, .icon-button) {
   flex-shrink: 0;
 }
 .scm-tracking {
@@ -9962,6 +9980,7 @@ body {
 }
 .scm-composer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 7px;
 }
 .scm-composer > label {
@@ -9989,6 +10008,14 @@ body {
   min-width: 0;
   min-height: 30px;
   padding: 6px;
+  white-space: normal;
+}
+.scm-commit-actions .primary > svg {
+  flex-shrink: 0;
+}
+.scm-commit-actions .primary > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .scm-commit-actions > .icon-button {
   flex: none;
@@ -10010,6 +10037,7 @@ body {
 /* Source control has one job per page, with history in its own workbench surface. */
 .scm-pages {
   display: flex;
+  flex-wrap: wrap;
   gap: 3px;
   padding: 4px;
   margin: 12px 0;
@@ -10017,7 +10045,7 @@ body {
   background: var(--hover);
 }
 .scm-pages button {
-  flex: 1;
+  flex: 1 0 auto;
   padding: 7px 4px;
   font-size: calc(10px * var(--ui-text-scale, 1));
   border-radius: 5px;
@@ -12238,18 +12266,23 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   max-width: 48%;
 }
 .statusbar button,
-.statusbar .saved-status,
 .statusbar .status-divider {
   flex-shrink: 0;
 }
-.statusbar button {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.statusbar .extension-status-item {
+.statusbar .status-branch,
+.statusbar .extension-status-item,
+.statusbar .extension-status-message,
+.statusbar > div:last-child > button:not(:last-child) {
   flex-shrink: 1;
-  min-width: 24px;
+  min-width: 0;
+}
+
+.statusbar svg {
+  flex-shrink: 0;
+}
+
+.statusbar .status-branch {
+  min-width: 12px;
 }
 
 .desktop-menu-bar,
@@ -12260,13 +12293,14 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   display: none;
 }
 :root:not([data-platform="macos"]) .titlebar {
+  --titlebar-search-width: clamp(200px, 32vw, 420px);
   gap: 12px;
   padding: 0 0 0 14px;
   position: relative;
 }
 :root:not([data-platform="macos"]) .titlebar-left {
   flex: 1 1 auto;
-  max-width: calc(50% - min(16vw, 210px) - 16px);
+  max-width: calc((100% - var(--titlebar-search-width)) / 2 - 9px);
   min-width: 0;
   gap: 4px;
 }
@@ -12289,14 +12323,7 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   flex-shrink: 0;
 }
 :root:not([data-platform="macos"]) .quick-search {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(32vw, 420px);
-  min-width: 200px;
   height: 30px;
-  margin: 0;
   z-index: 5;
   pointer-events: auto;
 }
@@ -12306,7 +12333,8 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   white-space: nowrap;
 }
 :root:not([data-platform="macos"]) .window-controls {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: calc((100vw - var(--titlebar-search-width)) / 2 - 8px);
   margin-left: auto;
   gap: 4px;
   z-index: 6;
@@ -12386,6 +12414,15 @@ details[open] > .devyy-disclosure-summary > .disclosure-chevron {
   color: white;
 }
 @media (max-width: 1050px) {
+  :root:not([data-platform="macos"]) .titlebar {
+    --titlebar-search-width: clamp(150px, calc(100vw - 700px), 32vw);
+  }
+  :root:not([data-platform="macos"]) .window-controls {
+    gap: 2px;
+  }
+  :root:not([data-platform="macos"]) .titlebar-update-button > span {
+    display: none;
+  }
   :root:not([data-platform="macos"]) .quick-search kbd {
     display: none;
   }

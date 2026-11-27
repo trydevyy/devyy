@@ -15,7 +15,8 @@
 
 import Skeleton from "./components/ui/Skeleton";
 import ModalBackdrop from "./components/ui/ModalBackdrop";
-import { ModalSurface } from "./components/ui/ModalSurface";
+import { ModalSurface, MotionModalSection } from "./components/ui/ModalSurface";
+import { useDialogMotion } from "./lib/motion";
 import { readClipboardText, writeClipboardText } from "./lib/clipboard";
 import {
   DesktopMenuBar,
@@ -52,6 +53,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection } from "@codemirror/state";
@@ -276,6 +278,38 @@ function whenWorkspaceIdle(work: () => void) {
 
 function afterWorkspaceIdle(): Promise<void> {
   return afterWorkspacePaint().then(() => new Promise(whenWorkspaceIdle));
+}
+
+function PreferencesDialog({
+  children,
+  onClose,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  const animation = useDialogMotion();
+  return (
+    <ModalBackdrop
+      className="modal-backdrop preferences-backdrop"
+      onMouseDown={onClose}
+    >
+      <MotionModalSection
+        as="section"
+        {...animation}
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Preferences"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <Suspense
+          fallback={<Skeleton variant="settings" label="Loading settings" />}
+        >
+          {children}
+        </Suspense>
+      </MotionModalSection>
+    </ModalBackdrop>
+  );
 }
 
 export default function App() {
@@ -4852,27 +4886,28 @@ export default function App() {
         )}
         {t.path === "devyy:settings" ? (
           <div className="editor-settings-view">
-            <Suspense
-              fallback={
-                <Skeleton variant="settings" label="Loading settings" />
-              }
-            >
-              <Preferences
-                embedded
-                initialQuery={settingsTabQuery}
-                settings={settings}
-                category={settingsPage}
-                onCategoryChange={setSettingsPage}
-                onInstallUpdate={installUpdate}
-                onSetup={() => {
-                  void closeTab("devyy:settings");
-                  setSetupOpen(true);
-                }}
-                onChange={setSettings}
-                onResetLayout={resetLayout}
-                onClose={() => void closeTab("devyy:settings")}
-              />
-            </Suspense>
+            <section className="settings-view-embedded" aria-label="Settings">
+              <Suspense
+                fallback={
+                  <Skeleton variant="settings" label="Loading settings" />
+                }
+              >
+                <Preferences
+                  initialQuery={settingsTabQuery}
+                  settings={settings}
+                  category={settingsPage}
+                  onCategoryChange={setSettingsPage}
+                  onInstallUpdate={installUpdate}
+                  onSetup={() => {
+                    void closeTab("devyy:settings");
+                    setSetupOpen(true);
+                  }}
+                  onChange={setSettings}
+                  onResetLayout={resetLayout}
+                  onClose={() => void closeTab("devyy:settings")}
+                />
+              </Suspense>
+            </section>
           </div>
         ) : t.webviewId ? (
           <ExtensionWebviews
@@ -4953,6 +4988,7 @@ export default function App() {
   }, [active]);
   const errors = problems.filter((p) => p.severity === 1).length,
     warnings = problems.filter((p) => p.severity === 2).length;
+  const branchName = git?.branch ?? "local";
   return (
     <div
       aria-busy={workspaceScan}
@@ -5180,7 +5216,7 @@ export default function App() {
             <>
               <button
                 className="header-branch"
-                title="Source control"
+                title={`Source control: ${branchName}`}
                 onClick={() => {
                   setSection("git");
                   showSidebar(true);
@@ -5188,7 +5224,7 @@ export default function App() {
                 }}
               >
                 <GitBranch size={13} />
-                <span>{git?.branch ?? "local"}</span>
+                <span>{branchName}</span>
               </button>
               <span className="title-divider" data-tauri-drag-region />
             </>
@@ -6586,6 +6622,8 @@ export default function App() {
               <footer className="statusbar">
                 <div>
                   <button
+                    className="status-branch"
+                    title={`Source control: ${branchName}`}
                     onClick={() => {
                       setSection("git");
                       showSidebar(true);
@@ -6593,7 +6631,7 @@ export default function App() {
                     }}
                   >
                     <GitBranch size={12} />
-                    {git?.branch ?? "local"}
+                    <span>{branchName}</span>
                   </button>
                   <span className="status-divider" />
                   <button
@@ -6625,13 +6663,15 @@ export default function App() {
                           commands.find((c) => c.id === "goto")?.run()
                         }
                       >
-                        Ln {cursor.line}, Col {cursor.col}
+                        <span>
+                          Ln {cursor.line}, Col {cursor.col}
+                        </span>
                       </button>
                       <button
                         title="Indentation preferences"
                         onClick={() => setSettingsOpen(true)}
                       >
-                        Spaces: {settings.tabSize}
+                        <span>Spaces: {settings.tabSize}</span>
                       </button>
                       <span className="status-encoding">UTF-8</span>
                       <span className="status-encoding">
@@ -6644,7 +6684,7 @@ export default function App() {
                         }}
                       >
                         <Braces size={12} />
-                        {tab ? language(tab.path) : "text"}
+                        <span>{language(tab.path)}</span>
                       </button>
                     </>
                   ) : (
@@ -6747,22 +6787,9 @@ export default function App() {
           />
         )}
         {settingsOpen && (
-          <Suspense
+          <PreferencesDialog
             key="preferences"
-            fallback={
-              <ModalBackdrop
-                className="modal-backdrop"
-                onMouseDown={() => setSettingsOpen(false)}
-              >
-                <ModalSurface
-                  className="settings-modal"
-                  role="dialog"
-                  aria-label="Loading settings"
-                >
-                  <Skeleton variant="settings" label="Loading settings" />
-                </ModalSurface>
-              </ModalBackdrop>
-            }
+            onClose={() => setSettingsOpen(false)}
           >
             <Preferences
               settings={settings}
@@ -6777,7 +6804,7 @@ export default function App() {
               onResetLayout={resetLayout}
               onClose={() => setSettingsOpen(false)}
             />
-          </Suspense>
+          </PreferencesDialog>
         )}
         {help && (
           <HelpModal

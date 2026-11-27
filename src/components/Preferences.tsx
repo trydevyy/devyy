@@ -1,4 +1,3 @@
-import { MotionModalSection } from "./ui/ModalSurface";
 import HardwareAcceleration from "./HardwareAcceleration";
 // Copyright (C) 2026 Devyy contributors
 //
@@ -16,7 +15,6 @@ import HardwareAcceleration from "./HardwareAcceleration";
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import AccountSettings from "./AccountSettings";
-import ModalBackdrop from "./ui/ModalBackdrop";
 import Select from "./ui/Select";
 import {
   AnimatePresence,
@@ -24,11 +22,7 @@ import {
   useIsPresent,
   type HTMLMotionProps,
 } from "motion/react";
-import {
-  modalFrameUpdate,
-  useDialogMotion,
-  useSurfaceMotion,
-} from "../lib/motion";
+import { modalFrameUpdate, useSurfaceMotion } from "../lib/motion";
 import {
   useEffect,
   useRef,
@@ -125,7 +119,6 @@ export default function Preferences({
   onCategoryChange,
   onSetup,
   onInstallUpdate,
-  embedded = false,
   initialQuery = "",
 }: {
   settings: Settings;
@@ -136,13 +129,11 @@ export default function Preferences({
   onResetLayout: () => void;
   category: SettingsCategory;
   onCategoryChange: (category: SettingsCategory) => void;
-  embedded?: boolean;
   initialQuery?: string;
 }) {
   const present = useIsPresent();
   const installed = useExtensions();
   const { transition, instant } = useSurfaceMotion();
-  const dialogMotion = useDialogMotion();
   const pageTransition = {
     type: "tween",
     duration: instant ? 0 : 0.18,
@@ -384,7 +375,7 @@ export default function Preferences({
       </button>
     );
   }
-  const body = (
+  return (
     <div className="settings-layout settings-workbench">
       <div className="settings-chrome">
         <div className="settings-identity">
@@ -860,34 +851,5 @@ export default function Preferences({
         </footer>
       </div>
     </div>
-  );
-  if (embedded) {
-    return (
-      <section
-        className="settings-view-embedded"
-        role="region"
-        aria-label="Settings"
-      >
-        {body}
-      </section>
-    );
-  }
-  return (
-    <ModalBackdrop
-      className="modal-backdrop preferences-backdrop"
-      onMouseDown={onClose}
-    >
-      <MotionModalSection
-        as="section"
-        {...dialogMotion}
-        className="settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Preferences"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {body}
-      </MotionModalSection>
-    </ModalBackdrop>
   );
 }
