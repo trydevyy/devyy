@@ -27,21 +27,27 @@ import { X } from "lucide-react";
 type SurfaceTag = "div" | "section" | "form" | "dialog";
 type SurfaceProps<T extends SurfaceTag> = ComponentPropsWithRef<T> & {
   as?: T;
+  entryMotion?: boolean;
 };
 
 export function ModalSurface<T extends SurfaceTag = "div">({
   as,
   className,
+  entryMotion = true,
   ...props
 }: SurfaceProps<T>) {
   return createElement(as ?? "div", {
     ...props,
     className: ["devyy-modal", className].filter(Boolean).join(" "),
+    "data-surface-entry": entryMotion || undefined,
   });
 }
 
-export const MotionModalSurface = motion.create(ModalSurface<"div">);
-export const MotionModalSection = motion.create(ModalSurface<"section">);
+function animatedSurface<T extends SurfaceTag>(props: SurfaceProps<T>) {
+  return <ModalSurface {...props} entryMotion={false} />;
+}
+export const MotionModalSurface = motion.create(animatedSurface<"div">);
+export const MotionModalSection = motion.create(animatedSurface<"section">);
 
 export function NativeModal({
   ref,

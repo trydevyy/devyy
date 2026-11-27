@@ -633,7 +633,7 @@ export default function App() {
       }
       if (
         !(await ask(
-          `Download and install Devyy ${version}? Devyy will restart when the update is ready.`,
+          `Devyy will restart when version ${version} is ready to install.`,
           {
             title: "Install Devyy update",
             confirmLabel: "Install and restart",
@@ -1380,8 +1380,8 @@ export default function App() {
       debugSession.running &&
       !(await ask(
         disconnect
-          ? "Stop debugging and disconnect?"
-          : "Stop debugging and open another folder?",
+          ? "Disconnecting stops the current debug session."
+          : "Opening another folder stops the current debug session.",
         {
           title: "Stop debugging?",
           confirmLabel: disconnect ? "Disconnect" : "Open folder",
@@ -1400,9 +1400,7 @@ export default function App() {
     if (
       dirty.size &&
       !(await ask(
-        disconnect
-          ? "You have unsaved changes. Discard them and disconnect?"
-          : "You have unsaved changes. Discard them and open another folder?",
+        "Your unsaved changes will be discarded.",
         {
           title: disconnect ? "Disconnect from SSH?" : "Open another project?",
           confirmLabel: "Discard changes",
@@ -2649,8 +2647,8 @@ export default function App() {
     if (
       target &&
       (target.content !== target.saved || target.modified === "devyy:new") &&
-      !(await ask(`Discard unsaved changes to ${filename(path)}?`, {
-        title: "Close file?",
+      !(await ask("Your unsaved changes will be discarded.", {
+        title: `Close “${filename(path)}”?`,
         confirmLabel: "Discard changes",
         danger: true,
       }))
@@ -2870,7 +2868,7 @@ export default function App() {
     if (
       (settings.confirmDelete || unsaved) &&
       !(await ask(
-        `${path}\n\n${directory ? "This permanently deletes the folder and everything inside it." : "This permanently deletes the file."}${unsaved ? " Unsaved changes in affected files will be discarded." : ""}`,
+        `${directory ? "This permanently deletes the folder and everything inside it." : "This permanently deletes the file."}${unsaved ? " Unsaved changes in affected files will be discarded." : ""}`,
         {
           title: `Delete ${directory ? "folder" : "file"} “${filename(path)}”?`,
           confirmLabel: directory ? "Delete folder" : "Delete file",
@@ -2941,7 +2939,7 @@ export default function App() {
     if (
       (settings.confirmDelete || unsaved) &&
       !(await ask(
-        `Are you sure you want to permanently delete these ${paths.length} items and their contents?${unsaved ? "\n\nUnsaved changes in affected files will be discarded." : ""}`,
+        `This permanently deletes the selected items and their contents.${unsaved ? " Unsaved changes in affected files will be discarded." : ""}`,
         {
           title: `Delete ${paths.length} items?`,
           confirmLabel: `Delete ${paths.length} items`,
@@ -3136,7 +3134,7 @@ export default function App() {
           confirmingClose = true;
           try {
             if (
-              await ask("Discard unsaved changes and close devyy?", {
+              await ask("Your unsaved changes will be discarded.", {
                 title: "Quit Devyy?",
                 confirmLabel: "Discard and quit",
                 danger: true,
@@ -3551,9 +3549,9 @@ export default function App() {
     if (
       action === "delete" &&
       !(await ask(
-        `Delete ${branch.replace(/^refs\/heads\//, "")}? Git will keep branches with unmerged commits.`,
+        "Git will keep branches with unmerged commits.",
         {
-          title: "Delete branch?",
+          title: `Delete branch “${branch.replace(/^refs\/heads\//, "")}”?`,
           confirmLabel: "Delete branch",
           danger: true,
         },

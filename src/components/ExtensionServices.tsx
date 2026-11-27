@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { useConfirm } from "./ui/Confirm";
 import { ModalSurface, ModalBody, ModalHeader } from "./ui/ModalSurface";
 import { AnimatePresence, useIsPresent } from "motion/react";
 import ModalBackdrop from "./ui/ModalBackdrop";
@@ -78,6 +79,7 @@ export default function ExtensionServices({
   onStoreLink: (kind: "language-server" | "extension" | "theme") => void;
   onRequest: (request: WorkbenchRequest) => Promise<unknown>;
 }) {
+  const confirm = useConfirm();
   const handler = useRef(onRequest);
   handler.current = onRequest;
   const storeLink = useRef(onStoreLink);
@@ -192,7 +194,7 @@ export default function ExtensionServices({
             try {
               if (disposed) return;
               storeLink.current(listing.kind);
-              await handleStoreLink(listing);
+              await handleStoreLink(listing, confirm);
             } catch (error) {
               toast.error(String(error));
             } finally {
@@ -224,7 +226,7 @@ export default function ExtensionServices({
       disposed = true;
       stop?.();
     };
-  }, []);
+  }, [confirm]);
   const prompt = prompts[0];
   return (
     <>

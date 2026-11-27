@@ -10639,7 +10639,7 @@ body {
   z-index: 21001;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  translate: -50% -50%;
   width: min(440px, calc(100vw - 32px));
   padding: 26px;
   border: 1px solid var(--border-strong);
@@ -10650,22 +10650,34 @@ body {
   outline: none;
 }
 .devyy-confirm h2 {
-  margin: 16px 0 10px;
-  font-size: calc(17px * var(--ui-text-scale, 1));
-  font-weight: 500;
+  overflow-wrap: anywhere;
 }
-.devyy-confirm p {
-  color: var(--muted);
+.devyy-confirm .confirm-content {
+  padding: 12px 14px;
+  gap: 12px;
+}
+.confirm-content > p {
+  margin: 0;
+  color: var(--secondary);
   font-size: calc(12px * var(--ui-text-scale, 1));
-  line-height: 1.7;
+  line-height: 1.55;
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
-.devyy-confirm footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 24px;
+.confirm-content > .confirm-remember {
+  margin: 0;
+  width: fit-content;
+  cursor: pointer;
+}
+.confirm-content > .confirm-remember input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.devyy-confirm .confirm-content > .devyy-modal-actions {
+  margin: 0;
+  padding: 2px 0 0;
+  border: 0;
 }
 .devyy-dialog-symbol {
   display: inline-flex;
@@ -12181,9 +12193,6 @@ input[type="checkbox"]:disabled {
 .setup-backdrop[data-closing] {
   pointer-events: none;
 }
-.devyy-confirm[data-state="open"] {
-  animation: confirm-enter var(--enter-duration) var(--ease);
-}
 .devyy-confirm[data-state="closed"] {
   animation: confirm-exit var(--enter-duration) var(--ease) both;
 }
@@ -12195,16 +12204,10 @@ input[type="checkbox"]:disabled {
     opacity: 0;
   }
 }
-@keyframes confirm-enter {
-  from {
-    opacity: 0;
-    transform: translate(-50%, calc(-50% + 8px)) scale(0.98);
-  }
-}
 @keyframes confirm-exit {
   to {
     opacity: 0;
-    transform: translate(-50%, calc(-50% + 6px)) scale(0.98);
+    transform: translateY(6px) scale(0.98);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -15878,6 +15881,25 @@ dialog.devyy-modal {
   margin: auto;
   overflow: auto;
   overscroll-behavior: contain;
+}
+:root
+  .devyy-modal[data-surface-entry]:not(
+    dialog:not([open]), [data-state="closed"], .ai-usage-embedded
+  ) {
+  animation: dialog-enter calc(var(--enter-duration) * 1.5) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+dialog.devyy-modal[open]::backdrop {
+  animation: fade-in var(--enter-duration) var(--ease);
+}
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 dialog.devyy-modal::backdrop,
 .devyy-dialog-overlay,

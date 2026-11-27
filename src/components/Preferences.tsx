@@ -195,14 +195,17 @@ export default function Preferences({
         ([id]) => id !== recording && bindings[id] === candidate,
       )
     : [];
-  const previousCategory = useRef(category);
-  const direction =
-    categories.findIndex((c) => c.id === category) >=
-    categories.findIndex((c) => c.id === previousCategory.current)
-      ? 1
-      : -1;
+  const [navigation, setNavigation] = useState({ category, direction: 1 });
+  let direction = navigation.direction;
+  if (navigation.category !== category) {
+    direction =
+      navigationOrder.findIndex((entry) => entry.id === category) >
+      navigationOrder.findIndex((entry) => entry.id === navigation.category)
+        ? 1
+        : -1;
+    setNavigation({ category, direction });
+  }
   function choose(id: SettingsCategory) {
-    previousCategory.current = category;
     onCategoryChange(id);
     setQuery("");
     setRecording(null);

@@ -33,8 +33,12 @@ export interface Confirmation {
   rememberLabel?: string;
   onRemember?: () => void;
 }
-type Request = Confirmation & { resolve: (value: boolean) => void };
-const Context = createContext<(options: Confirmation) => Promise<boolean>>(() =>
+export type RequestConfirmation = (options: Confirmation) => Promise<boolean>;
+type Request = Confirmation & {
+  resolve: (value: boolean) => void;
+  container: HTMLDialogElement | null;
+};
+const Context = createContext<RequestConfirmation>(() =>
   Promise.resolve(false),
 );
 export const useConfirm = () => useContext(Context);
@@ -45,7 +49,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const confirm = useCallback(
     (options: Confirmation) =>
       new Promise<boolean>((resolve) => {
-        const next = { ...options, resolve };
+        const container =
+          document.activeElement?.closest<HTMLDialogElement>("dialog[open]") ??
+          null;
+        const next = { ...options, resolve, container };
         requests.current.push(next);
         setQueue([...requests.current]);
       }),
@@ -76,7 +83,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           if (!open && requests.current.length) finish(false);
         }}
       >
-        <Alert.Portal>
+        <Alert.Portal
+          container={
+            current?.container?.isConnected ? current.container : undefined
+          }
+        >
           <Alert.Overlay className="devyy-dialog-overlay" />
           <Alert.Content asChild>
             <ModalSurface className="devyy-confirm" data-escape-scope="active">
@@ -88,7 +99,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 </span>
                 <Alert.Title>{current?.title ?? "Confirm action"}</Alert.Title>
               </header>
-              <ModalBody>
+              <ModalBody className="confirm-content">
                 <Alert.Description>{current?.description}</Alert.Description>
                 {current?.rememberLabel && (
                   <label className="confirm-remember">

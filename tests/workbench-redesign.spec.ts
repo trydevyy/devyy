@@ -24,6 +24,7 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await expect(
     server.locator(".devyy-modal-body").getByLabel("Host", { exact: true }),
   ).toBeVisible();
+  await expect(server).toHaveCSS("animation-name", "dialog-enter");
   const modalRadius = await server.evaluate(
     (dialog) => getComputedStyle(dialog).borderRadius,
   );
@@ -143,4 +144,36 @@ test("desktop panels use compact controls and report operations in toasts", asyn
   await expect(
     page.getByRole("button", { name: "AI usage", exact: true }),
   ).toBeVisible();
+});
+
+test("modal entry honors reduced motion and deletion details stay compact", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?playground=1");
+  await page
+    .getByRole("button", { name: "Remote Explorer", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add host", exact: true }).click();
+  const ssh = page.getByRole("dialog", { name: "Add SSH server" });
+  await expect(ssh).toHaveCSS("animation-name", "none");
+  await page.keyboard.press("Escape");
+  await expect(ssh).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Explorer", exact: true }).click();
+  const file = page.getByRole("button", { name: "main.rs", exact: true });
+  await file.click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Delete file", exact: true })
+    .click();
+  const confirmation = page.getByRole("alertdialog", {
+    name: /Delete file.*main\.rs/,
+  });
+  await expect(confirmation).toHaveCSS("animation-name", "none");
+  await expect(confirmation.locator("p")).toHaveText(
+    "This permanently deletes the file.",
+  );
+  await expect(confirmation.getByRole("checkbox")).toBeVisible();
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(file).toBeVisible();
 });

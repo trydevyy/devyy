@@ -1,8 +1,9 @@
 import { installedThemesCache, themeDetailsCache } from "./catalogCache";
 import defaults from "./default-themes.json";
 import { useSyncExternalStore } from "react";
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
+import type { RequestConfirmation } from "../components/ui/Confirm";
 import { installExtension } from "./extensionInstall";
 import { refreshLanguageServers } from "./languageServers";
 import { clearLanguageServers, invoke, native } from "./native";
@@ -246,7 +247,10 @@ export function themeCatalog(query: string, offset: number) {
     offset,
   });
 }
-export async function installStoreLanguage(language: StoreLanguage) {
+export async function installStoreLanguage(
+  language: StoreLanguage,
+  confirm: RequestConfirmation,
+) {
   if (running)
     throw Error("A language server installation is already in progress.");
   running = true;
@@ -255,7 +259,7 @@ export async function installStoreLanguage(language: StoreLanguage) {
       (entry) => entry.custom && language.languages.includes(entry.language),
     );
     const recipe = language.package
-      ? `Package: ${language.package}${language.version ? ` @ ${language.version}` : ""}. `
+      ? `Package ${language.package}${language.version ? ` @ ${language.version}` : ""}. `
       : "";
     const explanation =
       language.installer === "path"
@@ -263,15 +267,14 @@ export async function installStoreLanguage(language: StoreLanguage) {
         : recipe;
     const replace = configured.length > 0;
     if (
-      !(await confirm(
-        `${explanation}Configure ${language.name} for ${language.languages.join(", ")}?${replace ? " This replaces existing custom server settings for those languages." : ""}`,
-        {
-          title:
-            language.installer === "path"
-              ? "Configure language server"
-              : "Install language server",
-        },
-      ))
+      !(await confirm({
+        title:
+          language.installer === "path"
+            ? "Configure language server"
+            : "Install language server",
+        description: `${explanation}Configure ${language.name} for ${language.languages.join(", ")}.${replace ? " This replaces existing custom server settings for those languages." : ""}`,
+        confirmLabel: language.installer === "path" ? "Configure" : "Install",
+      }))
     )
       return;
     const pending = toast.loading(`Setting up ${language.name}…`);
@@ -318,32 +321,38 @@ export function readStoreLink(uri: string): StoreLink | undefined {
   if ((kind === "language-server" || kind === "theme") && allowId(id))
     return { kind, id };
 }
-export async function handleStoreLink(link: StoreLink) {
+export async function handleStoreLink(
+  link: StoreLink,
+  confirm: RequestConfirmation,
+) {
   if (link.kind === "language-server") {
     const language = (await languageCatalog()).find(
       (item) => item.id === link.id,
     );
     if (!language)
       throw Error("This language server is no longer in the store.");
-    await installStoreLanguage(language);
+    await installStoreLanguage(language, confirm);
   } else if (link.kind === "theme") {
     const bundled = defaultStoreThemes.find((theme) => theme.id === link.id);
     if (
-      await confirm(
-        bundled
-          ? `Apply the ${bundled.name} theme?`
-          : "Install and apply this theme from Devyy Store?",
-        { title: bundled ? "Apply theme" : "Install theme" },
-      )
+      await confirm({
+        title: bundled ? `Apply ${bundled.name}?` : "Install theme?",
+        description: bundled
+          ? "This changes the appearance of your workspace."
+          : "Devyy will download this theme from the store and apply it.",
+        confirmLabel: bundled ? "Apply" : "Install and apply",
+      })
     ) {
       await installStoreTheme(link.id);
       toast.success(bundled ? "Theme applied." : "Theme installed.");
     }
   } else if (
-    await confirm(
-      `Install ${link.id} from Open VSX? This extension can run code on your machine.`,
-      { title: "Install extension" },
-    )
+    await confirm({
+      title: `Install ${link.id}?`,
+      description:
+        "This extension comes from Open VSX and can run code on your machine.",
+      confirmLabel: "Install extension",
+    })
   ) {
     await installExtension(link.id);
     toast.success("Extension installed.");

@@ -1,3 +1,4 @@
+import { useConfirm } from "./ui/Confirm";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { ExternalLink, LogOut, CloudDownload, CloudUpload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -64,6 +65,7 @@ export default function AccountSettings({
   settings: Settings;
   onChange: Dispatch<SetStateAction<Settings>>;
 }) {
+  const confirm = useConfirm();
   const profile = useAccountProfile();
   const options = useSyncOptions();
   const extensions = useExtensions();
@@ -262,7 +264,7 @@ export default function AccountSettings({
                       onChange,
                       extensions,
                       options,
-                      true,
+                      confirm,
                     );
                     update({ enabled: true });
                     toast.success(

@@ -1,3 +1,4 @@
+import { useConfirm } from "./ui/Confirm";
 import { languageCatalogCache } from "../lib/catalogCache";
 import { useCachedRead } from "../lib/useCachedRead";
 import { useState, type ReactNode } from "react";
@@ -20,6 +21,7 @@ export default function StoreBrowser({
 }: {
   configured: ReactNode;
 }) {
+  const confirm = useConfirm();
   const [tab, setTab] = useState<"browse" | "local">("browse");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -156,7 +158,9 @@ export default function StoreBrowser({
                       className="setting-action"
                       aria-busy={installing === item.id}
                       disabled={busy || !!installing}
-                      onClick={() => void run(() => installStoreLanguage(item))}
+                      onClick={() =>
+                        void run(() => installStoreLanguage(item, confirm))
+                      }
                     >
                       <Download size={13} />{" "}
                       {item.installer === "path" ? "Configure" : "Install"}

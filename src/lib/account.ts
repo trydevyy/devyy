@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { RequestConfirmation } from "../components/ui/Confirm";
 import {
   useEffect,
   useRef,
@@ -330,7 +331,7 @@ export async function pullCloud(
   setSettings: Dispatch<SetStateAction<Settings>>,
   extensions: InstalledExtension[],
   options: SyncOptions,
-  installLanguages = false,
+  confirmLanguageInstall?: RequestConfirmation,
 ) {
   const patch = Object.fromEntries(
     Object.entries(cloud.data.settings ?? {}).filter(
@@ -375,7 +376,7 @@ export async function pullCloud(
   }
   if (
     options.languageServers &&
-    installLanguages &&
+    confirmLanguageInstall &&
     cloud.data.languageServers?.length
   ) {
     const local =
@@ -386,7 +387,8 @@ export async function pullCloud(
     );
     if (wanted.size) {
       for (const listing of await languageCatalog()) {
-        if (wanted.has(listing.id)) await installStoreLanguage(listing);
+        if (wanted.has(listing.id))
+          await installStoreLanguage(listing, confirmLanguageInstall);
       }
     }
   }
