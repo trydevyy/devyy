@@ -78,26 +78,22 @@ async function fixture(
         },
       ];
       if (codexRoutes) {
-        providers.push(
-          {
-            id: "codex-app",
-            name: "ChatGPT via Codex",
-            kind: "codex-app",
-            endpoint: "",
-            model: "",
-            executable: "",
-            hasKey: false,
-          },
-          {
-            id: "codex-api",
-            name: "Codex API",
-            kind: "codex-api",
-            endpoint: "http://127.0.0.1:19766/v1",
-            model: "",
-            executable: "",
-            hasKey: false,
-          },
+        localStorage.setItem(
+          "devyy.ai.usage",
+          JSON.stringify({
+            openai: { inputTokens: 120, outputTokens: 40, costUSD: 0.1 },
+            opencode: { inputTokens: 80, outputTokens: 20 },
+          }),
         );
+        providers.push({
+          id: "openai",
+          name: "OpenAI API",
+          kind: "openai",
+          endpoint: "https://api.openai.com/v1",
+          model: "",
+          executable: "",
+          hasKey: true,
+        });
       }
       localStorage.setItem(
         "devyy.ai.verified",
@@ -116,14 +112,7 @@ async function fixture(
       let runtimeInstalled = !missingRuntime;
       let workspaceAccess = "attached";
       let defaultRust = false;
-      let accountIndex = 0,
-        chatgptConnected = false;
-      const savedAccounts: {
-        id: string;
-        email: string;
-        connected: boolean;
-        active: boolean;
-      }[] = [];
+      let chatgptConnected = false;
       let resolveChat: (() => void) | undefined,
         requestId = "";
       const emit = (name: string, payload: unknown) => {
@@ -383,49 +372,20 @@ async function fixture(
               args.providerId === "chatgpt" &&
               oauth
             ) {
-              if (args.action === "login" || args.action === "add") {
+              if (args.action === "login") {
                 chatgptConnected = true;
-                if (args.action === "add" || !savedAccounts.length) {
-                  accountIndex = savedAccounts.length;
-                  savedAccounts.push({
-                    id: `oaiapp_fixture_${accountIndex}`,
-                    email: `person${accountIndex}@example.test`,
-                    connected: true,
-                    active: true,
-                  });
-                }
-                for (const [i, a] of savedAccounts.entries())
-                  a.active = i === accountIndex;
                 emit("devyy-ai", {
                   requestId: args.requestId,
                   kind: "login",
-                  data: {
-                    authUrl:
-                      "https://auth.openai.com/api/accounts/authorize?agent_name_hint=Devyy",
-                  },
+                  data: { authUrl: "https://auth.openai.com/oauth/authorize" },
                 });
               }
-              if (args.action === "select") {
-                accountIndex = savedAccounts.findIndex(
-                  (a) => a.id === args.accountId,
-                );
-                chatgptConnected = true;
-                for (const [i, a] of savedAccounts.entries())
-                  a.active = i === accountIndex;
-              }
-              if (args.action === "logout") {
-                chatgptConnected = false;
-                savedAccounts[accountIndex].connected = false;
-              }
+              if (args.action === "logout") chatgptConnected = false;
               return {
                 account: chatgptConnected
-                  ? {
-                      email: savedAccounts[accountIndex].email,
-                      clientId: savedAccounts[accountIndex].id,
-                    }
+                  ? { email: "codex@example.test" }
                   : null,
                 planEnabled: chatgptConnected,
-                accounts: structuredClone(savedAccounts),
                 limits: null,
               };
             }
@@ -455,7 +415,11 @@ async function fixture(
                   },
                 },
               };
-            if (command === "ai_account" && args.providerId === "codex-app")
+            if (
+              command === "ai_account" &&
+              args.providerId === "chatgpt" &&
+              codexRoutes
+            )
               return {
                 account: { email: "codex@example.test", planType: "plus" },
                 planEnabled: true,
@@ -1287,7 +1251,7 @@ test("conversations can branch, edit a prompt, and rename without changing the o
   ).toBeVisible();
 });
 
-test("ChatGPT authorizes Devyy independently and switches saved app registrations", async ({
+test("ChatGPT uses the Codex browser sign-in and can disconnect", async ({
   page,
 }) => {
   await fixture(page, false, true);
@@ -1300,25 +1264,7 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
   await provider
     .getByRole("button", { name: "Continue with ChatGPT", exact: true })
     .click();
-  await expect(
-    provider
-      .locator(".ai-provider-account-row")
-      .getByText("person0@example.test"),
-  ).toBeVisible();
-  await provider
-    .getByRole("button", { name: "Add ChatGPT account or workspace" })
-    .click();
-  await expect(
-    provider
-      .locator(".ai-provider-account-row")
-      .getByText("person1@example.test"),
-  ).toBeVisible();
-  await chooseOption(provider.getByLabel("Saved accounts"), "oaiapp_fixture_0");
-  await expect(
-    provider
-      .locator(".ai-provider-account-row")
-      .getByText("person0@example.test"),
-  ).toBeVisible();
+  await expect(provider.getByText("codex@example.test")).toBeVisible();
   await provider
     .getByRole("button", { name: "Disconnect", exact: true })
     .click();
@@ -1328,41 +1274,9 @@ test("ChatGPT authorizes Devyy independently and switches saved app registration
       exact: true,
     }),
   ).toBeVisible();
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          aiFixture: {
-            calls: { command: string; args: Record<string, unknown> }[];
-          };
-        }
-      ).aiFixture.calls,
-  );
-  expect(
-    calls
-      .filter(
-        (c) =>
-          c.command === "ai_account" &&
-          ["login", "add", "select", "logout"].includes(String(c.args.action)),
-      )
-      .every((c) => c.args.providerId === "chatgpt"),
-  ).toBe(true);
-  expect(
-    calls.some(
-      (c) =>
-        c.command === "ai_account" &&
-        c.args.accountId === "oaiapp_fixture_0" &&
-        c.args.action === "select",
-    ),
-  ).toBe(true);
-  expect(
-    calls
-      .filter((c) => c.command === "plugin:opener|open_url")
-      .every((c) => String(c.args.url).startsWith("https://auth.openai.com/")),
-  ).toBe(true);
 });
 
-test("Codex subscription limits belong only to the signed-in route", async ({
+test("Usage filters unconnected providers and shows ChatGPT quota windows", async ({
   page,
 }) => {
   await fixture(page, false, false, false, true);
@@ -1370,29 +1284,44 @@ test("Codex subscription limits belong only to the signed-in route", async ({
   await page
     .getByRole("button", { name: "AI provider settings", exact: true })
     .click();
-  await page.getByRole("tab", { name: /^Codex API/ }).click();
-  const api = page.getByRole("region", { name: "Codex API", exact: true });
-  await api.getByRole("button", { name: "Load models" }).click();
-  await expect(api.getByText("2 models available")).toBeVisible();
-  await api.getByRole("button", { name: "Usage", exact: true }).click();
+  await expect(page.getByRole("tab", { name: /^ChatGPT/ })).toHaveCount(1);
+  await expect(page.getByRole("tab", { name: /^Codex API/ })).toHaveCount(0);
+  await page.getByRole("tab", { name: /^ChatGPT/ }).click();
+  await page
+    .getByRole("region", { name: "ChatGPT", exact: true })
+    .getByRole("button", { name: "Usage", exact: true })
+    .click();
   await expect(
-    page.getByText(/This endpoint handles API billing and quotas/),
-  ).toBeVisible();
-  await expect(page.getByRole("meter")).toHaveCount(0);
-  await chooseOption(
-    page.getByRole("combobox", { name: "Usage provider" }),
-    "codex-app",
-  );
-  await expect(
-    page.getByRole("meter", {
-      name: "ChatGPT via Codex 5-hour window remaining",
-    }),
+    page.getByRole("meter", { name: "ChatGPT 5-hour window remaining" }),
   ).toHaveAttribute("aria-valuenow", "72");
   await expect(
     page.getByRole("meter", {
-      name: "ChatGPT via Codex Special models · Weekly remaining",
+      name: "ChatGPT Special models · Weekly remaining",
     }),
   ).toHaveAttribute("aria-valuenow", "48");
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty("--accent", "#ce4d91"),
+  );
+  await expect(
+    page
+      .getByRole("meter", { name: "ChatGPT 5-hour window remaining" })
+      .locator("i"),
+  ).toHaveCSS("background-color", "rgb(206, 77, 145)");
+  await chooseOption(
+    page.getByRole("combobox", { name: "Usage provider" }),
+    "all",
+  );
+  const usage = page.getByRole("region", { name: "AI usage", exact: true });
+  for (const metric of ["limits", "cost"]) {
+    await usage.getByRole("tab", { name: metric, exact: true }).click();
+    await expect(
+      usage.getByRole("heading", { name: "OpenAI API" }),
+    ).toHaveCount(0);
+    await expect(usage.getByRole("heading", { name: "OpenCode" })).toHaveCount(
+      0,
+    );
+    await expect(usage.getByRole("link")).toHaveCount(0);
+  }
 });
 
 test("header toggles the AI workspace and provider Usage navigates within Settings", async ({

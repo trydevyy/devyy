@@ -27,7 +27,6 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
-  Plus,
   RefreshCw,
   Trash2,
   ChartNoAxesColumn,
@@ -37,7 +36,6 @@ import {
   aiProviderReady,
   aiAccount,
   isChatGPTAccount,
-  isCodexRuntime,
   discoverAIModels,
   removeAIProvider,
   saveAIProvider,
@@ -238,8 +236,6 @@ export default function AIProviderDetail({
     accountProvider = isChatGPTAccount(form.kind) || form.kind === "claude",
     custom = ![
       "chatgpt",
-      "codex-app",
-      "codex-api",
       "claude",
       "antigravity",
       "opencode",
@@ -247,11 +243,11 @@ export default function AIProviderDetail({
       "anthropic",
     ].includes(provider.id);
   const builtInCLI = ["claude", "antigravity", "opencode"].includes(form.kind);
-  const codexRuntime = isCodexRuntime(form.kind);
+  const codexRuntime = isChatGPTAccount(form.kind);
   const runtimeSettings = builtInCLI || codexRuntime;
   const runtimeMissing = runtimeSettings && Boolean(runtimeError);
   const providerDefault =
-    builtInCLI || form.kind === "codex-app" || form.kind === "cli";
+    builtInCLI || form.kind === "chatgpt" || form.kind === "cli";
 
   async function action(name: string, work: () => Promise<unknown>) {
     setBusy(name);
@@ -286,20 +282,11 @@ export default function AIProviderDetail({
         : "No models available yet. Check your connection and try again.",
     );
   }
-  async function accountAction(
-    action: "login" | "add" | "select" | "logout" | "status",
-    accountId?: string,
-  ) {
+  async function accountAction(action: "login" | "logout" | "status") {
     request.current = newRequestId();
     try {
-      if (action === "login" || action === "add")
-        await saveAIProvider(form, "");
-      const result = await aiAccount(
-        form.id,
-        action,
-        request.current,
-        accountId,
-      );
+      if (action === "login") await saveAIProvider(form, "");
+      const result = await aiAccount(form.id, action, request.current);
       if (typeof result.notice === "string") setNotice(result.notice);
       if (form.kind === "claude" && action !== "status") {
         request.current = newRequestId();
@@ -313,7 +300,7 @@ export default function AIProviderDetail({
     if (
       !active ||
       (!["claude", "antigravity", "opencode"].includes(provider.kind) &&
-        !isCodexRuntime(provider.kind)) ||
+        !isChatGPTAccount(provider.kind)) ||
       !native
     )
       return;
@@ -521,9 +508,8 @@ export default function AIProviderDetail({
           )}
           {codexRuntime && (
             <p className="ai-provider-notice">
-              {form.kind === "codex-app"
-                ? "Uses the installed Codex CLI for ChatGPT sign-in and live plan limits."
-                : "Uses the installed Codex CLI with an OpenAI Responses-compatible endpoint. API traffic is billed by that endpoint."}
+              Sign in through Codex to use your ChatGPT plan and view its
+              limits.
             </p>
           )}
           {accountProvider ? (
@@ -589,84 +575,6 @@ export default function AIProviderDetail({
                   </button>
                 )}
               </div>
-              {form.kind === "chatgpt" && (
-                <>
-                  {Array.isArray(state.accounts[provider.id]?.accounts) &&
-                    (
-                      state.accounts[provider.id].accounts as {
-                        id: string;
-                        email?: string;
-                        connected: boolean;
-                        active: boolean;
-                      }[]
-                    ).length > 0 && (
-                      <div className="ai-provider-field">
-                        <label htmlFor={`ai-account-${provider.id}`}>
-                          Saved accounts
-                        </label>
-                        <Select
-                          id={`ai-account-${provider.id}`}
-                          disabled={!!busy || !native}
-                          value={
-                            (
-                              state.accounts[provider.id].accounts as {
-                                id: string;
-                                active: boolean;
-                              }[]
-                            ).find((a) => a.active)?.id ?? ""
-                          }
-                          onChange={(e) => {
-                            const account = (
-                              state.accounts[provider.id].accounts as {
-                                id: string;
-                                connected: boolean;
-                              }[]
-                            ).find((a) => a.id === e.target.value);
-                            if (account)
-                              void action("select", () =>
-                                accountAction(
-                                  account.connected ? "select" : "login",
-                                  account.id,
-                                ),
-                              );
-                          }}
-                        >
-                          <option value="" disabled>
-                            Choose an account
-                          </option>
-                          {(
-                            state.accounts[provider.id].accounts as {
-                              id: string;
-                              email?: string;
-                              connected: boolean;
-                            }[]
-                          ).map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.email ?? "ChatGPT account"} / {a.id.slice(-8)}
-                              {a.connected ? "" : " / Signed out"}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    )}
-                  <button
-                    className="ai-text-action"
-                    disabled={!!busy || !native}
-                    onClick={() =>
-                      void action("login", () => accountAction("add"))
-                    }
-                  >
-                    <Plus size={12} /> Add ChatGPT account or workspace
-                  </button>
-                  {connected &&
-                    state.accounts[provider.id]?.planEnabled === false && (
-                      <p className="ai-provider-notice" role="status">
-                        ChatGPT plan access was not granted. Reconnect and
-                        enable plan use on Devyy’s authorization screen.
-                      </p>
-                    )}
-                </>
-              )}
               {form.kind === "claude" && (
                 <p className="ai-provider-notice">
                   For a direct Devyy connection, use an Anthropic API key.
@@ -685,7 +593,7 @@ export default function AIProviderDetail({
                   <Select
                     id={`ai-protocol-${provider.id}`}
                     value={
-                      ["cli", "anthropic", "codex-api"].includes(form.kind)
+                      ["cli", "anthropic", "openai"].includes(form.kind)
                         ? form.kind
                         : "custom"
                     }
@@ -694,9 +602,7 @@ export default function AIProviderDetail({
                     }
                   >
                     <option value="custom">OpenAI compatible</option>
-                    <option value="codex-api">
-                      Codex App Server (Responses API)
-                    </option>
+                    <option value="openai">OpenAI Responses</option>
                     <option value="anthropic">Anthropic Messages</option>
                     <option value="cli">Command line (CLI)</option>
                   </Select>
@@ -752,7 +658,7 @@ export default function AIProviderDetail({
                         placeholder={
                           provider.hasKey
                             ? "Key saved"
-                            : ["custom", "codex-api"].includes(form.kind)
+                            : form.kind === "custom"
                               ? "Optional for local endpoints"
                               : "Enter API key"
                         }

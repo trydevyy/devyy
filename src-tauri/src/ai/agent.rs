@@ -748,7 +748,6 @@ async fn consume<R: tauri::Runtime>(
             }
             let value: Value =
                 serde_json::from_str(&data).map_err(|_| "Invalid agent stream event")?;
-            super::chatgpt::report_plan_limit(app, r, &value);
             let (text, reported, finished) = stream_event(&value)?;
             done |= finished;
             if value["type"] == "response.incomplete" {
@@ -1304,7 +1303,6 @@ fn structured_turn<R: tauri::Runtime>(
 
 pub async fn chat<R: tauri::Runtime>(
     app: &AppHandle<R>,
-    state: &AiState,
     p: &Provider,
     r: &ChatRequest,
     context: Context,
@@ -1317,7 +1315,7 @@ pub async fn chat<R: tauri::Runtime>(
     }
     let protocol = if p.kind == "anthropic" {
         "anthropic"
-    } else if ["openai", "chatgpt"].contains(&p.kind.as_str()) {
+    } else if p.kind == "openai" {
         "responses"
     } else if ["claude", "antigravity", "opencode"].contains(&p.kind.as_str()) {
         "cli"
@@ -1383,11 +1381,7 @@ pub async fn chat<R: tauri::Runtime>(
         let (turn, usage) = if protocol == "cli" {
             cli_turn(app, p, r, &input, instructions, &tools).await?
         } else {
-            let mut body = if p.kind == "chatgpt" {
-                json!({"model":p.model,"stream":true,"store":false})
-            } else {
-                http_body(p, r)
-            };
+            let mut body = http_body(p, r);
             body[if protocol == "responses" {
                 "input"
             } else {
@@ -1404,34 +1398,19 @@ pub async fn chat<R: tauri::Runtime>(
             } else if protocol == "anthropic" {
                 body["system"] = json!(instructions);
             }
-            if p.kind == "chatgpt" {
-                body = super::chatgpt::agent_body(p, r, body);
-            }
-            let request = if p.kind == "chatgpt" {
-                super::chatgpt::agent_request(app, state).await?
-            } else {
-                request(
-                    p,
-                    if protocol == "responses" {
-                        "responses"
-                    } else if protocol == "anthropic" {
-                        "messages"
-                    } else {
-                        "chat/completions"
-                    },
-                )?
-            };
+            let request = request(
+                p,
+                match protocol {
+                    "responses" => "responses",
+                    "anthropic" => "messages",
+                    _ => "chat/completions",
+                },
+            )?;
             let response = request
                 .json(&body)
                 .send()
                 .await
                 .map_err(|_| "Could not reach the AI provider")?;
-            if p.kind == "chatgpt" && !response.status().is_success() {
-                let status = response.status().as_u16();
-                let value = super::chatgpt::read_json(response).await?;
-                super::chatgpt::report_plan_limit(app, r, &value);
-                return Err(super::chatgpt::api_error(&value, status));
-            }
             consume(app, r, response, protocol).await?
         };
         tokens_in += usage["input_tokens"]
@@ -1972,7 +1951,6 @@ mod tests {
         };
         chat(
             app.handle(),
-            &AiState::default(),
             &provider,
             &request,
             context_at(&base, "read"),
@@ -2193,7 +2171,6 @@ print(json.dumps({'type':'step_finish','part':{'id':'step','tokens':{'input':10,
         };
         chat(
             app.handle(),
-            &app.state::<AiState>(),
             &provider,
             &request,
             context_at(&base, "read"),

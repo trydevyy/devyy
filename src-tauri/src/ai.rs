@@ -33,7 +33,6 @@ use tokio::{
 
 pub mod agent;
 pub(crate) mod billing;
-mod chatgpt;
 mod codex_app;
 mod custom_cli;
 mod json_answer;
@@ -74,7 +73,6 @@ pub struct AiState {
     agent_jobs: Mutex<HashMap<String, PathBuf>>,
     processes: Arc<Mutex<HashSet<u32>>>,
     stopping: AtomicBool,
-    oauth: tokio::sync::Mutex<()>,
     oauth_login: tokio::sync::Mutex<()>,
 }
 impl AiState {
@@ -151,8 +149,6 @@ pub(crate) fn register_process<R: tauri::Runtime>(
 fn defaults() -> Vec<Provider> {
     [
         ("chatgpt", "ChatGPT", "chatgpt", ""),
-        ("codex-app", "ChatGPT via Codex", "codex-app", ""),
-        ("codex-api", "Codex API", "codex-api", "https://api.openai.com/v1"),
         ("claude", "Claude Code", "claude", ""),
         ("antigravity", "Antigravity", "antigravity", ""),
         ("opencode", "OpenCode", "opencode", ""),
@@ -191,6 +187,31 @@ fn config_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String>
         .map_err(|e| e.to_string())?
         .join("ai-providers.json"))
 }
+fn migrate_codex_providers(values: &mut Vec<Provider>) {
+    if let Some(index) = values.iter().position(|p| p.kind == "codex-app") {
+        let mut legacy = values.remove(index);
+        if let Some(current) = values.iter_mut().find(|p| p.id == "chatgpt") {
+            if legacy.enabled || !legacy.executable.is_empty() {
+                current.executable = legacy.executable;
+            }
+            if legacy.enabled || !legacy.model.is_empty() {
+                current.model = legacy.model;
+            }
+            current.enabled |= legacy.enabled;
+        } else {
+            legacy.id = "chatgpt".into();
+            legacy.name = "ChatGPT".into();
+            legacy.kind = "chatgpt".into();
+            values.insert(0, legacy);
+        }
+    }
+    values.retain(|p| !matches!(p.kind.as_str(), "codex" | "codex-app") && p.id != "codex-api");
+    for provider in values {
+        if provider.kind == "codex-api" {
+            provider.kind = "openai".into();
+        }
+    }
+}
 fn load(app: &AppHandle, state: &AiState) -> Result<Vec<Provider>, String> {
     let mut cache = state.configs.lock().map_err(|e| e.to_string())?;
     if cache.is_none() {
@@ -201,9 +222,11 @@ fn load(app: &AppHandle, state: &AiState) -> Result<Vec<Provider>, String> {
         } else {
             defaults()
         };
-        values.retain(|p| p.kind != "codex");
+        migrate_codex_providers(&mut values);
         for builtin in defaults() {
-            if !values.iter().any(|p| p.kind == builtin.kind) && values.len() < 32 {
+            if !values.iter().any(|p| {
+                p.kind == builtin.kind && (builtin.kind != "openai" || p.id == builtin.id)
+            }) && values.len() < 32 {
                 let mut entry = builtin;
                 while values.iter().any(|p| p.id == entry.id) {
                     entry.id.push('_');
@@ -261,8 +284,6 @@ fn validate(p: &Provider) -> Result<(), String> {
     }
     if ![
         "chatgpt",
-        "codex-app",
-        "codex-api",
         "claude",
         "antigravity",
         "opencode",
@@ -275,7 +296,7 @@ fn validate(p: &Provider) -> Result<(), String> {
     {
         return Err("Unknown provider protocol".into());
     }
-    if !["chatgpt", "codex-app", "claude", "antigravity", "opencode", "cli"].contains(&p.kind.as_str()) {
+    if !["chatgpt", "claude", "antigravity", "opencode", "cli"].contains(&p.kind.as_str()) {
         endpoint(p)?;
     }
     if p.kind == "cli"
@@ -383,8 +404,6 @@ pub async fn ai_delete_provider(
 ) -> Result<(), String> {
     if [
         "chatgpt",
-        "codex-app",
-        "codex-api",
         "claude",
         "antigravity",
         "opencode",
@@ -417,11 +436,6 @@ pub async fn ai_runtime(
     if let Some(executable) = executable {
         p.executable = executable;
     }
-    if p.kind == "chatgpt" {
-        return Ok(
-            json!({"protocol":"Sign in with ChatGPT / Responses API", "application":"Devyy", "endpoint":"https://api.openai.com/v1"}),
-        );
-    }
     if p.kind == "cli" {
         let binary = crate::process::executable(&p.executable)
             .ok_or("CLI executable not found. Choose its full path or add it to PATH.")?;
@@ -429,7 +443,7 @@ pub async fn ai_runtime(
             json!({"protocol":if p.cli_json { "JSONL CLI" } else { "Text CLI" },"executable":binary.to_string_lossy()}),
         );
     }
-    if !["claude", "antigravity", "opencode", "codex-app", "codex-api"].contains(&p.kind.as_str()) {
+    if !["claude", "antigravity", "opencode", "chatgpt"].contains(&p.kind.as_str()) {
         return Ok(
             json!({"protocol":if p.kind=="anthropic"{"Anthropic Messages"}else{"OpenAI compatible"},"endpoint":p.endpoint}),
         );
@@ -875,14 +889,13 @@ pub async fn ai_chat(
         if p.kind == "cli" {
             return custom_cli::chat(&app, &p, &request).await;
         }
-        if codex_app::supports(&p) {
+        if p.kind == "chatgpt" {
             return codex_app::chat(&app, &p, &request, context).await;
         }
         if let Some(context) = context {
-            return agent::chat(&app, &state, &p, &request, context).await;
+            return agent::chat(&app, &p, &request, context).await;
         }
         match p.kind.as_str() {
-            "chatgpt" => chatgpt::chat(&app, &state, &p, &request).await,
             "claude" => claude_chat(&app, &p, &request).await,
             "antigravity" => antigravity_chat(&app, &p, &request).await,
             "opencode" => opencode_chat(&app, &p, &request).await,
@@ -892,14 +905,6 @@ pub async fn ai_chat(
     let result = tokio::select! { result=future=>result, _=cancel.changed()=>{emit(&app,&request.request_id,"cancelled",Value::Null);return Ok(());} };
     match result {
         Ok(()) => {
-            if p.kind == "chatgpt" {
-                emit(
-                    &app,
-                    &request.request_id,
-                    "plan-limit",
-                    json!({"exceeded":false}),
-                );
-            }
             emit(&app, &request.request_id, "done", Value::Null);
             Ok(())
         }
@@ -1162,7 +1167,7 @@ fn cli(p: &Provider) -> Result<tokio::process::Command, String> {
     let executable = p.executable.trim().trim_matches('"');
     let binary = if executable.is_empty() {
         let names: &[&str] = match p.kind.as_str() {
-            "codex-app" | "codex-api" => &["codex"],
+            "chatgpt" => &["codex"],
             "antigravity" => &["agy", "antigravity"],
             _ => &[&p.kind],
         };
@@ -1785,7 +1790,6 @@ pub async fn ai_account(
     provider_id: String,
     action: String,
     request_id: String,
-    account_id: Option<String>,
 ) -> Result<Value, String> {
     let p = provider(&app, &state, &provider_id)?;
     let (_guard, mut cancel) = job(&state, &request_id, &provider_id)?;
@@ -1800,7 +1804,7 @@ pub async fn ai_account(
                 _ => Ok(Value::Null),
             };
         }
-        if p.kind == "codex-app" {
+        if p.kind == "chatgpt" {
             let _login = if action == "status" {
                 None
             } else {
@@ -1810,17 +1814,6 @@ pub async fn ai_account(
                 state.cancel_provider(&provider_id, &request_id);
             }
             return codex_app::account(&app, &p, &action, &request_id).await;
-        }
-        if p.kind == "chatgpt" {
-            if ["logout", "select"].contains(&action.as_str()) {
-                state.cancel_provider(&provider_id, &request_id);
-            }
-            let result =
-                chatgpt::account(&app, &state, &action, &request_id, account_id.as_deref()).await;
-            if result.is_ok() && action != "status" {
-                state.cancel_provider(&provider_id, &request_id);
-            }
-            return result;
         }
         if p.kind == "claude" {
             if !["login", "logout", "status"].contains(&action.as_str()) {
@@ -1973,13 +1966,7 @@ pub async fn ai_models(
 ) -> Result<Vec<Value>, String> {
     let p = provider(&app, &state, &provider_id)?;
     if p.kind == "chatgpt" {
-        return chatgpt::models(&app, &state).await;
-    }
-    if p.kind == "codex-app" {
         return codex_app::models(&app, &p).await;
-    }
-    if p.kind == "codex-api" {
-        codex_app::check_api(&app, &p).await?;
     }
     if p.kind == "cli" {
         crate::process::executable(&p.executable)

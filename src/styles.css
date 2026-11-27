@@ -9116,7 +9116,7 @@ body {
 .ai-quota-track i {
   height: 100%;
   display: block;
-  background: color-mix(in srgb, var(--secondary) 45%, var(--shell));
+  background: var(--accent);
   opacity: 1;
   border-radius: 4px;
   transition: width 240ms var(--ease);
@@ -9135,18 +9135,15 @@ body {
   padding: 3px 5px;
 }
 .ai-quota-unavailable {
-  display: flex;
-  align-items: center;
-  gap: 17px;
-  padding: 25px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
   color: var(--muted);
   font-size: calc(11px * var(--ui-text-scale, 1));
 }
 .ai-quota-unavailable strong {
-  font-size: calc(24px * var(--ui-text-scale, 1));
-  font-weight: 400;
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  font-weight: 500;
   color: var(--secondary);
 }
 .ai-usage-account {
@@ -9182,7 +9179,14 @@ body {
   align-items: center;
   gap: 5px;
   font-size: calc(10px * var(--ui-text-scale, 1));
-  color: var(--muted);
+  color: var(--secondary);
+  text-decoration: none;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+}
+.ai-usage-account button:hover {
+  background: var(--hover);
 }
 .ai-token-card {
   display: flex;
@@ -9216,8 +9220,7 @@ body {
 .ai-token-bar i {
   display: block;
   height: 100%;
-  background: var(--ink);
-  opacity: 0.65;
+  background: var(--accent);
 }
 .ai-cost-card {
   display: flex;
@@ -9240,9 +9243,6 @@ body {
 .ai-cost-card small {
   font-size: calc(10px * var(--ui-text-scale, 1));
   color: var(--muted);
-}
-.ai-usage-provider > .setting-action {
-  margin-top: 10px;
 }
 .ai-usage-budget-meter {
   flex: none;
@@ -9294,7 +9294,7 @@ body {
   font-size: calc(10px * var(--ui-text-scale, 1));
 }
 :root:is([data-vibrancy="off"], [data-material="solid"])
-  :is(.ai-usage-dialog, .ai-context-preview) {
+  :is(.ai-usage-dialog:not(.ai-usage-embedded), .ai-context-preview) {
   background: var(--shell);
 }
 :root[data-resizing] iframe {
@@ -9801,21 +9801,26 @@ body {
   width: 100%;
   height: 100%;
   min-height: 0;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
   box-shadow: none;
-  background: transparent;
+  background: var(--paper);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   animation: none;
 }
 .ai-usage-embedded .ai-usage-header {
-  padding: 0 0 16px;
+  flex: none;
+  padding: 10px 14px;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
+  background: var(--shell);
 }
 .ai-usage-embedded .ai-usage-content {
-  padding: 20px 0;
+  padding: 18px clamp(14px, 2.2vw, 30px);
+}
+.ai-usage-embedded .ai-usage-provider:last-child {
+  margin-bottom: 0;
 }
 .ai-provider-workspace {
   gap: 20px;

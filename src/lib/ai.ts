@@ -61,8 +61,6 @@ export interface AIProvider {
   kind:
     | "chatgpt"
     | "codex"
-    | "codex-app"
-    | "codex-api"
     | "claude"
     | "antigravity"
     | "opencode"
@@ -147,7 +145,6 @@ export interface AIUsage {
   observedAt?: number;
   costUSD?: number;
   estimatedCostUSD?: number;
-  planLimitHitAt?: number;
   requests?: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;
@@ -171,26 +168,6 @@ const initialProviders: AIProvider[] = [
     name: "ChatGPT",
     kind: "chatgpt",
     endpoint: "",
-    model: "",
-    executable: "",
-    hasKey: false,
-    enabled: false,
-  },
-  {
-    id: "codex-app",
-    name: "ChatGPT via Codex",
-    kind: "codex-app",
-    endpoint: "",
-    model: "",
-    executable: "",
-    hasKey: false,
-    enabled: false,
-  },
-  {
-    id: "codex-api",
-    name: "Codex API",
-    kind: "codex-api",
-    endpoint: "https://api.openai.com/v1",
     model: "",
     executable: "",
     hasKey: false,
@@ -272,9 +249,16 @@ function savedConversations(): AIConversation[] {
       )
       .slice(0, 40)
       .map((chat) =>
-        chat.providerId === "codex"
-          ? { ...chat, providerId: "chatgpt", model: "", effort: "" }
-          : chat,
+        chat.providerId === "codex-app"
+          ? { ...chat, providerId: "chatgpt" }
+          : chat.providerId === "codex" || chat.providerId === "codex-api"
+            ? {
+                ...chat,
+                providerId: chat.providerId === "codex" ? "chatgpt" : "openai",
+                model: "",
+                effort: "",
+              }
+            : chat,
       )
       .map((chat) => ({
         ...chat,
@@ -286,7 +270,11 @@ function savedConversations(): AIConversation[] {
               : undefined,
         })),
       }));
-    if (data.some((chat) => chat?.providerId === "codex")) {
+    if (
+      data.some((chat) =>
+        ["codex", "codex-app", "codex-api"].includes(chat?.providerId),
+      )
+    ) {
       try {
         localStorage.setItem("devyy.ai.chats", JSON.stringify(chats));
       } catch {}
@@ -313,6 +301,11 @@ function savedChoices(): Record<string, AIChoice> {
         if (key !== "codex")
           result[key] = { model: choice.model, effort: choice.effort };
     }
+    delete result["codex-api"];
+    if (result["codex-app"]) {
+      result.chatgpt = result["codex-app"];
+      delete result["codex-app"];
+    }
     return result;
   } catch {
     return {};
@@ -323,7 +316,7 @@ function savedUsage(): Record<string, AIUsage> {
     const values = JSON.parse(localStorage.getItem("devyy.ai.usage") ?? "{}");
     if (!values || typeof values !== "object" || Array.isArray(values))
       return {};
-    return Object.fromEntries(
+    const usageByProvider: Record<string, AIUsage> = Object.fromEntries(
       Object.entries(values)
         .slice(0, 64)
         .filter(([, value]) => value && typeof value === "object")
@@ -354,6 +347,26 @@ function savedUsage(): Record<string, AIUsage> {
           ];
         }),
     );
+    const legacy = usageByProvider["codex-app"];
+    if (legacy) {
+      const current = usageByProvider.chatgpt;
+      usageByProvider.chatgpt = current
+        ? {
+            ...current,
+            tokens: current.tokens + legacy.tokens,
+            inputTokens: current.inputTokens + legacy.inputTokens,
+            outputTokens: current.outputTokens + legacy.outputTokens,
+            requests: (current.requests ?? 0) + (legacy.requests ?? 0),
+            cachedInputTokens:
+              (current.cachedInputTokens ?? 0) +
+              (legacy.cachedInputTokens ?? 0),
+            reasoningTokens:
+              (current.reasoningTokens ?? 0) + (legacy.reasoningTokens ?? 0),
+          }
+        : legacy;
+      delete usageByProvider["codex-app"];
+    }
+    return usageByProvider;
   } catch {
     return {};
   }
@@ -379,10 +392,7 @@ function connectionSignature(provider: AIProvider) {
 }
 
 export function isChatGPTAccount(kind: AIProvider["kind"]) {
-  return kind === "chatgpt" || kind === "codex-app";
-}
-export function isCodexRuntime(kind: AIProvider["kind"]) {
-  return kind === "codex-app" || kind === "codex-api";
+  return kind === "chatgpt";
 }
 
 export function aiProviderReady(provider: AIProvider, state: AIState) {
@@ -392,7 +402,7 @@ export function aiProviderReady(provider: AIProvider, state: AIState) {
     return !!account?.account && account.planEnabled !== false;
   if (provider.kind === "claude") return account?.loggedIn === true;
   if (
-    ["custom", "openai", "anthropic", "codex-api"].includes(provider.kind) &&
+    ["custom", "openai", "anthropic"].includes(provider.kind) &&
     !provider.hasKey
   ) {
     try {
@@ -442,15 +452,10 @@ function update(patch: Partial<AIState>) {
         JSON.stringify(
           Object.fromEntries(
             Object.entries(state.usage).map(
-              ([
+              ([id, { limits: _limits, observedAt: _observed, ...usage }]) => [
                 id,
-                {
-                  limits: _limits,
-                  observedAt: _observed,
-                  planLimitHitAt: _hit,
-                  ...usage
-                },
-              ]) => [id, usage],
+                usage,
+              ],
             ),
           ),
         ),
@@ -559,8 +564,8 @@ export async function saveAIProvider(
     const accounts = { ...state.accounts };
     const usage = { ...state.usage };
     if (
-      isCodexRuntime(provider.kind) ||
-      (previous && isCodexRuntime(previous.kind))
+      isChatGPTAccount(provider.kind) ||
+      (previous && isChatGPTAccount(previous.kind))
     ) {
       delete accounts[provider.id];
       if (usage[provider.id])
@@ -854,8 +859,7 @@ export function usageRecorder(providerId: string) {
     estimatedCost = 0,
     counted = false;
   return (kind: string, value?: unknown) => {
-    if (!["usage", "cost", "limits", "plan-limit", "request"].includes(kind))
-      return;
+    if (!["usage", "cost", "limits", "request"].includes(kind)) return;
     const old = state.usage[providerId] ?? {
       tokens: 0,
       inputTokens: 0,
@@ -871,11 +875,6 @@ export function usageRecorder(providerId: string) {
       counted = true;
       next.requests = (old.requests ?? 0) + 1;
     }
-    if (
-      kind === "plan-limit" &&
-      state.providers.some((p) => p.id === providerId && p.kind === "chatgpt")
-    )
-      next.planLimitHitAt = data.exceeded === true ? Date.now() : undefined;
     if (kind === "limits") {
       if (!Object.keys(data).length) return;
       const window = claudeQuota(data);
@@ -1229,14 +1228,13 @@ export async function sendAIMessage(
 }
 export async function aiAccount(
   providerId: string,
-  action: "login" | "add" | "select" | "logout" | "status",
+  action: "login" | "logout" | "status",
   requestId: string,
-  accountId?: string,
 ) {
   if (!native)
     throw new Error("Account connections are available in the desktop app.");
   const unlisten =
-    action === "login" || action === "add"
+    action === "login"
       ? await listen<{
           requestId: string;
           kind: string;
@@ -1276,7 +1274,6 @@ export async function aiAccount(
       providerId,
       action,
       requestId,
-      accountId,
     });
     const models = { ...state.models };
     const identity = (value: Record<string, unknown> | undefined) =>
@@ -1312,9 +1309,6 @@ export async function aiAccount(
                 ...usage,
                 limits: reported,
                 observedAt: reported ? Date.now() : undefined,
-                planLimitHitAt: changedAccount
-                  ? undefined
-                  : usage.planLimitHitAt,
               },
             },
           }

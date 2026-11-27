@@ -16,6 +16,35 @@
 use super::*;
 
 #[test]
+fn consolidates_codex_into_chatgpt_and_keeps_custom_responses_connections() {
+    let mut providers = defaults();
+    let mut codex = providers[0].clone();
+    codex.id = "codex-app".into();
+    codex.kind = "codex-app".into();
+    codex.enabled = true;
+    codex.model = "codex-model".into();
+    codex.executable = "/opt/codex".into();
+    providers.push(codex);
+    let mut api = providers.iter().find(|p| p.id == "openai").unwrap().clone();
+    api.id = "codex-api".into();
+    api.kind = "codex-api".into();
+    providers.push(api.clone());
+    api.id = "custom-responses".into();
+    api.has_key = true;
+    providers.push(api);
+
+    migrate_codex_providers(&mut providers);
+    assert!(providers.iter().all(|p| p.id != "codex-api" && p.id != "codex-app"));
+    let chatgpt = providers.iter().find(|p| p.id == "chatgpt").unwrap();
+    assert!(chatgpt.enabled);
+    assert_eq!(chatgpt.model, "codex-model");
+    assert_eq!(chatgpt.executable, "/opt/codex");
+    let custom = providers.iter().find(|p| p.id == "custom-responses").unwrap();
+    assert_eq!(custom.kind, "openai");
+    assert!(custom.has_key);
+}
+
+#[test]
 fn opencode_catalog_preserves_router_ids_and_filters_unavailable_models() {
     let models = opencode_catalog(&json!({"data":[
             {"providerID":"console","id":"alias","modelID":"remote-name","name":"Friendly model","type":"chat","enabled":true,"variants":[{"id":"fast","name":"Quick"},{"id":"disabled","disabled":true}]},

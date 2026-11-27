@@ -77,94 +77,23 @@ function isOpenRouter(provider: AIProvider): boolean {
   }
 }
 
-function providerUsageHelp(provider: AIProvider) {
+function limitMessage(provider: AIProvider) {
   if (isOpenRouter(provider))
-    return {
-      label: "OpenRouter activity",
-      url: "https://openrouter.ai/activity",
-      limits:
-        "Refresh to check the configured key’s spending cap and remaining budget.",
-    };
+    return "Refresh to check this key’s remaining budget.";
   switch (provider.kind) {
-    case "codex-app":
-      return {
-        url: "https://chatgpt.com/settings/usage",
-        label: "ChatGPT usage",
-        limits:
-          "Codex hasn’t reported plan limits for this account yet. Refresh to check again.",
-      };
-    case "codex-api":
-      return {
-        limits:
-          "This endpoint handles API billing and quotas. Check the endpoint’s usage dashboard.",
-      };
     case "chatgpt":
-      return {
-        url: "https://chatgpt.com/settings/usage",
-        label: "ChatGPT usage",
-        limits:
-          "This ChatGPT connection does not expose remaining plan quota or reset times. Check ChatGPT Usage for allowance, app limits, and credits.",
-      };
     case "claude":
-      return {
-        url: "https://claude.ai/settings/usage",
-        label: "Claude plan usage",
-        limits:
-          "Refresh to check the plan allowance reported by Claude Code. Availability depends on the CLI version and sign-in method.",
-      };
+      return "Your account hasn’t reported any limit data. Try refreshing.";
     case "openai":
-      return {
-        url: "https://platform.openai.com/usage",
-        label: "OpenAI billing usage",
-        limits:
-          "API request and token limits are reported after inference. Check the provider dashboard for spend and organization limits.",
-      };
     case "anthropic":
-      return {
-        url: "https://platform.claude.com/usage",
-        label: "Claude Console usage",
-        limits:
-          "API request and token limits are reported after inference. Check Claude Console for spend and organization limits.",
-      };
+      return "Request and token limits appear after the provider reports them.";
     case "antigravity":
-      return {
-        url: "https://antigravity.google/docs/cli/commands/usage",
-        label: "Antigravity quota guide",
-        limits:
-          "Use /usage in Antigravity for model-group quotas and resets, or /credits for credit balance. Headless replies report token totals.",
-      };
+      return "Model quotas are available in the Antigravity app.";
     case "opencode":
-      return {
-        url: "https://opencode.ai/docs/cli/commands/#stats",
-        label: "OpenCode stats guide",
-        limits:
-          "Refresh to check Go allowances and Console budgets from the connected OpenCode workspace. Other upstream limits are managed by their providers.",
-      };
+      return "Refresh to check for Go allowances and workspace budgets.";
     default:
-      return {
-        limits:
-          "This connection hasn’t returned a supported limit. Check usage with the provider that supplies the model.",
-      };
+      return "This connection hasn’t reported any limit data yet.";
   }
-}
-
-function UsageLink({ url, label }: { url: string; label: string }) {
-  return (
-    <a
-      className="setting-action"
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(event) => {
-        if (native) {
-          event.preventDefault();
-          void openUrl(url).catch(() => {});
-        }
-      }}
-    >
-      {label} <ExternalLink size={12} />
-    </a>
-  );
 }
 
 function KeyBudget({
@@ -265,11 +194,10 @@ export default function AIUsage({
   const connected = state.providers.filter((p) => aiProviderReady(p, state));
   const connectedIds = new Set(connected.map(({ id }) => id));
   const selection = connectedIds.has(filter) ? filter : "all";
-  const providers = state.providers.filter((p) =>
+  const providers =
     selection === "all"
-      ? connectedIds.has(p.id) || !!state.usage[p.id]
-      : p.id === selection,
-  );
+      ? connected
+      : connected.filter((provider) => provider.id === selection);
   useEffect(() => {
     if (!present) return;
     const previous = document.activeElement as HTMLElement;
@@ -310,7 +238,7 @@ export default function AIUsage({
   const refreshable = providers.filter(
     (p) =>
       connectedIds.has(p.id) &&
-      (["chatgpt", "codex-app", "claude", "opencode"].includes(p.kind) ||
+      (["chatgpt", "claude", "opencode"].includes(p.kind) ||
         (isOpenRouter(p) && p.hasKey)),
   );
   const checkPlan = useCallback((providerId: string) => {
@@ -471,7 +399,12 @@ export default function AIUsage({
             {controls}
           </header>
         )}
-        <div className="ai-usage-content" role="tabpanel" aria-label={tab}>
+        <div
+          key={`${selection}:${tab}`}
+          className="ai-usage-content"
+          role="tabpanel"
+          aria-label={tab}
+        >
           {providers.length === 0 && (
             <div className="ai-quota-unavailable">
               <strong>No connected AI providers</strong>
@@ -484,7 +417,6 @@ export default function AIUsage({
               raw = (usage?.limits ?? account?.limits) as
                 Record<string, unknown> | undefined,
               limits = remainingLimits(raw, usage?.observedAt),
-              guide = providerUsageHelp(provider),
               claudeRejection =
                 provider.kind === "claude" && quotaDenied(raw, now),
               keyResult = keyUsage[provider.id],
@@ -507,24 +439,6 @@ export default function AIUsage({
                 </h3>
                 {tab === "limits" ? (
                   <>
-                    {provider.kind === "chatgpt" &&
-                      !limits.some(({ total }) => total === undefined) && (
-                        <div className="ai-quota-unavailable">
-                          <strong>ChatGPT plan allowance</strong>
-                          <span>
-                            {!identity
-                              ? "Connect a ChatGPT account in AI Providers."
-                              : account?.planEnabled === false
-                                ? "Plan access is off for Devyy."
-                                : usage?.planLimitHitAt
-                                  ? `ChatGPT reported a usage limit for Devyy at ${new Date(usage.planLimitHitAt).toLocaleTimeString()}.`
-                                  : guide.limits}
-                          </span>
-                          {guide.url && (
-                            <UsageLink url={guide.url} label={guide.label} />
-                          )}
-                        </div>
-                      )}
                     {keySnapshot && (
                       <>
                         <KeyBudget
@@ -646,21 +560,12 @@ export default function AIUsage({
                           </div>
                         );
                       })
-                    ) : provider.kind !== "chatgpt" &&
-                      !keySnapshot &&
-                      !claudeRejection ? (
+                    ) : !keySnapshot && !claudeRejection ? (
                       <div className="ai-quota-unavailable">
                         <strong>Limit data unavailable</strong>
-                        <span>{guide.limits}</span>
+                        <span>{limitMessage(provider)}</span>
                       </div>
                     ) : null}
-                    {provider.kind === "chatgpt" &&
-                      limits.some(({ total }) => total !== undefined) && (
-                        <small className="settings-note">
-                          API request limits apply separately from the ChatGPT
-                          plan allowance.
-                        </small>
-                      )}
                     {raw && !limits.length && (
                       <details className="ai-raw-limits">
                         <DisclosureSummary>
@@ -668,9 +573,6 @@ export default function AIUsage({
                         </DisclosureSummary>
                         <pre>{JSON.stringify(raw, null, 2)}</pre>
                       </details>
-                    )}
-                    {provider.kind !== "chatgpt" && guide.url && (
-                      <UsageLink url={guide.url} label={guide.label} />
                     )}
                     {identity && (
                       <div className="ai-usage-account">
@@ -874,9 +776,6 @@ export default function AIUsage({
                           </>
                         )}
                       </div>
-                    )}
-                    {guide.url && (
-                      <UsageLink url={guide.url} label={guide.label} />
                     )}
                   </>
                 )}

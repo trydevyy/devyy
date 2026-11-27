@@ -14,8 +14,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use super::{
-    agent, cli, emit, endpoint, provider_key, register_process, transcript, ChatRequest,
-    CliProcessTree, ProcessRegistration, Provider, MAX_EVENT, SYSTEM,
+    agent, cli, emit, register_process, transcript, ChatRequest, CliProcessTree,
+    ProcessRegistration, Provider, MAX_EVENT, SYSTEM,
 };
 use serde_json::{json, Value};
 use std::{collections::VecDeque, time::Duration};
@@ -26,10 +26,6 @@ use tokio::{
 };
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(15);
-
-pub(super) fn supports(provider: &Provider) -> bool {
-    matches!(provider.kind.as_str(), "codex-app" | "codex-api")
-}
 
 struct Server {
     input: ChildStdin,
@@ -46,15 +42,13 @@ impl Server {
     async fn start<R: Runtime>(app: &AppHandle<R>, provider: &Provider) -> Result<Self, String> {
         let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
         let mut command = cli(provider)?;
-        let home = if provider.kind == "codex-api" {
-            scratch.path().join("codex-home")
-        } else {
-            app.path()
-                .app_config_dir()
-                .map_err(|e| e.to_string())?
-                .join("codex-app")
-                .join(&provider.id)
-        };
+        // Keep the original Codex profile so the consolidated provider retains existing sign-ins.
+        let home = app
+            .path()
+            .app_config_dir()
+            .map_err(|e| e.to_string())?
+            .join("codex-app")
+            .join("codex-app");
         let mut directory = std::fs::DirBuilder::new();
         directory.recursive(true);
         #[cfg(unix)]
@@ -101,47 +95,12 @@ impl Server {
             .env_remove("OPENAI_BASE_URL")
             .env_remove("DEVYY_CODEX_API_KEY")
             .current_dir(scratch.path());
-        if provider.kind == "codex-api" {
-            let url = endpoint(provider)?;
-            let base_url = format!(
-                "model_providers.devyy.base_url={}",
-                json!(url.as_str().trim_end_matches('/'))
-            );
-            command.args([
-                "-c",
-                "model_provider=\"devyy\"",
-                "-c",
-                "model_providers.devyy.name=\"Devyy API\"",
-                "-c",
-                &base_url,
-                "-c",
-                "model_providers.devyy.wire_api=\"responses\"",
-                "-c",
-                "model_providers.devyy.requires_openai_auth=false",
-                "-c",
-                "model_providers.devyy.supports_websockets=false",
-            ]);
-            if let Some(key) = provider_key(provider)? {
-                command
-                    .args([
-                        "-c",
-                        "model_providers.devyy.env_key=\"DEVYY_CODEX_API_KEY\"",
-                    ])
-                    .env("DEVYY_CODEX_API_KEY", key);
-            } else if !matches!(
-                url.host_str(),
-                Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
-            ) {
-                return Err("Save an API key for this Codex API endpoint first.".into());
-            }
-        } else {
-            command.args([
-                "-c",
-                "model_provider=\"openai\"",
-                "-c",
-                "cli_auth_credentials_store=\"file\"",
-            ]);
-        }
+        command.args([
+            "-c",
+            "model_provider=\"openai\"",
+            "-c",
+            "cli_auth_credentials_store=\"file\"",
+        ]);
 
         let mut child = command.spawn().map_err(|_| "Could not launch Codex App Server. Install or update Codex CLI, then check its executable path.")?;
         let registration = register_process(app, child.id());
@@ -327,14 +286,6 @@ pub(super) async fn models<R: Runtime>(
     Ok(models)
 }
 
-pub(super) async fn check_api<R: Runtime>(
-    app: &AppHandle<R>,
-    provider: &Provider,
-) -> Result<(), String> {
-    Server::start(app, provider).await?;
-    Ok(())
-}
-
 pub(super) async fn chat<R: Runtime>(
     app: &AppHandle<R>,
     provider: &Provider,
@@ -342,11 +293,8 @@ pub(super) async fn chat<R: Runtime>(
     context: Option<agent::Context>,
 ) -> Result<(), String> {
     let mut server = Server::start(app, provider).await?;
-    if provider.kind == "codex-app" && server.chatgpt_identity().await?.is_null() {
+    if server.chatgpt_identity().await?.is_null() {
         return Err("Sign in to ChatGPT via Codex before sending a message.".into());
-    }
-    if provider.kind == "codex-api" && provider.model.trim().is_empty() {
-        return Err("Choose a model for the configured Codex API endpoint.".into());
     }
     let tools = match &context {
         Some(ctx) => {
@@ -438,7 +386,7 @@ pub(super) async fn chat<R: Runtime>(
                 }
                 continue;
             }
-            if provider.kind == "codex-app" && method == "account/rateLimits/updated" {
+            if method == "account/rateLimits/updated" {
                 emit(app, &request.request_id, "limits", data.clone());
             }
             if data["threadId"] != thread { continue; }
@@ -477,18 +425,16 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets};
 
     #[tokio::test]
-    async fn api_turn_uses_its_own_route_and_streams_without_native_workspace_access() {
+    async fn chatgpt_streams_without_native_workspace_access() {
         let fixtures = tempfile::tempdir().unwrap();
         let executable = fixtures.path().join("codex-fixture");
         std::fs::write(
             &executable,
             r#"#!/usr/bin/env python3
 import json, os, sys
-assert "model_provider=\"devyy\"" in sys.argv
-assert "model_providers.devyy.base_url=\"http://127.0.0.1:19766/v1\"" in sys.argv
-assert "model_providers.devyy.requires_openai_auth=false" in sys.argv
+assert 'model_provider="openai"' in sys.argv
 assert "OPENAI_API_KEY" not in os.environ
-assert os.path.realpath(os.environ["CODEX_HOME"]).startswith(os.getcwd())
+assert os.environ["CODEX_HOME"].endswith("/codex-app/codex-app")
 def send(data):
     print(json.dumps(data),flush=True)
 for line in sys.stdin:
@@ -500,6 +446,8 @@ for line in sys.stdin:
     if method=="initialize":
         assert params["capabilities"]["experimentalApi"]
         result={}
+    elif method=="account/read":
+        result={"account":{"type":"chatgpt","email":"fixture@example.test","planType":"plus"}}
     elif method=="thread/start":
         assert params["model"]=="fixture-model"
         assert params["environments"]==[]
@@ -524,14 +472,13 @@ for line in sys.stdin:
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
         let mut provider = super::super::defaults()
             .into_iter()
-            .find(|provider| provider.kind == "codex-api")
+            .find(|provider| provider.kind == "chatgpt")
             .unwrap();
-        provider.endpoint = "http://127.0.0.1:19766/v1".into();
         provider.executable = executable.to_string_lossy().into_owned();
         provider.model = "fixture-model".into();
         let request = ChatRequest {
             provider_id: provider.id.clone(),
-            request_id: "codex-api-test".into(),
+            request_id: "chatgpt-codex-test".into(),
             model: None,
             effort: None,
             agent_mode: None,
