@@ -89,6 +89,22 @@ test("search highlights matches, clears queries and supports keyboard mode switc
   await expect(
     commandPalette.getByRole("textbox", { name: "Search", exact: true }),
   ).toBeFocused();
+  // Desktop font metrics vary. Keep a gap even at the largest UI text size.
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty(
+      "--ui-text-scale",
+      String(18 / 13),
+    ),
+  );
+  const wideSwitch = (await commandPalette
+    .locator(".palette-modes")
+    .boundingBox())!;
+  const wideField = (await commandPalette
+    .locator(".palette-input")
+    .boundingBox())!;
+  expect(
+    wideField.x - (wideSwitch.x + wideSwitch.width),
+  ).toBeGreaterThanOrEqual(6);
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ width: 480, height: viewport.height });
   const modeSwitch = (await commandPalette

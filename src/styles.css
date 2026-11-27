@@ -15549,7 +15549,11 @@ button[aria-busy="true"]::after {
 }
 .palette-chrome {
   display: grid;
-  grid-template-columns: minmax(154px, 1fr) minmax(0, 2.2fr) minmax(154px, 1fr);
+  --palette-side-width: calc(78px + 96px * var(--ui-text-scale, 1));
+  grid-template-columns:
+    minmax(var(--palette-side-width), 1fr)
+    minmax(0, 2.2fr)
+    minmax(var(--palette-side-width), 1fr);
   grid-template-areas: "modes search close";
   align-items: center;
   gap: 8px;
@@ -15599,7 +15603,7 @@ button[aria-busy="true"]::after {
 .palette-footer kbd {
   font: inherit;
 }
-@container (max-width: 540px) {
+@container (max-width: 580px) {
   .palette-chrome {
     grid-template-columns: 28px minmax(0, 1fr) 28px;
     grid-template-areas:
