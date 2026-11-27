@@ -1732,9 +1732,7 @@ test("global full workspace access takes effect after consent", async ({
 
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Preferences" });
-  await settings
-    .getByRole("tab", { name: "AI providers", exact: true })
-    .click();
+  await settings.getByRole("tab", { name: "AI chat", exact: true }).click();
   const toggle = settings.getByRole("switch", {
     name: "Full workspace access by default",
   });
@@ -2309,9 +2307,7 @@ test("reasoning follows model capabilities and preserves provider-specific optio
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Preferences" });
-  await settings
-    .getByRole("tab", { name: "AI providers", exact: true })
-    .click();
+  await settings.getByRole("tab", { name: "AI chat", exact: true }).click();
   const closeAfterSelection = settings.getByRole("switch", {
     name: "Close model picker after a selection",
   });

@@ -28,6 +28,7 @@ import {
   Blocks,
   Plug,
   Sparkles,
+  MessageSquare,
   SlidersHorizontal,
   HeartHandshake,
   GitBranch,
@@ -105,6 +106,13 @@ export const categories = [
     label: "AI providers",
     description: "Connect accounts, choose models, and view usage.",
     icon: Sparkles,
+  },
+  {
+    id: "ai-chat",
+    label: "AI chat",
+    description:
+      "Agent workspace access, model picker, and reasoning preferences.",
+    icon: MessageSquare,
   },
   {
     id: "git",

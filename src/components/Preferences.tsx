@@ -69,6 +69,8 @@ import LanguageServers from "./LanguageServers";
 import SettingsImport from "./SettingsImport";
 import DefaultApplications from "./DefaultApplications";
 import AIProviders from "./AIProviders";
+import AIGlobalAccess from "./AIGlobalAccess";
+import AIPickerSettings from "./AIPickerSettings";
 import GitHubSettings from "./GitHubSettings";
 import CompletionSettings from "./CompletionSettings";
 import { extensionThemes, useExtensions } from "../lib/extensions";
@@ -103,7 +105,7 @@ const navigationGroups = [
     ids: ["appearance", "themes", "layout", "accessibility"],
   },
   { label: "Editing", ids: ["editor", "files", "keyboard", "terminal"] },
-  { label: "Tools", ids: ["extensions", "ai", "languages", "git"] },
+  { label: "Tools", ids: ["extensions", "ai", "ai-chat", "languages", "git"] },
   {
     label: "Devyy",
     ids: ["account", "applications", "setup", "credits", "about"],
@@ -561,8 +563,12 @@ export default function Preferences({
                   followSystem={settings.followSystemTheme}
                 />
               )}
-              {!searching && category === "ai" && (
-                <AIProviders showWorkspaceDefault />
+              {!searching && category === "ai" && <AIProviders />}
+              {!searching && category === "ai-chat" && (
+                <>
+                  <AIGlobalAccess />
+                  <AIPickerSettings />
+                </>
               )}
               {!searching && category === "account" && (
                 <AccountSettings settings={settings} onChange={onChange} />
