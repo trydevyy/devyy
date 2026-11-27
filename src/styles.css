@@ -5956,7 +5956,7 @@ button.split-tab-indicator:hover {
   margin-top: 15px;
 }
 
-/* First-run setup uses the workbench's typography and glass material. */
+/* First-run setup uses the workbench layout. */
 .setup-backdrop {
   position: fixed;
   inset: 0;
@@ -5972,65 +5972,57 @@ button.split-tab-indicator:hover {
   display: flex;
   width: min(1000px, calc(100vw - 56px));
   height: min(720px, calc(100dvh - 70px));
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
   overflow: hidden;
-  background: rgba(var(--shell-rgb), 0.94);
-  box-shadow: 0 32px 100px #0003;
-  animation: surface-enter var(--enter-duration) var(--ease);
+  padding: 8px;
   transition:
     width 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
     height 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
 }
+.setup-body {
+  display: grid;
+  grid-template-columns: clamp(164px, 23%, 216px) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
 .setup-steps {
   display: flex;
-  flex: none;
-  gap: 4px;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px 10px 2px;
+  min-width: 0;
+  overflow: auto;
 }
 .setup-steps button {
-  display: inline-flex;
-  flex: 1 0 auto;
+  display: flex;
+  flex: none;
+  min-height: 32px;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 8px;
-  font-size: calc(11px * var(--ui-text-scale, 1));
-  color: var(--muted);
-  border-radius: 5px;
+  gap: 8px;
+  padding: 6px 9px;
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  color: var(--secondary);
+  border-radius: 6px;
+  text-align: start;
 }
-.setup-steps button:is(:hover, [aria-current="step"]) {
+.setup-steps button:hover {
   background: var(--hover);
+  color: var(--ink);
+}
+.setup-steps button[aria-current="step"] {
+  background: color-mix(in srgb, var(--hover) 72%, var(--shell));
   color: var(--ink);
 }
 .setup-step-number {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.setup-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: color-mix(in srgb, var(--paper) 40%, transparent);
-}
-.setup-main > header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 30px 36px 18px;
-  font-size: calc(11px * var(--ui-text-scale, 1));
-  color: var(--muted);
-}
 .setup-progress {
   display: flex;
+  flex: none;
   gap: 4px;
 }
 .setup-progress i {
-  width: 18px;
+  width: clamp(7px, 1.8vw, 18px);
   height: 2px;
   background: var(--border-strong);
   border-radius: 2px;
@@ -6216,17 +6208,17 @@ button.split-tab-indicator:hover {
 .setup-scroll .settings-import > .settings-note {
   display: none;
 }
-:root:is([data-vibrancy="off"], [data-material="solid"]) .setup-dialog {
-  background: var(--shell);
+:root[data-motion="reduced"] .setup-dialog {
+  transition: none;
 }
-:root[data-motion="reduced"] :is(.setup-dialog, .setup-scroll) {
+:root[data-motion="reduced"] .setup-scroll {
   animation: none;
 }
 @media (max-width: 1050px) {
   .setup-scroll {
     padding: 20px 26px 30px;
   }
-  .setup-main > :is(header, footer) {
+  .setup-main > footer {
     padding-left: 26px;
     padding-right: 26px;
   }
@@ -15808,11 +15800,34 @@ dialog.devyy-modal > form {
   .devyy-modal-body {
   overflow: auto;
 }
-.devyy-modal .setup-main {
-  background: transparent;
+.devyy-modal.setup-dialog > .devyy-modal-heading {
+  padding-inline: 8px 4px;
 }
-.devyy-modal .setup-main > header {
-  padding-block: 10px 0;
+.setup-dialog .devyy-modal-icon {
+  color: var(--accent);
+}
+@media (max-width: 650px) {
+  .setup-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .setup-steps {
+    flex-direction: row;
+    padding: 2px 0 8px;
+  }
+  .setup-main > footer,
+  .setup-scroll {
+    padding-inline: 14px;
+  }
+  .setup-providers .setup-scroll {
+    display: block;
+    overflow: auto;
+  }
+  .setup-theme-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+    gap: 6px;
+  }
 }
 .devyy-modal .provider-sign-in-terminal {
   min-height: 100px;

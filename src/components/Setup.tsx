@@ -78,10 +78,24 @@ export default function Setup({
         <ModalHeader
           title="Set up Devyy"
           icon={<Asterisk size={18} />}
+          actions={
+            <div
+              className="setup-progress"
+              role="progressbar"
+              aria-label="Setup progress"
+              aria-valuemin={1}
+              aria-valuemax={steps.length}
+              aria-valuenow={step + 1}
+            >
+              {steps.map((item, i) => (
+                <i key={item} className={i <= step ? "complete" : ""} />
+              ))}
+            </div>
+          }
           onClose={onFinish}
           closeLabel="Skip setup"
         />
-        <ModalBody flush className="setup-body">
+        <div className="setup-body">
           <nav className="setup-steps" aria-label="Setup steps">
             {steps.map((item, i) => (
               <button
@@ -95,22 +109,7 @@ export default function Setup({
             ))}
           </nav>
 
-          <div className="setup-main">
-            <header>
-              <span>{steps[step]}</span>
-              <div
-                className="setup-progress"
-                role="progressbar"
-                aria-label="Setup progress"
-                aria-valuemin={1}
-                aria-valuemax={steps.length}
-                aria-valuenow={step + 1}
-              >
-                {steps.map((item, i) => (
-                  <i key={item} className={i <= step ? "complete" : ""} />
-                ))}
-              </div>
-            </header>
+          <ModalBody flush className="setup-main">
             <div className="setup-scroll" key={step}>
               <h2>
                 {
@@ -358,8 +357,8 @@ export default function Setup({
                 )}
               </button>
             </footer>
-          </div>
-        </ModalBody>
+          </ModalBody>
+        </div>
       </MotionModalSection>
     </ModalBackdrop>
   );

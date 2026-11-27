@@ -34,6 +34,15 @@ test("first-run setup applies appearance and editor choices, completes once, and
   await expect(setup).toBeVisible();
   const progress = setup.getByRole("progressbar", { name: "Setup progress" });
   await expect(progress).toHaveAttribute("aria-valuenow", "1");
+  await expect(
+    setup.locator(":scope > header").getByRole("progressbar"),
+  ).toBeVisible();
+  const steps = setup.getByRole("navigation", { name: "Setup steps" });
+  await expect(steps).toHaveCSS("flex-direction", "column");
+  await expect(setup.locator(".setup-body > .setup-main")).toBeVisible();
+  await expect(steps.locator('button[aria-current="step"]')).toContainText(
+    "Devyy account",
+  );
   await expect(setup.locator(".setup-step-number").first()).toHaveText("1");
   await expect(
     setup.getByRole("heading", { name: "Sign in to Devyy" }),
