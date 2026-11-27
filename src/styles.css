@@ -16310,12 +16310,22 @@ dialog.devyy-modal::backdrop,
 .cm-env-value {
   cursor: pointer;
 }
-/* Paint the soft text directly. A filter or clip on each value creates
-   extra rendering work and a hard edge where the mask meets the equals sign. */
+/* Mask with a soft bar independent of the underlying glyph shapes. */
+.cm-env-value:not(.cm-env-value-revealed) {
+  background: linear-gradient(
+    transparent 14%,
+    var(--secondary) 31%,
+    var(--secondary) 69%,
+    transparent 86%
+  );
+  border-radius: 5px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  forced-color-adjust: none;
+}
 .cm-env-value:not(.cm-env-value-revealed),
 .cm-env-value:not(.cm-env-value-revealed) * {
   color: transparent !important;
-  text-shadow:
-    1.5px 0 3.5px var(--secondary),
-    2px 0 4.5px var(--secondary);
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
 }

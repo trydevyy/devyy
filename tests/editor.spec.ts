@@ -604,7 +604,8 @@ test("dotenv privacy masks individual values by default and can be switched off"
   await secrets.first().click();
   await expect(secrets.first()).toHaveCSS("color", "rgba(0, 0, 0, 0)");
   await expect(secrets.first()).toHaveCSS("filter", "none");
-  await expect(secrets.first()).not.toHaveCSS("text-shadow", "none");
+  await expect(secrets.first()).toHaveCSS("text-shadow", "none");
+  await expect(secrets.first()).not.toHaveCSS("background-image", "none");
   const revealAll = page.getByRole("button", {
     name: "Reveal all .env values",
   });
