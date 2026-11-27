@@ -30,6 +30,7 @@ import {
   GitFork,
   LoaderCircle,
   RefreshCw,
+  UserRound,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeClipboardText } from "../lib/clipboard";
@@ -79,6 +80,7 @@ export default function GitHubSettings({
   const [credentials, setCredentials] = useState(true);
   const active = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
+  const editingAuthor = useRef(false);
 
   async function refresh() {
     if (!native) return;
@@ -91,8 +93,10 @@ export default function GitHubSettings({
       if (!mounted.current) return;
       if (ghVal) {
         setStatus(ghVal);
-        setName(ghVal.gitName || ghVal.account?.name || "");
-        setEmail(ghVal.gitEmail || ghVal.account?.email || "");
+        if (!editingAuthor.current) {
+          setName(ghVal.gitName || ghVal.account?.name || "");
+          setEmail(ghVal.gitEmail || ghVal.account?.email || "");
+        }
       }
       if (vcsVal) {
         setVcsInfo(vcsVal);
@@ -140,6 +144,7 @@ export default function GitHubSettings({
 
   async function identity(nextName: string, nextEmail: string) {
     await invoke("github_git_identity", { name: nextName, email: nextEmail });
+    editingAuthor.current = false;
     setName(nextName);
     setEmail(nextEmail);
     setStatus((old) =>
@@ -185,7 +190,7 @@ export default function GitHubSettings({
         }))
       ) {
         await identity(value.account.name, value.account.email);
-      } else {
+      } else if (!editingAuthor.current) {
         setName(value.gitName || value.account?.name || "");
         setEmail(value.gitEmail || value.account?.email || "");
       }
@@ -206,125 +211,108 @@ export default function GitHubSettings({
 
   const activeProvider = settings?.vcsProvider ?? vcsInfo.provider;
 
-  const tools = [
-    {
-      name: "Git",
-      available: status?.gitInstalled || vcsInfo.gitAvailable,
-      version: vcsInfo.gitVersion,
-      link: "https://git-scm.com/downloads",
-    },
-    {
-      name: "GitHub CLI",
-      available: status?.cliInstalled,
-      version: null,
-      link: "https://cli.github.com/",
-    },
-  ];
+  const gitInstalled = !!(status?.gitInstalled || vcsInfo.gitAvailable);
+  const authorSaved =
+    !!status?.gitName &&
+    !!status.gitEmail &&
+    name.trim() === status.gitName &&
+    email.trim() === status.gitEmail;
+  const canSaveAuthor =
+    native &&
+    gitInstalled &&
+    !busy &&
+    !authorSaved &&
+    !!name.trim() &&
+    email.includes("@");
+  const connectionLabel = !native
+    ? "Desktop app only"
+    : busy === "login"
+      ? "Connecting"
+      : status?.connected
+        ? "Connected"
+        : busy === "status"
+          ? "Checking"
+          : !status
+            ? "Status unavailable"
+            : status.cliInstalled
+              ? "Not connected"
+              : "GitHub CLI needed";
 
   return (
-    <section className="workbench-settings" aria-label="Source control">
+    <section className="scm-settings" aria-label="Source control">
       <section
-        className="workbench-settings-section"
-        aria-labelledby="commit-author-heading"
-      >
-        <header>
-          <div>
-            <h3 id="commit-author-heading">Commit author</h3>
-            <p>
-              Applied to new commits unless a repository has its own author
-              settings.
-            </p>
-          </div>
-        </header>
-        <form
-          className="scm-identity-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setBusy("identity");
-            void identity(name.trim(), email.trim())
-              .catch(showError)
-              .finally(() => setBusy(""));
-          }}
-        >
-          <label>
-            Name
-            <input
-              aria-label="Commit author name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Your name"
-            />
-          </label>
-          <label>
-            Email
-            <input
-              aria-label="Commit author email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-            />
-          </label>
-          <button
-            className="setting-action"
-            disabled={!native || !!busy || !name.trim() || !email.includes("@")}
-          >
-            <Check size={13} /> Save commit author
-          </button>
-        </form>
-      </section>
-      <section
-        className="workbench-settings-section"
+        className="scm-settings-card scm-connection"
         aria-labelledby="github-heading"
       >
-        <header>
-          <div className="workbench-section-title">
-            <GitFork size={18} />
+        <header className="scm-connection-header">
+          <div className="scm-card-heading">
+            <span className="scm-card-icon">
+              <GitFork size={17} />
+            </span>
             <div>
-              <h3 id="github-heading">GitHub</h3>
+              <h3 id="github-heading">GitHub connection</h3>
               <p>
                 {status?.account?.login
-                  ? `Signed in as ${status.account.login}`
-                  : "Sign in to access GitHub repositories over HTTPS."}
+                  ? `Signed in as @${status.account.login}`
+                  : "Sign in to use private GitHub repositories over HTTPS."}
               </p>
             </div>
           </div>
-          <button
-            className="icon-button"
-            title="Check GitHub status"
-            aria-label="Check status"
-            aria-busy={busy === "status"}
-            disabled={!native || !!busy}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </header>
-        {!status?.connected && busy !== "login" && (
-          <div className="scm-github-connect">
-            <label className="workbench-setting-line">
-              <span>
-                <strong>Use GitHub credentials for Git</strong>
-                <small>Applies to HTTPS operations in Hit and Git.</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={credentials}
-                onChange={(event) => setCredentials(event.target.checked)}
-                disabled={!!busy}
-              />
-            </label>
+          <div className="scm-connection-status">
+            <span className="scm-status" role="status">
+              {status?.connected && <Check size={13} />}
+              {connectionLabel}
+            </span>
             <button
-              className="setting-action"
-              disabled={!native || !status?.cliInstalled || !!busy}
-              onClick={() => void login()}
+              type="button"
+              className="icon-button"
+              title="Refresh Git and GitHub status"
+              aria-label="Check status"
+              aria-busy={busy === "status"}
+              disabled={!native || !!busy}
+              onClick={() => void refresh()}
             >
-              <GitFork size={14} /> Continue with GitHub
+              <RefreshCw
+                size={14}
+                className={busy === "status" ? "spinning" : undefined}
+              />
             </button>
-            {native && status && !status.cliInstalled && (
-              <p className="workbench-muted">
-                Install GitHub CLI to enable browser sign-in.
-              </p>
+          </div>
+        </header>
+        {native && status && !status.connected && busy !== "login" && (
+          <div className="scm-connection-actions">
+            {status.cliInstalled ? (
+              <>
+                <label className="scm-credentials">
+                  <input
+                    type="checkbox"
+                    checked={credentials}
+                    onChange={(event) => setCredentials(event.target.checked)}
+                    disabled={!!busy}
+                  />
+                  Use this sign-in for GitHub pulls and pushes over HTTPS
+                </label>
+                <button
+                  className="primary"
+                  disabled={!!busy}
+                  onClick={() => void login()}
+                >
+                  Continue with GitHub <ExternalLink size={13} />
+                </button>
+              </>
+            ) : (
+              <>
+                <p>
+                  Install GitHub CLI, then refresh to enable browser sign-in.
+                </p>
+                <button
+                  className="primary"
+                  disabled={!!busy}
+                  onClick={() => browse("https://cli.github.com/")}
+                >
+                  <Download size={13} /> Download GitHub CLI
+                </button>
+              </>
             )}
           </div>
         )}
@@ -368,28 +356,101 @@ export default function GitHubSettings({
           </div>
         )}
       </section>
+
       <section
-        className="workbench-settings-section"
-        aria-labelledby="git-tools-heading"
+        className="scm-settings-card"
+        aria-labelledby="commit-author-heading"
       >
-        <header>
-          <div className="workbench-section-title">
-            <GitBranch size={18} />
-            <div>
-              <h3 id="git-tools-heading">Git tools</h3>
-              <p>
-                Choose what Devyy uses to work with repositories on this device.
-              </p>
-            </div>
+        <header className="scm-card-heading">
+          <span className="scm-card-icon">
+            <UserRound size={17} />
+          </span>
+          <div>
+            <h3 id="commit-author-heading">Commit author</h3>
+            <p>
+              The name and email collaborators see on new commits. Repositories
+              can set their own.
+            </p>
           </div>
         </header>
-        <div className="workbench-setting-line">
+        <form
+          className="scm-identity-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canSaveAuthor) return;
+            setBusy("identity");
+            void identity(name.trim(), email.trim())
+              .catch(showError)
+              .finally(() => setBusy(""));
+          }}
+        >
+          <label>
+            Name
+            <input
+              aria-label="Commit author name"
+              autoComplete="name"
+              disabled={busy === "identity"}
+              required
+              value={name}
+              onChange={(event) => {
+                editingAuthor.current = true;
+                setName(event.target.value);
+              }}
+              placeholder="Your name"
+            />
+          </label>
+          <label>
+            Email
+            <input
+              aria-label="Commit author email"
+              autoComplete="email"
+              disabled={busy === "identity"}
+              required
+              type="email"
+              value={email}
+              onChange={(event) => {
+                editingAuthor.current = true;
+                setEmail(event.target.value);
+              }}
+              placeholder="you@example.com"
+            />
+          </label>
+          <div className="scm-save-author">
+            <button
+              className="setting-action"
+              disabled={!canSaveAuthor}
+              aria-busy={busy === "identity"}
+            >
+              <Check size={13} /> Save commit author
+            </button>
+            {authorSaved && <small role="status">Saved</small>}
+            {native && status && !gitInstalled && (
+              <small>Install Git to save an author.</small>
+            )}
+          </div>
+        </form>
+      </section>
+
+      <section
+        className="scm-settings-card"
+        aria-labelledby="git-tools-heading"
+      >
+        <header className="scm-card-heading">
+          <span className="scm-card-icon">
+            <GitBranch size={17} />
+          </span>
+          <div>
+            <h3 id="git-tools-heading">Repository tools</h3>
+            <p>Choose what Devyy uses to work with repositories.</p>
+          </div>
+        </header>
+        <div className="scm-tool-row">
           <span>
             <strong>Source control provider</strong>
             <small>
               {activeProvider === "hit"
-                ? "Hit is included with Devyy."
-                : "Uses your system Git installation."}
+                ? "Included with Devyy."
+                : "Uses the Git installed on this device."}
             </small>
           </span>
           <Select
@@ -401,35 +462,39 @@ export default function GitHubSettings({
             }
           >
             <option value="hit">Hit</option>
-            <option value="git">Git</option>
+            <option
+              value="git"
+              disabled={!gitInstalled && activeProvider !== "git"}
+            >
+              Git
+            </option>
           </Select>
         </div>
-        {tools.map((tool) => (
-          <div className="workbench-setting-line" key={tool.name}>
-            <span>
-              <strong>{tool.name}</strong>
-              <small>
-                {tool.version ||
-                  (tool.available
-                    ? "Installed"
-                    : native && !status
-                      ? "Checking installation"
-                      : "Required for this integration")}
-              </small>
-            </span>
-            {tool.available ? (
-              <Check size={15} aria-label="Installed" />
-            ) : (
-              <button
-                className="setting-action"
-                disabled={!native}
-                onClick={() => browse(tool.link)}
-              >
-                <Download size={13} /> Download {tool.name}
-              </button>
-            )}
-          </div>
-        ))}
+        <div className="scm-tool-row">
+          <span>
+            <strong>System Git</strong>
+            <small>
+              {vcsInfo.gitVersion ||
+                (gitInstalled
+                  ? "Installed"
+                  : status
+                    ? "Needed to save a commit author."
+                    : native
+                      ? "Installation status unavailable"
+                      : "Available in the desktop app")}
+            </small>
+          </span>
+          {gitInstalled ? (
+            <Check size={15} aria-label="Installed" />
+          ) : native && status ? (
+            <button
+              className="setting-action"
+              onClick={() => browse("https://git-scm.com/downloads")}
+            >
+              <Download size={13} /> Download Git
+            </button>
+          ) : null}
+        </div>
       </section>
     </section>
   );

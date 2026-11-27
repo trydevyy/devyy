@@ -375,16 +375,19 @@ test("GitHub sign-in displays its code and asks before changing Git identity", a
       },
     ]);
 });
-test("missing Git offers downloads and prevents premature GitHub sign-in", async ({
+test("missing tools surface the download actions needed to get started", async ({
   page,
 }) => {
   await nativeFixture(page, false);
   const preferences = await settings(page, "Source control");
   await expect(
-    preferences.getByRole("button", {
-      name: "Continue with GitHub",
-      exact: true,
-    }),
+    preferences.getByRole("button", { name: "Continue with GitHub" }),
+  ).toHaveCount(0);
+  await expect(
+    preferences.getByRole("button", { name: "Download GitHub CLI" }),
+  ).toBeEnabled();
+  await expect(
+    preferences.getByRole("button", { name: "Save commit author" }),
   ).toBeDisabled();
   await preferences
     .getByRole("button", { name: "Download Git", exact: true })

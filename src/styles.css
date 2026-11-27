@@ -13965,20 +13965,98 @@ dialog.provider-add-dialog {
 .workbench-exclusions .sync-exclusions {
   margin-top: 9px;
 }
+.scm-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 315px), 1fr));
+  gap: 12px;
+}
+.scm-settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--workbench-pane-radius);
+  background: color-mix(in srgb, var(--shell) 50%, var(--paper));
+}
+.scm-connection {
+  grid-column: 1 / -1;
+}
+.scm-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.scm-card-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--secondary);
+}
+.scm-card-heading h3 {
+  margin: 0;
+  font-size: calc(14px * var(--ui-text-scale, 1));
+  font-weight: 600;
+}
+.scm-card-heading p,
+.scm-connection-actions p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.scm-connection-header,
+.scm-connection-actions,
+.scm-tool-row,
+.scm-save-author {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.scm-connection-status,
+.scm-status,
+.scm-credentials {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.scm-status,
+.scm-save-author small,
+.scm-tool-row small {
+  color: var(--muted);
+}
+.scm-status {
+  font-size: calc(11px * var(--ui-text-scale, 1));
+}
+.scm-connection-actions,
+.scm-github-auth {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.scm-credentials input {
+  flex: none;
+}
 .scm-identity-form {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: end;
-  gap: 12px;
-  padding-top: 12px;
+  gap: 10px;
 }
-.scm-identity-form label {
+.scm-identity-form label,
+.scm-tool-row > span {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   color: var(--secondary);
   min-width: 0;
 }
 .scm-identity-form input {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 7px 9px;
@@ -13987,12 +14065,13 @@ dialog.provider-add-dialog {
   border: 1px solid var(--border-strong);
   border-radius: 6px;
 }
-.scm-identity-form > button {
-  justify-self: start;
+.scm-tool-row + .scm-tool-row {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
-.scm-github-connect > button,
-.scm-github-auth {
-  margin-top: 10px;
+.scm-tool-row strong {
+  color: var(--ink);
+  font-weight: 500;
 }
 .scm-github-auth {
   display: flex;
@@ -14335,9 +14414,6 @@ dialog.provider-add-dialog {
   margin-top: 0;
 }
 @media (max-width: 640px) {
-  .scm-identity-form {
-    grid-template-columns: 1fr;
-  }
   .workbench-account-header {
     flex-wrap: wrap;
   }
