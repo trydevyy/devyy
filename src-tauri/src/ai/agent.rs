@@ -1106,6 +1106,9 @@ async fn cli_turn<R: tauri::Runtime>(
         usage = json!({});
     }
     usage["_costUSD"] = result["total_cost_usd"].clone();
+    if let Some(model) = result.get("model").filter(|m| m.is_string()) {
+        usage["model"] = model.clone();
+    }
     Ok((turn, usage))
 }
 fn cli_agent_output(result: &Value, stream: &str, allow_text: bool) -> Option<Value> {
@@ -1353,6 +1356,7 @@ pub async fn chat<R: tauri::Runtime>(
     let mut cached_in = 0;
     let mut reasoning_out = 0;
     let mut cost = 0.0;
+    let mut estimated_cost = 0.0;
     let mut proposal_count = 0;
     const TOOL_ROUNDS: usize = 32;
     for round in 0..=TOOL_ROUNDS {
@@ -1419,15 +1423,11 @@ pub async fn chat<R: tauri::Runtime>(
             .unwrap_or(0)
             + usage["cache_read_input_tokens"].as_u64().unwrap_or(0)
             + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
-        tokens_out += usage["output_tokens"]
-            .as_u64()
-            .or(usage["completion_tokens"].as_u64())
-            .unwrap_or(0)
-            + if p.kind == "antigravity" {
-                usage["thinking_tokens"].as_u64().unwrap_or(0)
-            } else {
-                0
-            };
+        tokens_out += if p.kind == "antigravity" {
+            super::billing::antigravity_output(&usage).unwrap_or_default()
+        } else {
+            usage["output_tokens"].as_u64().or(usage["completion_tokens"].as_u64()).unwrap_or_default()
+        };
         cached_in += usage
             .pointer("/input_tokens_details/cached_tokens")
             .or_else(|| usage.pointer("/prompt_tokens_details/cached_tokens"))
@@ -1449,12 +1449,13 @@ pub async fn chat<R: tauri::Runtime>(
             .map(|amount| (amount, false))
             .or_else(|| super::billing::cost(p, &usage))
         {
-            cost += amount;
+            let total = if estimated { &mut estimated_cost } else { &mut cost };
+            *total += amount;
             emit(
                 app,
                 &r.request_id,
                 "cost",
-                json!({"amount":cost,"currency":"USD","estimated":estimated}),
+                json!({"amount":*total,"currency":"USD","estimated":estimated}),
             );
         }
         emit(

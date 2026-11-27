@@ -15939,3 +15939,81 @@ dialog.devyy-modal::backdrop,
 .devyy-modal-actions > button {
   min-height: 29px;
 }
+
+.ai-activity {
+  margin-bottom: 28px;
+  padding: clamp(14px, 2.5vw, 24px);
+  background: var(--hover);
+  border-radius: 9px;
+}
+.ai-activity-top {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.ai-activity-top h3 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+.ai-activity-top small, .ai-activity-axis, .ai-activity-legend {
+  color: var(--muted);
+  font-size: .85rem;
+}
+.ai-activity-readout {
+  display: grid;
+  gap: 4px;
+}
+.ai-activity-columns {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: clamp(2px, .65vw, 9px);
+  height: 105px;
+  margin-top: 16px;
+}
+.ai-activity-columns button {
+  display: flex;
+  align-items: end;
+  border-bottom: 2px solid var(--border-strong);
+  padding: 3px 2px;
+  min-width: 0;
+  border-radius: 5px 5px 0 0;
+}
+.ai-activity-columns button:hover,
+.ai-activity-columns button[aria-pressed="true"] {
+  background: var(--hover);
+  border-bottom-color: var(--accent);
+}
+.ai-activity-columns button span {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+}
+.ai-activity-columns i, .ai-activity-legend span::before {
+  background: var(--accent);
+}
+.ai-activity-columns i:first-child, .ai-activity-legend span:last-child::before {
+  background: color-mix(in srgb, var(--accent) 40%, var(--shell));
+}
+.ai-activity-axis, .ai-activity-legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+.ai-activity-axis { justify-content: space-between; }
+.ai-activity-legend span::before {
+  content: "";
+  display: inline-block;
+  width: .65em;
+  height: .65em;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.ai-activity > .ai-usage-scope {
+  display: block;
+  margin-top: 10px;
+}

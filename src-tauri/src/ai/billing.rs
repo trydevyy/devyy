@@ -39,6 +39,42 @@ pub(super) fn record_tier(usage: &mut Value, event: &Value) {
 }
 
 pub(super) fn cost(p: &Provider, usage: &Value) -> Option<(f64, bool)> {
+    if p.kind == "antigravity" {
+        let model = usage["model"].as_str().unwrap_or(&p.model);
+        let model = model.trim_end_matches(|c: char| c.is_whitespace());
+        let model = ["-minimal", "-low", "-medium", "-high", "-xhigh", "-max"]
+            .iter()
+            .find_map(|suffix| model.strip_suffix(suffix))
+            .unwrap_or(model);
+        let (input_rate, cache_rate, output_rate) = match model {
+            // Published Gemini Developer API standard text rates, in USD per million tokens.
+            "gemini-4-hydrogen" => (1.5, 0.075, 7.5),
+            "gemini-3.8-flash" => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_secs();
+                if now < 1_798_761_600 {
+                    (0.75, 0.075, 3.75)
+                } else {
+                    (1.5, 0.15, 7.5)
+                }
+            }
+
+            _ => return None,
+        };
+        let input = usage["input_tokens"].as_u64()?;
+        let cached = usage["cache_read_tokens"].as_u64()?;
+        let output = antigravity_output(usage)?;
+        let uncached = input.checked_sub(cached)?;
+        return Some((
+            (uncached as f64 * input_rate
+                + cached as f64 * cache_rate
+                + output as f64 * output_rate)
+                / 1_000_000.0,
+            true,
+        ));
+    }
     if is_openrouter(p) {
         let amount = usage["cost"].as_f64()?;
         return (amount >= 0.0).then_some((amount, false));
@@ -53,7 +89,9 @@ pub(super) fn cost(p: &Provider, usage: &Value) -> Option<(f64, bool)> {
     let output = usage["output_tokens"].as_u64()? as f64;
     let input = usage["input_tokens"].as_u64()? as f64;
     let amount = match p.kind.as_str() {
-        "openai" if official_endpoint(p, "api.openai.com", "/v1") => {
+        "openai" | "chatgpt"
+            if p.kind == "chatgpt" || official_endpoint(p, "api.openai.com", "/v1") =>
+        {
             let (base, hit, out) = match p.model.as_str() {
                 // https://developers.openai.com/api/docs/pricing
                 "gpt-6.2-astra" => (8.0, 0.4, 40.0),
@@ -106,6 +144,18 @@ pub(super) fn cost(p: &Provider, usage: &Value) -> Option<(f64, bool)> {
         _ => return None,
     };
     Some((amount / 1_000_000.0, true))
+}
+
+pub(super) fn antigravity_output(usage: &Value) -> Option<u64> {
+    let output = usage["output_tokens"].as_u64()?;
+    let thinking = usage["thinking_tokens"].as_u64().unwrap_or_default();
+    let total = usage["total_tokens"].as_u64();
+    let input = usage["input_tokens"].as_u64().unwrap_or_default();
+    Some(if total == Some(input.saturating_add(output)) {
+        output
+    } else {
+        output.saturating_add(thinking)
+    })
 }
 
 #[tauri::command]
@@ -185,6 +235,20 @@ pub async fn ai_billing_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn antigravity_prices_text_and_counts_reasoning_once() {
+        let mut p = defaults()
+            .into_iter()
+            .find(|p| p.kind == "antigravity")
+            .unwrap();
+        p.model = "gemini-4-hydrogen-high".into();
+        let usage = json!({"input_tokens":1000,"cache_read_tokens":600,"output_tokens":200,"thinking_tokens":100,"total_tokens":1200});
+        assert_eq!(antigravity_output(&usage), Some(200));
+        assert_eq!(cost(&p, &usage), Some((2145.0 / 1_000_000.0, true)));
+        p.model = "unknown-model".into();
+        assert_eq!(cost(&p, &usage), None);
+    }
 
     #[test]
     fn estimates_only_official_endpoints_and_counts_cache_at_its_own_rate() {

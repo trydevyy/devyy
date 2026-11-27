@@ -1510,8 +1510,19 @@ async fn antigravity_chat<R: tauri::Runtime>(
                         }
                     }
                 }
-                if !res["usage"].is_null() {
-                    emit(app, &r.request_id, "usage", res["usage"].clone());
+                if res["usage"].is_object() {
+                    let mut usage = res["usage"].clone();
+                    if let Some(model) = res.get("model").filter(|m| m.is_string()) {
+                        usage["model"] = model.clone();
+                    }
+                    if let Some((amount, estimated)) = billing::cost(p, &usage) {
+                        emit(app, &r.request_id, "cost", json!({"amount":amount,"currency":"USD","estimated":estimated}));
+                    }
+                    if let Some(output) = billing::antigravity_output(&usage) {
+                        usage["output_tokens"] = json!(output);
+                        usage["reasoning_output_tokens"] = usage["thinking_tokens"].take();
+                    }
+                    emit(app, &r.request_id, "usage", usage);
                 }
                 break;
             }
@@ -1799,6 +1810,7 @@ pub async fn ai_account(
                 return Ok(Value::Null);
             }
             return match p.kind.as_str() {
+                "antigravity" => usage_limits::antigravity(&app, &p).await,
                 "claude" => usage_limits::claude(&app, &p).await,
                 "opencode" => usage_limits::opencode(&app, &p).await,
                 _ => Ok(Value::Null),

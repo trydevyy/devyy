@@ -25,6 +25,8 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, Clock3, ExternalLink, RefreshCw } from "lucide-react";
 import {
   aiAccount,
+  emptyUsageDay,
+  type AIUsage as ProviderUsage,
   aiProviderReady,
   isChatGPTAccount,
   refreshAIPlanLimits,
@@ -77,6 +79,107 @@ function isOpenRouter(provider: AIProvider): boolean {
   }
 }
 
+const chartDate = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+function UsageActivity({
+  entries,
+  metric,
+  now,
+}: {
+  entries: (ProviderUsage | undefined)[];
+  metric: "cost" | "tokens";
+  now: number;
+}) {
+  const [selected, setSelected] = useState(13);
+  const isCost = metric === "cost";
+  const format = (value: number) =>
+    isCost ? money(value) : value.toLocaleString();
+  const legend = isCost
+    ? ["Provider-reported", "API equivalents"]
+    : ["Input", "Output"];
+  const days = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(now - (13 - index) * 86_400_000);
+    const key = date.toISOString().slice(0, 10);
+    let first = 0,
+      second = 0,
+      recorded = false;
+    for (const entry of entries) {
+      const day = entry?.daily?.[key] ?? emptyUsageDay;
+      first += isCost ? day.costUSD : day.inputTokens;
+      second += isCost ? day.estimatedCostUSD : day.outputTokens;
+      recorded ||= isCost
+        ? day.costUSD > 0 || day.estimatedCostUSD > 0
+        : day.inputTokens > 0 || day.outputTokens > 0;
+    }
+    return { key, label: chartDate.format(date), first, second, recorded };
+  });
+  const peak = Math.max(0, ...days.map(({ first, second }) => first + second));
+  const active = days[selected];
+  return (
+    <section
+      className="ai-activity"
+      aria-label={isCost ? "Daily cost activity" : "Daily token activity"}
+    >
+      <div className="ai-activity-top">
+        <div>
+          <h3>{isCost ? "Daily cost" : "Token activity"}</h3>
+          <small>Last 14 days · UTC · Devyy activity</small>
+        </div>
+        <div aria-live="polite" className="ai-activity-readout">
+          <strong>{active.label}</strong>
+          <small>
+            {active.recorded
+              ? `${legend[0]} ${format(active.first)} · ${legend[1]} ${format(active.second)}`
+              : "No recorded activity"}
+          </small>
+        </div>
+      </div>
+      <div className="ai-activity-columns">
+        {days.map((day, index) => (
+          <button
+            type="button"
+            key={day.key}
+            aria-pressed={selected === index}
+            aria-label={`${day.label}, ${day.recorded ? `${legend[0]} ${format(day.first)}, ${legend[1]} ${format(day.second)}` : "no recorded activity"}`}
+            onClick={() => setSelected(index)}
+          >
+            {peak > 0 && day.recorded && (
+              <span
+                aria-hidden="true"
+                style={{
+                  height: `${((day.first + day.second) / peak) * 100}%`,
+                }}
+              >
+                <i style={{ flexGrow: day.second }} />
+                <i style={{ flexGrow: day.first }} />
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <div className="ai-activity-axis">
+        <span>{days[0].label}</span>
+        <span>{days[13].label}</span>
+      </div>
+      <div className="ai-activity-legend">
+        {legend.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
+      {!peak && (
+        <small className="ai-usage-scope">
+          Daily activity appears as Devyy records new requests. Earlier totals
+          are shown below.
+        </small>
+      )}
+    </section>
+  );
+}
+
 function limitMessage(provider: AIProvider) {
   if (isOpenRouter(provider))
     return "Refresh to check this key’s remaining budget.";
@@ -88,7 +191,7 @@ function limitMessage(provider: AIProvider) {
     case "anthropic":
       return "Request and token limits appear after the provider reports them.";
     case "antigravity":
-      return "Model quotas are available in the Antigravity app.";
+      return "No account quotas were reported. Try Refresh or open /usage in Antigravity CLI.";
     case "opencode":
       return "Refresh to check for Go allowances and workspace budgets.";
     default:
@@ -238,15 +341,20 @@ export default function AIUsage({
   const refreshable = providers.filter(
     (p) =>
       connectedIds.has(p.id) &&
-      (["chatgpt", "claude", "opencode"].includes(p.kind) ||
+      (["chatgpt", "claude", "opencode", "antigravity"].includes(p.kind) ||
         (isOpenRouter(p) && p.hasKey)),
   );
+  const [checkingPlans, setCheckingPlans] = useState<string[]>([]);
   const checkPlan = useCallback((providerId: string) => {
     const active = planRequests.current.get(providerId);
     if (active) return active;
     const id = newRequestId();
     requests.current.push(id);
+    setCheckingPlans((current) => [...current, providerId]);
     const request = refreshAIPlanLimits(providerId, id).finally(() => {
+      setCheckingPlans((current) =>
+        current.filter((key) => key !== providerId),
+      );
       planRequests.current.delete(providerId);
       requests.current = requests.current.filter((key) => key !== id);
     });
@@ -258,7 +366,7 @@ export default function AIUsage({
     if (!native || !present || tab !== "limits") return;
     for (const provider of state.providers) {
       if (
-        !["claude", "opencode"].includes(provider.kind) ||
+        !["claude", "opencode", "antigravity"].includes(provider.kind) ||
         (selection !== "all" && provider.id !== selection) ||
         !aiProviderReady(provider, state) ||
         checked.current.has(provider)
@@ -271,27 +379,13 @@ export default function AIUsage({
     }
   }, [checkPlan, present, selection, state, tab]);
 
-  const largestCost = Math.max(
-    0,
-    ...providers.flatMap(({ id }) => [
-      state.usage[id]?.costUSD ?? 0,
-      state.usage[id]?.estimatedCostUSD ?? 0,
-    ]),
-  );
-  const comparableCosts =
-    providers.filter(
-      ({ id }) =>
-        state.usage[id]?.costUSD !== undefined ||
-        state.usage[id]?.estimatedCostUSD !== undefined,
-    ).length > 1;
-
   async function refresh() {
     if (!native) return;
     setBusy(true);
     const failed: Record<string, string> = {};
     await Promise.allSettled(
       refreshable.map(async (p) => {
-        if (p.kind === "claude" || p.kind === "opencode") {
+        if (["claude", "opencode", "antigravity"].includes(p.kind)) {
           await checkPlan(p.id).catch((error) => {
             failed[p.id] = String(error);
           });
@@ -409,6 +503,13 @@ export default function AIUsage({
               <strong>No connected AI providers</strong>
               <span>Connect a provider in Settings to see its usage here.</span>
             </div>
+          )}
+          {(tab === "cost" || tab === "tokens") && providers.length > 0 && (
+            <UsageActivity
+              entries={providers.map(({ id }) => state.usage[id])}
+              metric={tab}
+              now={now}
+            />
           )}
           {providers.map((provider) => {
             const usage = state.usage[provider.id],
@@ -563,8 +664,14 @@ export default function AIUsage({
                       })
                     ) : !keySnapshot && !claudeRejection ? (
                       <div className="ai-quota-unavailable">
-                        <strong>Limit data unavailable</strong>
-                        <span>{limitMessage(provider)}</span>
+                        <strong>
+                          {checkingPlans.includes(provider.id)
+                            ? "Checking account limits…"
+                            : "Limit data unavailable"}
+                        </strong>
+                        {!checkingPlans.includes(provider.id) && (
+                          <span>{limitMessage(provider)}</span>
+                        )}
                       </div>
                     ) : null}
                     {raw && !limits.length && (
@@ -707,7 +814,8 @@ export default function AIUsage({
                         </small>
                       </div>
                     )}
-                    {isChatGPTAccount(provider.kind) ? (
+                    {isChatGPTAccount(provider.kind) &&
+                    usage?.estimatedCostUSD === undefined ? (
                       <div className="ai-cost-card">
                         <span>ChatGPT plan billing</span>
                         <strong>
@@ -734,7 +842,7 @@ export default function AIUsage({
                               usage?.costUSD,
                             ],
                             [
-                              "Estimated standard token cost",
+                              "Estimated API equivalent",
                               usage?.estimatedCostUSD,
                             ],
                           ] as const
@@ -744,18 +852,6 @@ export default function AIUsage({
                               <div className="ai-usage-spend" key={label}>
                                 <span>{label}</span>
                                 <strong>{money(amount)}</strong>
-                                {comparableCosts && largestCost > 0 && (
-                                  <div
-                                    className="ai-quota-track"
-                                    aria-hidden="true"
-                                  >
-                                    <i
-                                      style={{
-                                        width: `${(amount / largestCost) * 100}%`,
-                                      }}
-                                    />
-                                  </div>
-                                )}
                               </div>
                             ),
                         )}
@@ -763,7 +859,7 @@ export default function AIUsage({
                         usage?.costUSD !== undefined ? (
                           <small>
                             {usage?.estimatedCostUSD !== undefined
-                              ? "Standard text-token estimates for supported models. Other models, usage, fees and discounts may be absent."
+                              ? "API-rate estimate for supported text models. Your subscription bill or endpoint charges may differ."
                               : "Total from cost events recorded by Devyy. Subscription billing and requests without cost data are excluded."}
                           </small>
                         ) : (

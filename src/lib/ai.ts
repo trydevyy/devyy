@@ -137,8 +137,31 @@ export interface AIConversation {
   mode?: AIAgentMode;
   checkpoints?: AICheckpoint[];
 }
+type DailyUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  costUSD: number;
+  estimatedCostUSD: number;
+};
+export const emptyUsageDay: DailyUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  costUSD: 0,
+  estimatedCostUSD: 0,
+};
+
+function usageDay(value: Partial<DailyUsage> = {}): DailyUsage {
+  return {
+    inputTokens: numeric(value.inputTokens),
+    outputTokens: numeric(value.outputTokens),
+    costUSD: numeric(value.costUSD),
+    estimatedCostUSD: numeric(value.estimatedCostUSD),
+  };
+}
+
 export interface AIUsage {
   tokens: number;
+  daily?: Record<string, DailyUsage>;
   inputTokens: number;
   outputTokens: number;
   limits?: Record<string, unknown>;
@@ -327,6 +350,18 @@ function savedUsage(): Record<string, AIUsage> {
           return [
             id,
             {
+              daily: Object.fromEntries(
+                Object.entries(usage.daily ?? {})
+                  .filter(
+                    ([date, entry]) =>
+                      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+                      entry &&
+                      typeof entry === "object",
+                  )
+                  .sort(([a], [b]) => b.localeCompare(a))
+                  .slice(0, 30)
+                  .map(([date, entry]) => [date, usageDay(entry)]),
+              ),
               inputTokens,
               outputTokens,
               tokens: inputTokens + outputTokens,
@@ -851,6 +886,7 @@ export function tokenUsage(data: Record<string, unknown>): {
   };
 }
 export function usageRecorder(providerId: string) {
+  const day = new Date().toISOString().slice(0, 10);
   let input = 0,
     output = 0,
     cached = 0,
@@ -970,6 +1006,23 @@ export function usageRecorder(providerId: string) {
       output = nextOutput;
       cached = nextCached;
       reasoning = nextReasoning;
+    }
+    if (kind === "usage" || kind === "cost") {
+      const daily = { ...old.daily };
+      const previous = daily[day] ?? emptyUsageDay;
+      daily[day] = {
+        inputTokens: previous.inputTokens + next.inputTokens - old.inputTokens,
+        outputTokens:
+          previous.outputTokens + next.outputTokens - old.outputTokens,
+        costUSD: previous.costUSD + (next.costUSD ?? 0) - (old.costUSD ?? 0),
+        estimatedCostUSD:
+          previous.estimatedCostUSD +
+          (next.estimatedCostUSD ?? 0) -
+          (old.estimatedCostUSD ?? 0),
+      };
+      const dates = Object.keys(daily).sort();
+      for (const date of dates.slice(0, -30)) delete daily[date];
+      next.daily = daily;
     }
     update({ usage: { ...state.usage, [providerId]: next } });
   };

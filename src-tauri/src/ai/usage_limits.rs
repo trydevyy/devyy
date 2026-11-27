@@ -21,6 +21,219 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
+// Google exposes account quotas in the interactive CLI. Use its fixed, read-only
+// slash command in an empty scratch directory and retain only the visible quota rows.
+pub(super) async fn antigravity<R: Runtime>(
+    app: &AppHandle<R>,
+    provider: &Provider,
+) -> Result<Value, String> {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use std::io::{Read, Write};
+    let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let executable = cli(provider)?;
+    let mut command = CommandBuilder::new(executable.as_std().get_program());
+    command.args(["--sandbox", "--mode", "plan"]);
+    command.cwd(scratch.path());
+    command.env("TERM", "xterm-256color");
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 56,
+            cols: 140,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|_| "Could not open the Antigravity usage terminal.")?;
+    let mut reader = pty.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let mut writer = pty.master.take_writer().map_err(|e| e.to_string())?;
+    struct ProbeChild(Box<dyn portable_pty::Child + Send + Sync>);
+    impl Drop for ProbeChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let child = ProbeChild(
+        pty.slave
+            .spawn_command(command)
+            .map_err(|_| "Could not start Antigravity.")?,
+    );
+    drop(pty.slave);
+    let _registration = register_process(app, child.0.process_id());
+    let (send, mut receive) = tokio::sync::mpsc::channel(16);
+    std::thread::spawn(move || {
+        let mut bytes = [0; 4096];
+        while let Ok(size) = reader.read(&mut bytes) {
+            if size == 0 || send.blocking_send(bytes[..size].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let probe = async {
+        let mut capture = Vec::new();
+        let mut trusted = false;
+        let mut requested = false;
+        loop {
+            let next = if requested {
+                match tokio::time::timeout(Duration::from_millis(650), receive.recv()).await {
+                    Ok(next) => next,
+                    Err(_) => {
+                        let limits = antigravity_windows(&terminal_text(&capture));
+                        if !limits.is_null() {
+                            return Ok(limits);
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                receive.recv().await
+            };
+            let Some(bytes) = next else {
+                return Ok(antigravity_windows(&terminal_text(&capture)));
+            };
+            if bytes.windows(4).any(|query| query == b"\x1b[6n") {
+                writer.write_all(b"\x1b[1;1R").map_err(|e| e.to_string())?;
+            }
+            capture.extend(bytes);
+            if capture.len() > 256 * 1024 {
+                return Ok(Value::Null);
+            }
+            if requested {
+                continue;
+            }
+            let screen = terminal_text(&capture);
+            if screen.contains("? for shortcuts") {
+                capture.clear();
+                writer.write_all(b"/usage").map_err(|e| e.to_string())?;
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                writer.write_all(b"\r").map_err(|e| e.to_string())?;
+                requested = true;
+            } else if !trusted
+                && screen.contains("Do you trust the contents of this project?")
+                && screen.contains(
+                    scratch
+                        .path()
+                        .canonicalize()
+                        .unwrap_or_else(|_| scratch.path().to_path_buf())
+                        .to_string_lossy()
+                        .as_ref(),
+                )
+                && screen.contains("> Yes, I trust this folder")
+            {
+                writer.write_all(b"\r").map_err(|e| e.to_string())?;
+                trusted = true;
+            }
+        }
+    };
+    match tokio::time::timeout(Duration::from_secs(15), probe).await {
+        Ok(result) => result,
+        Err(_) => Ok(Value::Null),
+    }
+}
+
+fn terminal_text(bytes: &[u8]) -> String {
+    let mut text = Vec::with_capacity(bytes.len());
+    let mut input = bytes.iter().copied().peekable();
+    while let Some(byte) = input.next() {
+        if byte == 0x1b {
+            match input.next() {
+                Some(b'[') => {
+                    for code in input.by_ref() {
+                        if (0x40..=0x7e).contains(&code) {
+                            break;
+                        }
+                    }
+                }
+                Some(b']') => {
+                    while let Some(code) = input.next() {
+                        if code == 7 || (code == 0x1b && input.next_if_eq(&b'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if matches!(byte, b'\r' | b'\n') || byte >= 32 {
+            text.push(byte);
+        }
+    }
+    String::from_utf8_lossy(&text).into_owned()
+}
+
+fn antigravity_windows(screen: &str) -> Value {
+    let Some((_, body)) = screen.rsplit_once("Models & Quota") else {
+        return Value::Null;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut windows = Vec::<Value>::new();
+    let (mut group, mut period) = ("", "");
+    let mut pending_reset = false;
+    for line in body.lines().map(str::trim) {
+        match line {
+            "GEMINI MODELS" => {
+                group = "Gemini";
+                period = "";
+                pending_reset = false;
+            }
+            "CLAUDE AND GPT MODELS" => {
+                group = "Claude & GPT (shared)";
+                period = "";
+                pending_reset = false;
+            }
+            _ if line.ends_with(" MODELS") && line == line.to_ascii_uppercase() => {
+                group = "";
+                period = "";
+                pending_reset = false;
+            }
+            "Weekly Limit Remaining" => period = "Weekly",
+            "Five Hour Limit Remaining" | "5-Hour Limit Remaining" => period = "5-hour",
+            _ if !group.is_empty() && !period.is_empty() && line.starts_with('[') => {
+                let remaining = line
+                    .rsplit_once(']')
+                    .and_then(|(_, part)| part.trim().strip_suffix('%'))
+                    .and_then(|percent| percent.parse::<f64>().ok())
+                    .filter(|v| (0.0..=100.0).contains(v));
+                pending_reset = remaining.is_some();
+                if let Some(remaining) = remaining {
+                    windows.push(json!({"label":format!("{group} · {period}"), "usedPercent":100.0-remaining}));
+                }
+                period = "";
+            }
+            _ if pending_reset && line.starts_with("Refreshes in ") => {
+                pending_reset = false;
+                let seconds: u64 = line
+                    .split_whitespace()
+                    .filter_map(|part| {
+                        let amount = part
+                            .get(..part.len().checked_sub(1)?)?
+                            .parse::<u64>()
+                            .ok()?;
+                        let unit = match part.as_bytes().last()? {
+                            b'd' => 86400,
+                            b'h' => 3600,
+                            b'm' => 60,
+                            b's' => 1,
+                            _ => return None,
+                        };
+                        Some(amount.saturating_mul(unit))
+                    })
+                    .fold(0, u64::saturating_add);
+                if let Some(window) = windows.last_mut().filter(|_| seconds > 0) {
+                    window["resetsAt"] = json!(now.saturating_add(seconds));
+                }
+            }
+            _ => {}
+        }
+    }
+    if windows.is_empty() {
+        Value::Null
+    } else {
+        json!({"planWindows":windows})
+    }
+}
+
 pub(super) async fn claude<R: Runtime>(
     app: &AppHandle<R>,
     provider: &Provider,
@@ -300,6 +513,35 @@ fn opencode_limits(data: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_antigravity_shared_quota_groups() {
+        let screen = terminal_text(b"\x1b[31mModels & Quota\x1b[0m\r\nGEMINI MODELS\r\nWeekly Limit Remaining\n[###] 100.00%\nQuota available\nCLAUDE AND GPT MODELS\nWeekly Limit Remaining\n[##.] 18.34%\nRefreshes in 4d 5h 58m\nFive Hour Limit Remaining\n[###] 100.00%");
+        let limits = antigravity_windows(&screen);
+        let windows = limits["planWindows"].as_array().unwrap();
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0]["label"], "Gemini · Weekly");
+        assert!(windows[0]["resetsAt"].is_null());
+        assert_eq!(windows[1]["label"], "Claude & GPT (shared) · Weekly");
+        assert_eq!(windows[1]["usedPercent"], 81.66);
+        assert!(windows[1]["resetsAt"].is_number());
+        assert!(antigravity_windows("awaiting login").is_null());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a locally signed-in Antigravity CLI"]
+    async fn reads_live_antigravity_quota() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        let provider = super::super::defaults()
+            .into_iter()
+            .find(|p| p.kind == "antigravity")
+            .unwrap();
+        let limits = antigravity(app.handle(), &provider).await.unwrap();
+        assert!(limits["planWindows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty()));
+    }
 
     #[test]
     fn claude_account_percentages_convert_to_stream_fractions() {

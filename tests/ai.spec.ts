@@ -83,6 +83,18 @@ async function fixture(
           JSON.stringify({
             openai: { inputTokens: 120, outputTokens: 40, costUSD: 0.1 },
             opencode: { inputTokens: 80, outputTokens: 20 },
+            antigravity: {
+              inputTokens: 900,
+              outputTokens: 100,
+              estimatedCostUSD: 0.025,
+              daily: {
+                [new Date().toISOString().slice(0, 10)]: {
+                  inputTokens: 900,
+                  outputTokens: 100,
+                  estimatedCostUSD: 0.025,
+                },
+              },
+            },
           }),
         );
         providers.push({
@@ -98,6 +110,17 @@ async function fixture(
       localStorage.setItem(
         "devyy.ai.verified",
         JSON.stringify({
+          ...(codexRoutes && {
+            antigravity: JSON.stringify([
+              "antigravity",
+              "",
+              "",
+              [],
+              false,
+              false,
+              "",
+            ]),
+          }),
           "custom-test": JSON.stringify([
             "custom",
             providers[0].endpoint,
@@ -400,6 +423,16 @@ async function fixture(
                     },
                   ]
                 : ["fixture-model", "another-model"];
+            if (
+              command === "ai_account" &&
+              args.providerId === "antigravity" &&
+              args.action === "usage"
+            )
+              return {
+                planWindows: [
+                  { label: "Claude & GPT (shared) · Weekly", usedPercent: 80 },
+                ],
+              };
             if (
               command === "ai_account" &&
               args.providerId === "claude" &&
@@ -1317,6 +1350,15 @@ test("Usage filters unconnected providers and shows ChatGPT quota windows", asyn
     "background-color",
     "rgba(0, 0, 0, 0)",
   );
+  await expect(
+    usage.getByRole("meter", {
+      name: "Antigravity Claude & GPT (shared) · Weekly remaining",
+    }),
+  ).toHaveAttribute("aria-valuenow", "20");
+  await usage.getByRole("tab", { name: "tokens", exact: true }).click();
+  await expect(
+    usage.getByRole("region", { name: "Daily token activity" }),
+  ).toContainText("Input 900 · Output 100");
   for (const metric of ["limits", "cost"]) {
     await usage.getByRole("tab", { name: metric, exact: true }).click();
     await expect(
@@ -1327,6 +1369,9 @@ test("Usage filters unconnected providers and shows ChatGPT quota windows", asyn
     );
     await expect(usage.getByRole("link")).toHaveCount(0);
   }
+  await expect(
+    usage.getByRole("region", { name: "Daily cost activity" }),
+  ).toContainText("API equivalents $0.025");
 });
 
 test("header toggles the AI workspace and provider Usage navigates within Settings", async ({

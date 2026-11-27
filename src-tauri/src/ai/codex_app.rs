@@ -325,6 +325,7 @@ pub(super) async fn chat<R: Runtime>(
             }),
         )
         .await?;
+    let thread_model = started["model"].as_str();
     let thread = started["thread"]["id"]
         .as_str()
         .ok_or("Codex did not start a thread.")?;
@@ -402,10 +403,19 @@ pub(super) async fn chat<R: Runtime>(
                 "thread/tokenUsage/updated" => usage = data["tokenUsage"]["total"].clone(),
                 "turn/completed" if data["turn"]["id"] == turn => {
                     if !usage.is_null() {
-                        emit(app, &request.request_id, "usage", json!({
+                        let record = json!({
                             "input_tokens":usage["inputTokens"],"output_tokens":usage["outputTokens"],
-                            "cached_input_tokens":usage["cachedInputTokens"],"reasoning_output_tokens":usage["reasoningOutputTokens"]
-                        }));
+                            "input_tokens_details":{"cached_tokens":usage["cachedInputTokens"],"cache_write_tokens":usage["cacheWriteInputTokens"]},
+                            "reasoning_output_tokens":usage["reasoningOutputTokens"]
+                        });
+                        emit(app, &request.request_id, "usage", record.clone());
+                        let mut priced = provider.clone();
+                        if let Some(model) = thread_model {
+                            priced.model = model.into();
+                        }
+                        if let Some((amount, estimated)) = super::billing::cost(&priced, &record) {
+                            emit(app, &request.request_id, "cost", json!({"amount":amount,"currency":"USD","estimated":estimated}));
+                        }
                     }
                     if data["turn"]["status"] != "completed" {
                         return Err("Codex could not complete the turn. Check your connection, selected model, and usage limits.".into());
